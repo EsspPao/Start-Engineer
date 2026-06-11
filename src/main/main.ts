@@ -25,6 +25,7 @@ const appRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const rendererUrl = process.env.VITE_DEV_SERVER_URL;
 const rendererIndex = join(appRoot, "dist", "index.html");
 const preloadPath = join(appRoot, "dist-electron", "preload", "preload.cjs");
+app.setPath("userData", join(app.getPath("appData"), "commanddeck-next"));
 const configPath = () => join(app.getPath("userData"), "apps.json");
 const groupsPath = () => join(app.getPath("userData"), "groups.json");
 const iconCacheDir = () => join(app.getPath("userData"), "icons");

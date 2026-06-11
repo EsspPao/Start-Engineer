@@ -11,7 +11,10 @@ npm test
 npm run build
 npm run dev
 npm run smoke
+npm run package:win
 ```
+
+`npm run package:win` creates an installer and a portable executable in `release/`.
 
 ## Features
 
