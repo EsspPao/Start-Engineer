@@ -13,26 +13,12 @@ import type {
   GroupUpdateInput,
   LaunchAppResult,
   ProcessInfo,
+  SnapshotMode,
   UpdateAppInput,
   WindowAction
 } from "../shared/types.js";
-
-type ProcessSnapshot = {
-  pid: number;
-  name: string;
-  path: string;
-  cpuSeconds: number;
-  memoryBytes: number;
-  readBytes: number;
-  writeBytes: number;
-};
-
-type CounterSample = {
-  at: number;
-  cpuSeconds: number;
-  readBytes: number;
-  writeBytes: number;
-};
+import { RuntimeMonitor, type ProcessSnapshot } from "./runtime-monitor.js";
+import { migrateAppEntry, normalizeGroups } from "./config-migration.js";
 
 const isDev = process.env.VITE_DEV_SERVER_URL !== undefined;
 const appRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -42,7 +28,6 @@ const preloadPath = join(appRoot, "dist-electron", "preload", "preload.cjs");
 const configPath = () => join(app.getPath("userData"), "apps.json");
 const groupsPath = () => join(app.getPath("userData"), "groups.json");
 const iconCacheDir = () => join(app.getPath("userData"), "icons");
-const processSamples = new Map<number, CounterSample>();
 const processIconCache = new Map<string, string>();
 const protectedProcessNames = new Set([
   "system",
@@ -106,16 +91,7 @@ function loadAppGroups(): AppGroup[] {
   try {
     const parsed = JSON.parse(readFileSync(groupsPath(), "utf8")) as Partial<AppGroup>[];
     if (!Array.isArray(parsed) || parsed.length === 0) throw new Error("分组配置为空");
-    const migrated = parsed
-      .filter((group) => group.id && group.id !== "processes" && group.id !== "settings")
-      .map((group, order) => ({
-        id: String(group.id),
-        name: String(group.name || "未命名分组").trim().slice(0, 20),
-        icon: allowedGroupIcons.has(String(group.icon)) ? String(group.icon) : "grid",
-        isSystem: false,
-        order: Number.isFinite(group.order) ? Number(group.order) : order
-      }))
-      .sort((a, b) => a.order - b.order);
+    const migrated = normalizeGroups(parsed, allowedGroupIcons);
     if (!migrated.length) throw new Error("没有有效分组");
     saveGroups(migrated);
     return groupsCache;
@@ -168,6 +144,13 @@ function createWindow() {
   } else {
     void mainWindow.loadFile(rendererIndex);
   }
+
+  if (process.env.STAR_ENGINEER_SMOKE === "1") {
+    mainWindow.webContents.once("did-finish-load", () => {
+      console.log("STAR_ENGINEER_SMOKE_READY");
+      setTimeout(() => app.quit(), 100);
+    });
+  }
 }
 
 function defaultApps(): AppEntry[] {
@@ -213,23 +196,7 @@ function defaultApps(): AppEntry[] {
 
 function migrateApp(raw: Partial<AppEntry>): AppEntry {
   const groupId = validAppGroup(raw.groupId);
-  const executablePath = raw.executablePath ?? "";
-  const processName = raw.processName || basename(executablePath, extname(executablePath)) || raw.name || "app";
-
-  return {
-    id: raw.id || randomUUID(),
-    name: raw.name || processName,
-    category: raw.category || "应用",
-    groupId,
-    executablePath,
-    processName,
-    accent: raw.accent || "#2f66e8",
-    iconCachePath: raw.iconCachePath,
-    iconDataUrl: raw.iconDataUrl,
-    launchArgs: raw.launchArgs,
-    workingDirectory: raw.workingDirectory,
-    launchedPid: raw.launchedPid
-  };
+  return migrateAppEntry(raw, groupId, randomUUID);
 }
 
 function loadApps(): AppEntry[] {
@@ -246,7 +213,9 @@ function loadApps(): AppEntry[] {
       return appsCache;
     }
   } catch {
-    // First launch or unreadable config: use starter apps.
+    if (existsSync(configPath())) {
+      try { renameSync(configPath(), `${configPath()}.corrupt-${Date.now()}.bak`); } catch { /* Keep running with defaults. */ }
+    }
   }
 
   appsCache = defaultApps();
@@ -272,23 +241,6 @@ function validAppGroup(groupId?: string): AppEntry["groupId"] {
 
 function normalizeProcessName(value: string) {
   return basename(value, extname(value)).trim().toLowerCase();
-}
-
-function matchesApp(appEntry: AppEntry, processInfo: ProcessSnapshot) {
-  if (appEntry.launchedPid === processInfo.pid) {
-    return true;
-  }
-
-  const appProcess = normalizeProcessName(appEntry.processName || appEntry.executablePath);
-  if (appProcess && appProcess === processInfo.name.toLowerCase()) {
-    return true;
-  }
-
-  return Boolean(appEntry.executablePath && processInfo.path && appEntry.executablePath.toLowerCase() === processInfo.path.toLowerCase());
-}
-
-function getManagedAppForProcess(processInfo: ProcessSnapshot) {
-  return loadApps().find((entry) => matchesApp(entry, processInfo));
 }
 
 function runPowerShell(script: string): Promise<string> {
@@ -359,6 +311,10 @@ async function getIconDataUrl(executablePath: string, seed: string) {
   try {
     const image = await app.getFileIcon(executablePath, { size: "normal" });
     const dataUrl = image.isEmpty() ? fallbackIconDataUrl(seed) : image.toDataURL();
+    if (processIconCache.size >= 512) {
+      const oldest = processIconCache.keys().next().value;
+      if (oldest) processIconCache.delete(oldest);
+    }
     processIconCache.set(cacheKey, dataUrl);
     return dataUrl;
   } catch {
@@ -388,133 +344,25 @@ async function cacheAppIcon(appEntry: AppEntry) {
   }
 }
 
-function applyCounterRates(snapshot: ProcessSnapshot, now: number) {
-  const processorCount = Math.max(1, cpus().length);
-  const previous = processSamples.get(snapshot.pid);
-  let cpuPercent = 0;
-  let diskBytesPerSecond = 0;
+const runtimeMonitor = new RuntimeMonitor({
+  collect: getProcessSnapshots,
+  loadApps,
+  resolveIcon: getIconDataUrl,
+  getTerminationBlockReason,
+  processorCount: cpus().length,
+  ttlMs: 800
+});
 
-  if (previous) {
-    const wallDelta = Math.max(0.001, (now - previous.at) / 1000);
-    const cpuDelta = Math.max(0, snapshot.cpuSeconds - previous.cpuSeconds);
-    const diskDelta = Math.max(0, snapshot.readBytes + snapshot.writeBytes - previous.readBytes - previous.writeBytes);
-    cpuPercent = Math.min(100, (cpuDelta / wallDelta / processorCount) * 100);
-    diskBytesPerSecond = diskDelta / wallDelta;
-  }
-
-  processSamples.set(snapshot.pid, {
-    at: now,
-    cpuSeconds: snapshot.cpuSeconds,
-    readBytes: snapshot.readBytes,
-    writeBytes: snapshot.writeBytes
-  });
-
-  return { cpuPercent, diskBytesPerSecond };
-}
-
-function clearStaleSamples(snapshots: ProcessSnapshot[]) {
-  const activePids = new Set(snapshots.map((item) => item.pid));
-  for (const stalePid of [...processSamples.keys()].filter((pid) => !activePids.has(pid))) {
-    processSamples.delete(stalePid);
-  }
-}
-
-async function buildRuntimeSnapshot() {
-  const now = Date.now();
-  const snapshots = await getProcessSnapshots();
-  clearStaleSamples(snapshots);
-
-  const rates = new Map<number, { cpuPercent: number; diskBytesPerSecond: number }>();
-  for (const snapshot of snapshots) {
-    rates.set(snapshot.pid, applyCounterRates(snapshot, now));
-  }
-
-  const apps = loadApps();
-  const metrics = apps.map<AppMetrics>((entry) => {
-    const matches = snapshots.filter((item) => matchesApp(entry, item));
-    const totals = matches.reduce(
-      (acc, item) => {
-        const rate = rates.get(item.pid) ?? { cpuPercent: 0, diskBytesPerSecond: 0 };
-        acc.cpuPercent += rate.cpuPercent;
-        acc.memoryBytes += item.memoryBytes;
-        acc.diskBytesPerSecond += rate.diskBytesPerSecond;
-        return acc;
-      },
-      { cpuPercent: 0, memoryBytes: 0, diskBytesPerSecond: 0 }
-    );
-
-    return {
-      appId: entry.id,
-      isRunning: matches.length > 0,
-      cpuPercent: totals.cpuPercent,
-      memoryBytes: totals.memoryBytes,
-      diskBytesPerSecond: totals.diskBytesPerSecond,
-      pids: matches.map((item) => item.pid),
-      lastSeenPath: matches.find((item) => item.path)?.path
-    };
-  });
-
-  const individualProcesses = await Promise.all(
-    snapshots.map(async (snapshot) => {
-      const rate = rates.get(snapshot.pid) ?? { cpuPercent: 0, diskBytesPerSecond: 0 };
-      const managedApp = getManagedAppForProcess(snapshot);
-      const iconDataUrl = managedApp?.iconDataUrl || (await getIconDataUrl(snapshot.path, snapshot.name));
-
-      return {
-        pid: snapshot.pid,
-        pids: [snapshot.pid],
-        processCount: 1,
-        name: `${snapshot.name}.exe`,
-        exePath: snapshot.path || undefined,
-        exePaths: snapshot.path ? [snapshot.path] : [],
-        iconDataUrl,
-        cpuPercent: rate.cpuPercent,
-        memoryBytes: snapshot.memoryBytes,
-        diskBytesPerSecond: rate.diskBytesPerSecond,
-        isManagedApp: Boolean(managedApp),
-        canTerminate: !getTerminationBlockReason(`${snapshot.name}.exe`, [snapshot.pid]),
-        terminationBlockedReason: getTerminationBlockReason(`${snapshot.name}.exe`, [snapshot.pid])
-      } satisfies ProcessInfo;
-    })
-  );
-
-  const groupedProcesses = new Map<string, ProcessInfo>();
-  for (const processInfo of individualProcesses) {
-    const key = processInfo.name.toLowerCase();
-    const existing = groupedProcesses.get(key);
-    if (!existing) {
-      groupedProcesses.set(key, { ...processInfo });
-      continue;
-    }
-
-    existing.pids.push(...processInfo.pids);
-    existing.processCount += processInfo.processCount;
-    existing.cpuPercent += processInfo.cpuPercent;
-    existing.memoryBytes += processInfo.memoryBytes;
-    existing.diskBytesPerSecond += processInfo.diskBytesPerSecond;
-    existing.isManagedApp ||= processInfo.isManagedApp;
-    existing.exePath ||= processInfo.exePath;
-    existing.exePaths = [...new Set([...existing.exePaths, ...processInfo.exePaths])];
-    existing.iconDataUrl ||= processInfo.iconDataUrl;
-    existing.terminationBlockedReason = getTerminationBlockReason(existing.name, existing.pids);
-    existing.canTerminate = !existing.terminationBlockedReason;
-  }
-
-  const processes = [...groupedProcesses.values()];
-
-  return {
-    apps,
-    metrics,
-    processes: processes.sort((a, b) => b.cpuPercent - a.cpuPercent)
-  };
+async function buildRuntimeSnapshot(mode: SnapshotMode = "full", force = false) {
+  return runtimeMonitor.getSnapshot(mode, force);
 }
 
 async function metricsSnapshot(): Promise<AppMetrics[]> {
-  return (await buildRuntimeSnapshot()).metrics;
+  return (await buildRuntimeSnapshot("managed")).metrics;
 }
 
 async function processSnapshot(): Promise<ProcessInfo[]> {
-  return (await buildRuntimeSnapshot()).processes;
+  return (await buildRuntimeSnapshot("full")).processes;
 }
 
 async function addExecutable(filePath: string, groupId: AppEntry["groupId"]) {
@@ -808,7 +656,10 @@ function registerIpc() {
 
   ipcMain.handle("metrics:snapshot", () => metricsSnapshot());
   ipcMain.handle("processes:snapshot", () => processSnapshot());
-  ipcMain.handle("runtime:snapshot", () => buildRuntimeSnapshot());
+  ipcMain.handle("runtime:snapshot", (_event, mode: SnapshotMode = "full", force = false) => {
+    const safeMode: SnapshotMode = mode === "managed" ? "managed" : "full";
+    return buildRuntimeSnapshot(safeMode, Boolean(force));
+  });
 
   ipcMain.handle("window:action", (_event, action: WindowAction) => {
     if (!mainWindow) {

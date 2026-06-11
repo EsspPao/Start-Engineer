@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { AppEntry, AppGroup, AppMetrics, CommandDeckApi, GroupInput, ProcessInfo, SectionId, UpdateAppInput } from "../shared/types";
+import { GroupPage, ProcessPage } from "./pages";
 import "./styles.css";
 
 type SortKey = "name" | "cpuPercent" | "memoryBytes" | "diskBytesPerSecond";
@@ -15,7 +16,7 @@ type MenuState =
   | null;
 type ConfirmState = { title: string; message: string; confirmLabel: string; onConfirm: () => Promise<void> } | null;
 type EditState = { id: string; name: string; launchArgs: string; workingDirectory: string } | null;
-type DragState = { appId: string; x: number; y: number; targetGroup?: AppGroupId } | null;
+type DragState = { appId: string; x: number; y: number; grabOffsetX: number; grabOffsetY: number; targetGroup?: AppGroupId } | null;
 type GroupEditState = { id?: string; name: string; icon: string } | null;
 type GroupDeleteState = { groupId: string; targetGroupId: string } | null;
 
@@ -54,9 +55,6 @@ const fallbackApi: CommandDeckApi = {
 
 const api = () => window.commandDeck ?? fallbackApi;
 const emptyMetrics = (appId: string): AppMetrics => ({ appId, isRunning: false, cpuPercent: 0, memoryBytes: 0, diskBytesPerSecond: 0, pids: [] });
-const formatMemory = (bytes: number) => (bytes ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : "--");
-const formatDisk = (bytes: number) => (bytes ? `${(bytes / 1024 / 1024).toFixed(1)} MB/s` : "0.0 MB/s");
-const initials = (name: string) => [...name].filter((char) => /\p{L}|\p{N}/u.test(char)).slice(0, 2).join("").toUpperCase() || "APP";
 const cleanErrorMessage = (reason: unknown, fallback = "操作失败") => {
   const message = reason instanceof Error ? reason.message : typeof reason === "string" ? reason : fallback;
   return message
@@ -86,8 +84,9 @@ function App() {
   const [groupDelete, setGroupDelete] = useState<GroupDeleteState>(null);
   const [drag, setDrag] = useState<DragState>(null);
   const [error, setError] = useState("");
-  const dragCandidate = useRef<{ appId: string; startX: number; startY: number } | null>(null);
-  const runtimeApps = useMemo<RuntimeApp[]>(() => apps.map((item) => ({ ...item, metrics: metrics.find((metric) => metric.appId === item.id) ?? emptyMetrics(item.id) })), [apps, metrics]);
+  const dragCandidate = useRef<{ appId: string; startX: number; startY: number; grabOffsetX: number; grabOffsetY: number } | null>(null);
+  const metricsByApp = useMemo(() => new Map(metrics.map((metric) => [metric.appId, metric])), [metrics]);
+  const runtimeApps = useMemo<RuntimeApp[]>(() => apps.map((item) => ({ ...item, metrics: metricsByApp.get(item.id) ?? emptyMetrics(item.id) })), [apps, metricsByApp]);
   const appGroups = useMemo(() => groups.filter((group) => !group.isSystem).sort((a, b) => a.order - b.order), [groups]);
   const closeMenu = useCallback(() => {
     setMenu(null);
@@ -95,26 +94,58 @@ function App() {
     setLockedProcessOrder([]);
   }, []);
 
-  const refreshRuntimeData = useCallback(async () => {
+  const refreshRuntimeData = useCallback(async (mode: "full" | "managed" = "full", force = false) => {
     try {
-      const snapshot = await api().getRuntimeSnapshot();
+      const snapshot = await api().getRuntimeSnapshot(mode, force);
       setApps(snapshot.apps);
       setMetrics(snapshot.metrics);
-      setProcesses(snapshot.processes);
+      if (mode === "full") setProcesses(snapshot.processes);
     } catch (reason) {
       setError(cleanErrorMessage(reason, "资源监控刷新失败"));
     }
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    let timer = 0;
+    let running = false;
     void Promise.all([api().listGroups(), api().listApps()]).then(([nextGroups, nextApps]) => {
+      if (cancelled) return;
       setGroups(nextGroups.length ? nextGroups : fallbackGroups);
       setApps(nextApps);
     }).catch((reason) => setError(cleanErrorMessage(reason, "基础数据加载失败")));
-    void refreshRuntimeData();
-    const timer = window.setInterval(refreshRuntimeData, 1500);
-    return () => window.clearInterval(timer);
-  }, [refreshRuntimeData]);
+    const schedule = () => {
+      const mode = activeSection === "processes" ? "full" : "managed";
+      const delay = mode === "full" ? 1000 : 5000;
+      timer = window.setTimeout(async () => {
+        if (!cancelled && !document.hidden && !running) {
+          running = true;
+          await refreshRuntimeData(mode);
+          running = false;
+        }
+        if (!cancelled) schedule();
+      }, delay);
+    };
+    const start = () => {
+      window.clearTimeout(timer);
+      if (!document.hidden && !running) {
+        running = true;
+        window.requestAnimationFrame(() => void refreshRuntimeData(activeSection === "processes" ? "full" : "managed").finally(() => {
+          running = false;
+          if (!cancelled) schedule();
+        }));
+      } else {
+        schedule();
+      }
+    };
+    document.addEventListener("visibilitychange", start);
+    start();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", start);
+    };
+  }, [activeSection, refreshRuntimeData]);
 
   useEffect(() => {
     window.addEventListener("blur", closeMenu);
@@ -125,11 +156,11 @@ function App() {
     try {
       setError("");
       setApps(await action());
-      await refreshRuntimeData();
+      await refreshRuntimeData(activeSection === "processes" ? "full" : "managed", true);
     } catch (reason) {
       setError(cleanErrorMessage(reason));
     }
-  }, [refreshRuntimeData]);
+  }, [activeSection, refreshRuntimeData]);
 
   const moveAppToGroup = useCallback(async (appId: string, targetGroup: AppGroupId) => {
     const current = apps.find((item) => item.id === appId);
@@ -158,14 +189,24 @@ function App() {
 
   useEffect(() => {
     const cancelDrag = () => { dragCandidate.current = null; setDrag(null); };
+    let frame = 0;
+    let latestEvent: PointerEvent | null = null;
+    const updateDrag = () => {
+      frame = 0;
+      const event = latestEvent;
+      const candidate = dragCandidate.current;
+      if (!event || !candidate) return;
+      const node = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("[data-drop-group]");
+      const targetGroup = node?.dataset.dropGroup as AppGroupId | undefined;
+      const app = apps.find((item) => item.id === candidate.appId);
+      setDrag({ appId: candidate.appId, x: event.clientX, y: event.clientY, grabOffsetX: candidate.grabOffsetX, grabOffsetY: candidate.grabOffsetY, targetGroup: targetGroup && app?.groupId !== targetGroup ? targetGroup : undefined });
+    };
     const onMove = (event: PointerEvent) => {
       const candidate = dragCandidate.current;
       if (!candidate) return;
       if (!drag && Math.hypot(event.clientX - candidate.startX, event.clientY - candidate.startY) <= 6) return;
-      const node = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("[data-drop-group]");
-      const targetGroup = node?.dataset.dropGroup as AppGroupId | undefined;
-      const app = apps.find((item) => item.id === candidate.appId);
-      setDrag({ appId: candidate.appId, x: event.clientX, y: event.clientY, targetGroup: targetGroup && app?.groupId !== targetGroup ? targetGroup : undefined });
+      latestEvent = event;
+      if (!frame) frame = window.requestAnimationFrame(updateDrag);
     };
     const onUp = () => {
       const current = drag;
@@ -190,6 +231,7 @@ function App() {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("keydown", onKey);
+      if (frame) window.cancelAnimationFrame(frame);
     };
   }, [apps, closeMenu, drag, moveAppToGroup]);
 
@@ -285,7 +327,7 @@ function App() {
         return;
       }
       if (result.status === "launched") {
-        await refreshRuntimeData();
+        await refreshRuntimeData(activeSection === "processes" ? "full" : "managed", true);
       }
     } catch (reason) {
       setError(cleanErrorMessage(reason, "启动失败，请检查程序路径和启动参数。"));
@@ -356,7 +398,7 @@ function App() {
 
         {activeSection === "processes" ? <ProcessPage processes={visibleProcesses} lockedProcessName={lockedProcessName} sortKey={sortKey} sortDirection={sortDirection} changeSort={changeSort} filter={processFilter} setFilter={changeProcessFilter} onContextMenu={openProcessMenu} />
           : activeSection === "settings" ? <SettingsPage apps={runtimeApps} groups={appGroups} onAdd={addApp} onAddToGroup={(groupId) => void runAppAction(() => api().addAppFromDialog(groupId))} onCreate={() => setGroupEdit({ name: "", icon: "grid" })} onEdit={(group) => setGroupEdit({ id: group.id, name: group.name, icon: group.icon })} onDelete={requestDeleteGroup} onReorder={reorderGroups} onOpenApp={(app) => { setActiveSection(app.groupId); setSelectedAppId(app.id); }} onAppContextMenu={(event, app) => { event.preventDefault(); event.stopPropagation(); openMenu({ kind: "app", x: event.clientX, y: event.clientY, appId: app.id }); }} onMoveApp={moveAppWithinSettings} />
-          : <GroupPage apps={visibleApps} selectedAppId={selectedAppId} draggingAppId={drag?.appId} onSelect={setSelectedAppId} onLaunch={() => selectedApp && launchApp(selectedApp.id)} onAdd={addApp} onPickExecutable={() => selectedApp && void runAppAction(() => api().pickExecutable(selectedApp.id))} onContextMenu={(event, app) => { event.preventDefault(); event.stopPropagation(); if (!drag) openMenu({ kind: "app", x: event.clientX, y: event.clientY, appId: app.id }); }} onPointerDown={(event, app) => { if (event.button !== 0) return; dragCandidate.current = { appId: app.id, startX: event.clientX, startY: event.clientY }; }} />}
+          : <GroupPage apps={visibleApps} selectedAppId={selectedAppId} draggingAppId={drag?.appId} onSelect={setSelectedAppId} onLaunch={() => selectedApp && launchApp(selectedApp.id)} onAdd={addApp} onPickExecutable={() => selectedApp && void runAppAction(() => api().pickExecutable(selectedApp.id))} onContextMenu={(event, app) => { event.preventDefault(); event.stopPropagation(); if (!drag) openMenu({ kind: "app", x: event.clientX, y: event.clientY, appId: app.id }); }} onPointerDown={(event, app) => { if (event.button !== 0) return; const rect = event.currentTarget.getBoundingClientRect(); dragCandidate.current = { appId: app.id, startX: event.clientX, startY: event.clientY, grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top }; }} />}
         {error ? <button className="toast no-drag" onClick={() => setError("")}>{error}</button> : null}
       </section>
 
@@ -367,21 +409,9 @@ function App() {
       {edit ? <AppEditDialog state={edit} onClose={() => setEdit(null)} onSave={(input) => runAppAction(() => api().updateApp(input))} /> : null}
       {groupEdit ? <GroupEditDialog state={groupEdit} onClose={() => setGroupEdit(null)} onSave={saveGroup} /> : null}
       {groupDelete ? <GroupDeleteDialog state={groupDelete} groups={appGroups} appCount={apps.filter((item) => item.groupId === groupDelete.groupId).length} onChangeTarget={(targetGroupId) => setGroupDelete({ ...groupDelete, targetGroupId })} onClose={() => setGroupDelete(null)} onConfirm={removeGroup} /> : null}
-      {drag && draggedApp ? <div className="drag-preview no-drag" style={{ left: drag.x + 14, top: drag.y + 14 }}>{draggedApp.iconDataUrl ? <img src={draggedApp.iconDataUrl} alt="" /> : <Icon name="grid" />}<span>{draggedApp.name}</span></div> : null}
+      {drag && draggedApp ? <div className="drag-preview no-drag" style={{ left: drag.x - drag.grabOffsetX, top: drag.y - drag.grabOffsetY }}>{draggedApp.iconDataUrl ? <img src={draggedApp.iconDataUrl} alt="" /> : <Icon name="grid" />}<span>{draggedApp.name}</span></div> : null}
     </main>
   );
-}
-
-function ProcessPage({ processes, lockedProcessName, sortKey, sortDirection, changeSort, filter, setFilter, onContextMenu }: { processes: DisplayProcess[]; lockedProcessName: string; sortKey: SortKey; sortDirection: "asc" | "desc"; changeSort: (key: SortKey) => void; filter: ProcessFilter; setFilter: (value: ProcessFilter) => void; onContextMenu: (event: React.MouseEvent, process: ProcessInfo) => void }) {
-  return <section className="content no-drag"><div className="table-toolbar"><div className="segmented"><button className={filter === "all" ? "selected" : ""} onClick={() => setFilter("all")}>全部进程</button><button className={filter === "managed" ? "selected" : ""} onClick={() => setFilter("managed")}>已管理应用</button></div></div><div className="process-table">
-    <div className="process-row header"><button onClick={() => changeSort("name")}>进程 <SortMark active={sortKey === "name"} direction={sortDirection} /></button><button onClick={() => changeSort("name")}>名称 <SortMark active={sortKey === "name"} direction={sortDirection} /></button><button onClick={() => changeSort("cpuPercent")}>CPU <SortMark active={sortKey === "cpuPercent"} direction={sortDirection} /></button><button onClick={() => changeSort("memoryBytes")}>内存 <SortMark active={sortKey === "memoryBytes"} direction={sortDirection} /></button><button onClick={() => changeSort("diskBytesPerSecond")}>磁盘 <SortMark active={sortKey === "diskBytesPerSecond"} direction={sortDirection} /></button></div>
-    {processes.map((process) => <div className={`process-row ${process.name.toLowerCase() === lockedProcessName ? "locked" : ""} ${process.isEnded ? "ended" : ""}`} key={process.name.toLowerCase()} onContextMenu={(event) => onContextMenu(event, process)}><div className="process-icon">{process.iconDataUrl ? <img src={process.iconDataUrl} alt="" /> : initials(process.name)}</div><div><p>{process.name}</p><span title={`PID: ${process.pids.join(", ")}`}>{process.isEnded ? "已结束" : process.processCount > 1 ? `${process.processCount} 个进程` : `PID ${process.pid}`}</span></div><span>{process.isEnded ? "--" : `${process.cpuPercent.toFixed(1)}%`}</span><span>{process.isEnded ? "--" : formatMemory(process.memoryBytes)}</span><span>{process.isEnded ? "--" : formatDisk(process.diskBytesPerSecond)}</span></div>)}
-  </div></section>;
-}
-
-function GroupPage({ apps, selectedAppId, draggingAppId, onSelect, onLaunch, onAdd, onPickExecutable, onContextMenu, onPointerDown }: { apps: RuntimeApp[]; selectedAppId: string; draggingAppId?: string; onSelect: (id: string) => void; onLaunch: () => void; onAdd: () => void; onPickExecutable: () => void; onContextMenu: (event: React.MouseEvent, app: RuntimeApp) => void; onPointerDown: (event: React.PointerEvent, app: RuntimeApp) => void }) {
-  const selected = apps.find((item) => item.id === selectedAppId);
-  return <section className="content group-content no-drag"><div className="app-grid">{apps.map((app) => <button key={app.id} className={`app-card ${app.id === selectedAppId ? "selected" : ""} ${app.id === draggingAppId ? "dragging" : ""}`} onClick={() => !draggingAppId && onSelect(app.id)} onContextMenu={(event) => onContextMenu(event, app)} onPointerDown={(event) => onPointerDown(event, app)}><div className="card-icon">{app.iconDataUrl ? <img src={app.iconDataUrl} draggable={false} alt="" /> : <Icon name="grid" />}</div><span>{app.name}</span>{app.metrics.isRunning ? <i>运行中</i> : null}</button>)}</div><div className="group-actions"><button className="ghost" onClick={onAdd}>添加应用</button><button className="ghost" onClick={onPickExecutable} disabled={!selected}>选择程序</button><button className="launch" onClick={onLaunch} disabled={!selected}><Icon name="play" />启动</button></div></section>;
 }
 
 function ProcessContextMenu({ state, process, onClose, onConfirm, onError }: { state: Extract<MenuState, { kind: "process" }>; process: DisplayProcess; onClose: () => void; onConfirm: (value: ConfirmState) => void; onError: (message: string) => void }) {
@@ -431,12 +461,12 @@ function SettingsPage({ apps, groups, onAdd, onAddToGroup, onCreate, onEdit, onD
   const [ordered, setOrdered] = useState(groups);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [sortPreview, setSortPreview] = useState<{ id: string; left: number; top: number; width: number } | null>(null);
-  const [appDrag, setAppDrag] = useState<{ appId: string; x: number; y: number; targetGroup?: string } | null>(null);
+  const [appDrag, setAppDrag] = useState<{ appId: string; x: number; y: number; grabOffsetX: number; grabOffsetY: number; targetGroup?: string } | null>(null);
   const rows = useRef(new Map<string, HTMLDivElement>());
   const flipRects = useRef(new Map<string, DOMRect>());
   const latestOrdered = useRef(ordered);
   const sortCandidate = useRef<{ id: string; startX: number; startY: number; grabOffsetX: number; grabOffsetY: number; original: AppGroup[]; active: boolean; valid: boolean } | null>(null);
-  const appCandidate = useRef<{ appId: string; startX: number; startY: number } | null>(null);
+  const appCandidate = useRef<{ appId: string; startX: number; startY: number; grabOffsetX: number; grabOffsetY: number } | null>(null);
   const suppressAppClick = useRef(false);
 
   useEffect(() => {
@@ -462,6 +492,8 @@ function SettingsPage({ apps, groups, onAdd, onAddToGroup, onCreate, onEdit, onD
   }, [ordered]);
 
   useEffect(() => {
+    let frame = 0;
+    let latestEvent: PointerEvent | null = null;
     const cancelSort = () => {
       const candidate = sortCandidate.current;
       sortCandidate.current = null;
@@ -469,7 +501,7 @@ function SettingsPage({ apps, groups, onAdd, onAddToGroup, onCreate, onEdit, onD
       if (candidate?.active) setOrdered(candidate.original);
     };
     const cancelApp = () => { appCandidate.current = null; setAppDrag(null); };
-    const move = (event: PointerEvent) => {
+    const processMove = (event: PointerEvent) => {
       const sort = sortCandidate.current;
       if (sort) {
         if (!sort.active && Math.hypot(event.clientX - sort.startX, event.clientY - sort.startY) <= 6) return;
@@ -509,7 +541,14 @@ function SettingsPage({ apps, groups, onAdd, onAddToGroup, onCreate, onEdit, onD
       suppressAppClick.current = true;
       const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("[data-settings-drop-group]")?.dataset.settingsDropGroup;
       const source = apps.find((item) => item.id === app.appId)?.groupId;
-      setAppDrag({ appId: app.appId, x: event.clientX, y: event.clientY, targetGroup: target && target !== source ? target : undefined });
+      setAppDrag({ appId: app.appId, x: event.clientX, y: event.clientY, grabOffsetX: app.grabOffsetX, grabOffsetY: app.grabOffsetY, targetGroup: target && target !== source ? target : undefined });
+    };
+    const move = (event: PointerEvent) => {
+      latestEvent = event;
+      if (!frame) frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        if (latestEvent) processMove(latestEvent);
+      });
     };
     const up = () => {
       const sort = sortCandidate.current;
@@ -536,14 +575,14 @@ function SettingsPage({ apps, groups, onAdd, onAddToGroup, onCreate, onEdit, onD
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
     window.addEventListener("keydown", key);
-    return () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); window.removeEventListener("keydown", key); };
+    return () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); window.removeEventListener("keydown", key); if (frame) window.cancelAnimationFrame(frame); };
   }, [appDrag, apps, onMoveApp, onReorder]);
 
   const draggedApp = apps.find((app) => app.id === appDrag?.appId);
   const previewGroup = ordered.find((group) => group.id === sortPreview?.id);
   const toggle = (id: string) => setExpanded((current) => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next; });
 
-  return <section className="content settings-page no-drag"><div className="settings-heading"><div><h2>分组管理</h2><p>点击分组查看应用，拖动手柄调整左侧导航顺序。</p></div><div className="settings-actions"><button className="ghost" onClick={onAdd}>添加应用</button><button className="launch" onClick={onCreate}>新建分组</button></div></div><div className="group-manager">{ordered.map((group) => <GroupManagerItem key={group.id} group={group} apps={apps.filter((app) => app.groupId === group.id)} expanded={expanded.has(group.id)} sorting={sortPreview?.id === group.id} appDrag={appDrag} register={(element) => { if (element) rows.current.set(group.id, element); else rows.current.delete(group.id); }} onToggle={() => toggle(group.id)} onSortStart={(event) => { if (appCandidate.current) return; event.preventDefault(); const rect = rows.current.get(group.id)?.getBoundingClientRect(); sortCandidate.current = { id: group.id, startX: event.clientX, startY: event.clientY, grabOffsetX: rect ? event.clientX - rect.left : 40, grabOffsetY: rect ? event.clientY - rect.top : 32, original: [...ordered], active: false, valid: true }; }} onEdit={() => onEdit(group)} onDelete={() => onDelete(group.id)} canDelete={groups.length > 1} onAdd={() => onAddToGroup(group.id)} onOpenApp={(app) => { if (!suppressAppClick.current) onOpenApp(app); }} onAppContextMenu={onAppContextMenu} onAppPointerDown={(event, app) => { if (event.button !== 0 || sortCandidate.current) return; appCandidate.current = { appId: app.id, startX: event.clientX, startY: event.clientY }; }} />)}</div>{sortPreview && previewGroup ? <GroupSortPreview group={previewGroup} count={apps.filter((app) => app.groupId === previewGroup.id).length} left={sortPreview.left} top={sortPreview.top} width={sortPreview.width} /> : null}{appDrag && draggedApp ? <div className="drag-preview no-drag" style={{ left: appDrag.x + 14, top: appDrag.y + 14 }}>{draggedApp.iconDataUrl ? <img src={draggedApp.iconDataUrl} alt="" /> : <Icon name="grid" />}<span>{draggedApp.name}</span></div> : null}</section>;
+  return <section className="content settings-page no-drag"><div className="settings-heading"><div><h2>分组管理</h2><p>点击分组查看应用，拖动手柄调整左侧导航顺序。</p></div><div className="settings-actions"><button className="ghost" onClick={onAdd}>添加应用</button><button className="launch" onClick={onCreate}>新建分组</button></div></div><div className="group-manager">{ordered.map((group) => <GroupManagerItem key={group.id} group={group} apps={apps.filter((app) => app.groupId === group.id)} expanded={expanded.has(group.id)} sorting={sortPreview?.id === group.id} appDrag={appDrag} register={(element) => { if (element) rows.current.set(group.id, element); else rows.current.delete(group.id); }} onToggle={() => toggle(group.id)} onSortStart={(event) => { if (appCandidate.current) return; event.preventDefault(); const rect = rows.current.get(group.id)?.getBoundingClientRect(); sortCandidate.current = { id: group.id, startX: event.clientX, startY: event.clientY, grabOffsetX: rect ? event.clientX - rect.left : 40, grabOffsetY: rect ? event.clientY - rect.top : 32, original: [...ordered], active: false, valid: true }; }} onEdit={() => onEdit(group)} onDelete={() => onDelete(group.id)} canDelete={groups.length > 1} onAdd={() => onAddToGroup(group.id)} onOpenApp={(app) => { if (!suppressAppClick.current) onOpenApp(app); }} onAppContextMenu={onAppContextMenu} onAppPointerDown={(event, app) => { if (event.button !== 0 || sortCandidate.current) return; const rect = event.currentTarget.getBoundingClientRect(); appCandidate.current = { appId: app.id, startX: event.clientX, startY: event.clientY, grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top }; }} />)}</div>{sortPreview && previewGroup ? <GroupSortPreview group={previewGroup} count={apps.filter((app) => app.groupId === previewGroup.id).length} left={sortPreview.left} top={sortPreview.top} width={sortPreview.width} /> : null}{appDrag && draggedApp ? <div className="drag-preview no-drag" style={{ left: appDrag.x - appDrag.grabOffsetX, top: appDrag.y - appDrag.grabOffsetY }}>{draggedApp.iconDataUrl ? <img src={draggedApp.iconDataUrl} alt="" /> : <Icon name="grid" />}<span>{draggedApp.name}</span></div> : null}</section>;
 }
 
 function GroupManagerItem({ group, apps, expanded, sorting, appDrag, register, onToggle, onSortStart, onEdit, onDelete, canDelete, onAdd, onOpenApp, onAppContextMenu, onAppPointerDown }: { group: AppGroup; apps: RuntimeApp[]; expanded: boolean; sorting: boolean; appDrag: { appId: string; targetGroup?: string } | null; register: (element: HTMLDivElement | null) => void; onToggle: () => void; onSortStart: (event: React.PointerEvent) => void; onEdit: () => void; onDelete: () => void; canDelete: boolean; onAdd: () => void; onOpenApp: (app: RuntimeApp) => void; onAppContextMenu: (event: React.MouseEvent, app: RuntimeApp) => void; onAppPointerDown: (event: React.PointerEvent, app: RuntimeApp) => void }) {
@@ -577,8 +616,6 @@ function GroupDeleteDialog({ state, groups, appCount, onChangeTarget, onClose, o
   const [busy, setBusy] = useState(false);
   return <div className="modal-backdrop no-drag" onPointerDown={onClose}><div className="dialog edit-dialog" onPointerDown={(event) => event.stopPropagation()}><h2>删除分组</h2><p>删除“{source?.name}”前，需要将其中 {appCount} 个应用迁移到其他分组。</p><label>迁移到<select value={state.targetGroupId} onChange={(event) => onChangeTarget(event.target.value)}>{groups.filter((group) => group.id !== state.groupId).map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label><div className="dialog-actions"><button className="ghost" onClick={onClose} disabled={busy}>取消</button><button className="danger-button" disabled={busy || !state.targetGroupId} onClick={() => { setBusy(true); void onConfirm().finally(() => setBusy(false)); }}>{busy ? "处理中..." : "迁移并删除"}</button></div></div></div>;
 }
-function SortMark({ active, direction }: { active: boolean; direction: "asc" | "desc" }) { return <span className={`sort ${active ? "active" : ""}`}>{active ? direction === "asc" ? "▲" : "▼" : "◆"}</span>; }
-
 function Icon({ name }: { name: string }) {
   const common = { width: 26, height: 26, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8 };
   if (name === "activity") return <svg {...common}><path d="M4 13h3l2-6 4 10 2-6h5" /><rect x="3" y="3" width="18" height="18" rx="5" /></svg>;

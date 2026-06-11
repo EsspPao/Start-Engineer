@@ -50,9 +50,8 @@ input {
 .sidebar,
 .window {
   border: 1px solid #dbe2ed;
-  background: rgba(255, 255, 255, 0.8);
+  background: #fff;
   box-shadow: none;
-  backdrop-filter: blur(16px);
 }
 
 .sidebar {
@@ -274,6 +273,18 @@ input {
   border-bottom: 1px solid #edf1f7;
   padding: 0 14px;
   color: #293244;
+}
+
+.process-virtual-body {
+  position: relative;
+}
+
+.process-row.virtual {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 58px;
 }
 
 .process-row.header {

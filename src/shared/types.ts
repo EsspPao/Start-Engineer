@@ -63,6 +63,8 @@ export type UpdateAppInput = Partial<Omit<AppEntry, "id">> & {
 };
 
 export type WindowAction = "minimize" | "maximize" | "close";
+export type SnapshotMode = "full" | "managed";
+export type RuntimeSnapshot = { apps: AppEntry[]; metrics: AppMetrics[]; processes: ProcessInfo[] };
 
 export type LaunchAppResult = {
   status: "launched" | "alreadyRunning" | "cancelled" | "failed";
@@ -91,10 +93,6 @@ export type CommandDeckApi = {
   writeClipboardText: (text: string) => Promise<void>;
   getMetricsSnapshot: () => Promise<AppMetrics[]>;
   getProcessSnapshot: () => Promise<ProcessInfo[]>;
-  getRuntimeSnapshot: () => Promise<{
-    apps: AppEntry[];
-    metrics: AppMetrics[];
-    processes: ProcessInfo[];
-  }>;
+  getRuntimeSnapshot: (mode?: SnapshotMode, force?: boolean) => Promise<RuntimeSnapshot>;
   windowAction: (action: WindowAction) => Promise<void>;
 };

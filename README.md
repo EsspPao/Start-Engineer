@@ -1,14 +1,16 @@
-# CommandDeck Next
+# Star Engineer
 
-CommandDeck Next is a minimal Windows desktop launcher built with Electron, React, TypeScript, and Vite.
+Star Engineer is a lightweight Windows launcher and process monitor built with Electron, React, TypeScript, and Vite.
 
 ## Commands
 
 ```powershell
 npm install
 npm run typecheck
+npm test
 npm run build
 npm run dev
+npm run smoke
 ```
 
 ## Features

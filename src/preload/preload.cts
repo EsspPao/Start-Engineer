@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { AppEntry, CommandDeckApi, GroupInput, GroupUpdateInput, UpdateAppInput, WindowAction } from "../shared/types.js";
+import type { AppEntry, CommandDeckApi, GroupInput, GroupUpdateInput, SnapshotMode, UpdateAppInput, WindowAction } from "../shared/types.js";
 
 const api: CommandDeckApi = {
   listGroups: () => ipcRenderer.invoke("groups:list"),
@@ -20,7 +20,7 @@ const api: CommandDeckApi = {
   writeClipboardText: (text: string) => ipcRenderer.invoke("clipboard:writeText", text),
   getMetricsSnapshot: () => ipcRenderer.invoke("metrics:snapshot"),
   getProcessSnapshot: () => ipcRenderer.invoke("processes:snapshot"),
-  getRuntimeSnapshot: () => ipcRenderer.invoke("runtime:snapshot"),
+  getRuntimeSnapshot: (mode?: SnapshotMode, force?: boolean) => ipcRenderer.invoke("runtime:snapshot", mode, force),
   windowAction: (action: WindowAction) => ipcRenderer.invoke("window:action", action)
 };
 
