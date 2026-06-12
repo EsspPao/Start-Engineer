@@ -8,6 +8,7 @@ const api: CommandDeckApi = {
   reorderGroups: (groupIds: string[]) => ipcRenderer.invoke("groups:reorder", groupIds),
   removeGroup: (groupId: string, targetGroupId: string) => ipcRenderer.invoke("groups:remove", groupId, targetGroupId),
   listApps: () => ipcRenderer.invoke("apps:list"),
+  refreshAppIcons: () => ipcRenderer.invoke("apps:refreshIcons"),
   addAppFromDialog: (groupId?: AppEntry["groupId"]) => ipcRenderer.invoke("apps:addFromDialog", groupId),
   pickExecutable: (id: string) => ipcRenderer.invoke("apps:pickExecutable", id),
   updateApp: (input: UpdateAppInput) => ipcRenderer.invoke("apps:update", input),

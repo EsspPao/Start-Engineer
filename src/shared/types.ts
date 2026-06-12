@@ -11,6 +11,8 @@ export type AppEntry = {
   accent: string;
   iconCachePath?: string;
   iconDataUrl?: string;
+  iconCacheVersion?: number;
+  iconPixelSize?: number;
   launchArgs?: string;
   workingDirectory?: string;
   launchedPid?: number;
@@ -81,6 +83,7 @@ export type CommandDeckApi = {
   reorderGroups: (groupIds: string[]) => Promise<AppGroup[]>;
   removeGroup: (groupId: string, targetGroupId: string) => Promise<RemoveGroupResult>;
   listApps: () => Promise<AppEntry[]>;
+  refreshAppIcons: () => Promise<AppEntry[]>;
   addAppFromDialog: (groupId?: AppEntry["groupId"]) => Promise<AppEntry[]>;
   pickExecutable: (id: string) => Promise<AppEntry[]>;
   updateApp: (input: UpdateAppInput) => Promise<AppEntry[]>;

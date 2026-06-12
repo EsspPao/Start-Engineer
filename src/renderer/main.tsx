@@ -37,6 +37,7 @@ const fallbackApi: CommandDeckApi = {
   reorderGroups: electronOnly,
   removeGroup: electronOnly,
   listApps: async () => [],
+  refreshAppIcons: async () => [],
   addAppFromDialog: electronOnly,
   pickExecutable: electronOnly,
   updateApp: async () => [],
@@ -85,6 +86,7 @@ function App() {
   const [drag, setDrag] = useState<DragState>(null);
   const [error, setError] = useState("");
   const dragCandidate = useRef<{ appId: string; startX: number; startY: number; grabOffsetX: number; grabOffsetY: number } | null>(null);
+  const iconRefreshStarted = useRef(false);
   const metricsByApp = useMemo(() => new Map(metrics.map((metric) => [metric.appId, metric])), [metrics]);
   const runtimeApps = useMemo<RuntimeApp[]>(() => apps.map((item) => ({ ...item, metrics: metricsByApp.get(item.id) ?? emptyMetrics(item.id) })), [apps, metricsByApp]);
   const appGroups = useMemo(() => groups.filter((group) => !group.isSystem).sort((a, b) => a.order - b.order), [groups]);
@@ -113,6 +115,10 @@ function App() {
       if (cancelled) return;
       setGroups(nextGroups.length ? nextGroups : fallbackGroups);
       setApps(nextApps);
+      if (!iconRefreshStarted.current) {
+        iconRefreshStarted.current = true;
+        window.requestAnimationFrame(() => void api().refreshAppIcons().then(setApps).catch((reason) => setError(cleanErrorMessage(reason, "应用图标刷新失败"))));
+      }
     }).catch((reason) => setError(cleanErrorMessage(reason, "基础数据加载失败")));
     const schedule = () => {
       const mode = activeSection === "processes" ? "full" : "managed";
@@ -161,6 +167,13 @@ function App() {
       setError(cleanErrorMessage(reason));
     }
   }, [activeSection, refreshRuntimeData]);
+
+  const requestCloseApp = useCallback((app: RuntimeApp) => setConfirm({
+    title: "结束应用进程",
+    message: `确定结束 ${app.name} 的全部相关进程吗？`,
+    confirmLabel: "结束进程",
+    onConfirm: async () => { await runAppAction(() => api().killApp(app.id)); }
+  }), [runAppAction]);
 
   const moveAppToGroup = useCallback(async (appId: string, targetGroup: AppGroupId) => {
     const current = apps.find((item) => item.id === appId);
@@ -380,7 +393,11 @@ function App() {
       <aside className="sidebar no-drag">
         <div className="brand"><div className="brand-mark">✦</div><span><strong>Star Engineer</strong><small>Command Center</small></span></div>
         <nav className="nav">
-          {groups.filter((group) => group.id !== "settings").map((group) => {
+          {groups.filter((group) => group.id === "processes").map((group) => <button key={group.id} className={`nav-button ${activeSection === group.id ? "active" : ""}`} onClick={() => switchSection(group.id)}>
+            <Icon name={group.icon} /><span>{group.name}</span>
+          </button>)}
+          <div className="nav-divider" aria-hidden="true" />
+          {groups.filter((group) => !group.isSystem).map((group) => {
             const acceptsDrop = !group.isSystem;
             const sourceGroup = draggedApp?.groupId;
             return <button key={group.id} data-drop-group={acceptsDrop ? group.id : undefined} className={`nav-button ${activeSection === group.id ? "active" : ""} ${drag && acceptsDrop ? "drop-ready" : ""} ${drag?.targetGroup === group.id ? "drop-active" : ""} ${drag && sourceGroup === group.id ? "drop-disabled" : ""}`} onClick={() => switchSection(group.id)} onContextMenu={(event) => { if (group.isSystem) return; event.preventDefault(); event.stopPropagation(); openMenu({ kind: "group", x: event.clientX, y: event.clientY, groupId: group.id }); }}>
@@ -404,12 +421,12 @@ function App() {
 
         {activeSection === "processes" ? <ProcessPage processes={visibleProcesses} lockedProcessName={lockedProcessName} sortKey={sortKey} sortDirection={sortDirection} changeSort={changeSort} filter={processFilter} setFilter={changeProcessFilter} onContextMenu={openProcessMenu} />
           : activeSection === "settings" ? <SettingsPage apps={runtimeApps} groups={appGroups} onAdd={addApp} onAddToGroup={(groupId) => void runAppAction(() => api().addAppFromDialog(groupId))} onCreate={() => setGroupEdit({ name: "", icon: "grid" })} onEdit={(group) => setGroupEdit({ id: group.id, name: group.name, icon: group.icon })} onDelete={requestDeleteGroup} onReorder={reorderGroups} onOpenApp={(app) => { setActiveSection(app.groupId); setSelectedAppId(app.id); }} onAppContextMenu={(event, app) => { event.preventDefault(); event.stopPropagation(); openMenu({ kind: "app", x: event.clientX, y: event.clientY, appId: app.id }); }} onMoveApp={moveAppWithinSettings} />
-          : <GroupPage apps={visibleApps} selectedAppId={selectedAppId} draggingAppId={drag?.appId} onSelect={setSelectedAppId} onLaunch={() => selectedApp && launchApp(selectedApp.id)} onAdd={addApp} onPickExecutable={() => selectedApp && void runAppAction(() => api().pickExecutable(selectedApp.id))} onContextMenu={(event, app) => { event.preventDefault(); event.stopPropagation(); if (!drag) openMenu({ kind: "app", x: event.clientX, y: event.clientY, appId: app.id }); }} onPointerDown={(event, app) => { if (event.button !== 0) return; const rect = event.currentTarget.getBoundingClientRect(); dragCandidate.current = { appId: app.id, startX: event.clientX, startY: event.clientY, grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top }; }} />}
+          : <GroupPage apps={visibleApps} selectedAppId={selectedAppId} draggingAppId={drag?.appId} onSelect={setSelectedAppId} onLaunch={() => selectedApp && launchApp(selectedApp.id)} onAdd={addApp} onPickExecutable={() => selectedApp && void runAppAction(() => api().pickExecutable(selectedApp.id))} onContextMenu={(event, app) => { event.preventDefault(); event.stopPropagation(); if (!drag) openMenu({ kind: "app", x: event.clientX, y: event.clientY, appId: app.id }); }} onPointerDown={(event, app) => { if (event.button !== 0) return; const rect = event.currentTarget.getBoundingClientRect(); dragCandidate.current = { appId: app.id, startX: event.clientX, startY: event.clientY, grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top }; }} onRequestClose={requestCloseApp} />}
         {error ? <button className="toast no-drag" onClick={() => setError("")}>{error}</button> : null}
       </section>
 
       {menu?.kind === "process" && processMenuItem ? <ProcessContextMenu state={menu} process={processMenuItem} onClose={closeMenu} onConfirm={setConfirm} onError={setError} /> : null}
-      {menu?.kind === "app" ? <AppContextMenu state={menu} app={runtimeApps.find((item) => item.id === menu.appId)} groups={appGroups} onClose={closeMenu} onLaunch={launchApp} onKill={(app) => setConfirm({ title: "结束应用进程", message: `确定结束 ${app.name} 的全部相关进程吗？`, confirmLabel: "结束进程", onConfirm: async () => { await runAppAction(() => api().killApp(app.id)); } })} onPick={(app) => void runAppAction(() => api().pickExecutable(app.id))} onEdit={editApp} onMove={activeSection === "settings" ? moveAppWithinSettings : moveAppToGroup} onRemove={(app) => setConfirm({ title: "移除应用", message: `确定从 Star Engineer 中移除 ${app.name} 吗？本地程序文件不会被删除。`, confirmLabel: "移除应用", onConfirm: async () => { await runAppAction(() => api().removeApp(app.id)); setSelectedAppId(""); } })} onError={setError} /> : null}
+      {menu?.kind === "app" ? <AppContextMenu state={menu} app={runtimeApps.find((item) => item.id === menu.appId)} groups={appGroups} onClose={closeMenu} onLaunch={launchApp} onKill={requestCloseApp} onPick={(app) => void runAppAction(() => api().pickExecutable(app.id))} onEdit={editApp} onMove={activeSection === "settings" ? moveAppWithinSettings : moveAppToGroup} onRemove={(app) => setConfirm({ title: "移除应用", message: `确定从 Star Engineer 中移除 ${app.name} 吗？本地程序文件不会被删除。`, confirmLabel: "移除应用", onConfirm: async () => { await runAppAction(() => api().removeApp(app.id)); setSelectedAppId(""); } })} onError={setError} /> : null}
       {menu?.kind === "group" ? <GroupContextMenu state={menu} groups={appGroups} onClose={closeMenu} onCreate={() => setGroupEdit({ name: "", icon: "grid" })} onEdit={(group) => setGroupEdit({ id: group.id, name: group.name, icon: group.icon })} onDelete={requestDeleteGroup} onReorder={reorderGroups} /> : null}
       {confirm ? <ConfirmDialog state={confirm} onClose={() => setConfirm(null)} onError={setError} /> : null}
       {edit ? <AppEditDialog state={edit} onClose={() => setEdit(null)} onSave={(input) => runAppAction(() => api().updateApp(input))} /> : null}

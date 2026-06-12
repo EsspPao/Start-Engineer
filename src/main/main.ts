@@ -19,6 +19,7 @@ import type {
 } from "../shared/types.js";
 import { RuntimeMonitor, type ProcessSnapshot } from "./runtime-monitor.js";
 import { migrateAppEntry, normalizeGroups } from "./config-migration.js";
+import { APP_ICON_CACHE_VERSION, APP_ICON_TARGET_SIZE, shouldRefreshAppIcon } from "./icon-cache.js";
 
 const isDev = process.env.VITE_DEV_SERVER_URL !== undefined;
 const appRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -46,6 +47,7 @@ const protectedProcessNames = new Set([
 let mainWindow: BrowserWindow | null = null;
 let appsCache: AppEntry[] = [];
 let groupsCache: AppGroup[] = [];
+let iconRefreshInFlight: Promise<AppEntry[]> | null = null;
 
 function ownProcessIds() {
   const ids = new Set([process.pid]);
@@ -131,8 +133,10 @@ function createWindow() {
     minWidth: 1060,
     minHeight: 680,
     frame: false,
+    thickFrame: false,
+    hasShadow: true,
+    transparent: true,
     backgroundColor: "#00000000",
-    roundedCorners: true,
     title: "Star Engineer",
     webPreferences: {
       preload: preloadPath,
@@ -303,8 +307,74 @@ $rows | ConvertTo-Json -Compress
 
 function fallbackIconDataUrl(seed: string) {
   const label = [...seed].slice(0, 2).join("").toUpperCase() || "APP";
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#2f66e8"/><text x="32" y="39" text-anchor="middle" font-family="Segoe UI, Arial" font-size="18" font-weight="700" fill="white">${label}</text></svg>`;
+  const safeLabel = label.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&apos;" })[character] ?? character);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#51b8f2"/><stop offset=".55" stop-color="#6268ee"/><stop offset="1" stop-color="#9765ec"/></linearGradient></defs><rect width="128" height="128" rx="30" fill="url(#g)"/><path d="M18 1h92a17 17 0 0 1 17 17v25C96 23 53 22 18 42Z" fill="white" opacity=".2"/><text x="64" y="77" text-anchor="middle" font-family="Segoe UI, Arial" font-size="34" font-weight="700" fill="white">${safeLabel}</text></svg>`;
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+async function getShellIcon(executablePath: string) {
+  const encodedPath = Buffer.from(executablePath, "utf16le").toString("base64");
+  const script = `
+Add-Type -AssemblyName PresentationCore
+Add-Type -AssemblyName WindowsBase
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+[StructLayout(LayoutKind.Sequential)]
+public struct NativeSize { public int cx; public int cy; }
+
+[Flags]
+public enum ShellImageFlags : uint { IconOnly = 0x00000004 }
+
+[ComImport]
+[Guid("bcc18b79-ba16-442f-80c4-8a59c30c463b")]
+[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IShellItemImageFactory {
+  [PreserveSig]
+  int GetImage(NativeSize size, ShellImageFlags flags, out IntPtr phbm);
+}
+
+public static class ShellImage {
+  [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = false)]
+  private static extern void SHCreateItemFromParsingName(string path, IntPtr bindContext, ref Guid riid, out IShellItemImageFactory factory);
+
+  [DllImport("gdi32.dll")]
+  public static extern bool DeleteObject(IntPtr handle);
+
+  public static IntPtr GetBitmap(string path, int pixelSize) {
+    Guid iid = new Guid("bcc18b79-ba16-442f-80c4-8a59c30c463b");
+    IShellItemImageFactory factory;
+    SHCreateItemFromParsingName(path, IntPtr.Zero, ref iid, out factory);
+    try {
+      NativeSize size = new NativeSize { cx = pixelSize, cy = pixelSize };
+      IntPtr bitmap;
+      int result = factory.GetImage(size, ShellImageFlags.IconOnly, out bitmap);
+      if (result != 0) Marshal.ThrowExceptionForHR(result);
+      return bitmap;
+    } finally {
+      Marshal.ReleaseComObject(factory);
+    }
+  }
+}
+'@
+$path = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('${encodedPath}'))
+$bitmapHandle = [ShellImage]::GetBitmap($path, ${APP_ICON_TARGET_SIZE})
+if ($bitmapHandle -eq [IntPtr]::Zero) { throw "Shell icon extraction returned an empty bitmap" }
+try {
+  $source = [System.Windows.Interop.Imaging]::CreateBitmapSourceFromHBitmap($bitmapHandle, [IntPtr]::Zero, [System.Windows.Int32Rect]::Empty, [System.Windows.Media.Imaging.BitmapSizeOptions]::FromEmptyOptions())
+  $encoder = New-Object System.Windows.Media.Imaging.PngBitmapEncoder
+  $encoder.Frames.Add([System.Windows.Media.Imaging.BitmapFrame]::Create($source))
+  $stream = New-Object IO.MemoryStream
+  $encoder.Save($stream)
+  [Convert]::ToBase64String($stream.ToArray())
+} finally {
+  [ShellImage]::DeleteObject($bitmapHandle) | Out-Null
+}
+`;
+  const output = (await runPowerShell(script)).trim();
+  const image = nativeImage.createFromBuffer(Buffer.from(output, "base64"));
+  return image.isEmpty() ? null : image;
 }
 
 async function getIconDataUrl(executablePath: string, seed: string) {
@@ -334,24 +404,51 @@ async function getIconDataUrl(executablePath: string, seed: string) {
 
 async function cacheAppIcon(appEntry: AppEntry) {
   if (!appEntry.executablePath || !existsSync(appEntry.executablePath)) {
-    return { ...appEntry, iconDataUrl: fallbackIconDataUrl(appEntry.name) };
+    return { ...appEntry, iconCachePath: undefined, iconDataUrl: fallbackIconDataUrl(appEntry.name), iconCacheVersion: APP_ICON_CACHE_VERSION, iconPixelSize: 0 };
   }
 
   try {
     mkdirSync(iconCacheDir(), { recursive: true });
-    const image = await app.getFileIcon(appEntry.executablePath, { size: "large" });
+    let image = await getShellIcon(appEntry.executablePath).catch((reason) => {
+      console.warn(`[icons] Shell extraction failed for ${appEntry.name}:`, reason);
+      return null;
+    });
+    if (!image) image = await app.getFileIcon(appEntry.executablePath, { size: "large" });
     if (image.isEmpty()) {
-      return { ...appEntry, iconDataUrl: fallbackIconDataUrl(appEntry.name) };
+      return { ...appEntry, iconCachePath: undefined, iconDataUrl: fallbackIconDataUrl(appEntry.name), iconCacheVersion: APP_ICON_CACHE_VERSION, iconPixelSize: 0 };
     }
 
     const iconPath = join(iconCacheDir(), `${appEntry.id}.png`);
     const iconDataUrl = image.toDataURL();
-    writeFileSync(iconPath, nativeImage.createFromDataURL(iconDataUrl).toPNG());
+    const size = image.getSize();
+    writeFileSync(iconPath, image.toPNG());
     processIconCache.set(appEntry.executablePath.toLowerCase(), iconDataUrl);
-    return { ...appEntry, iconCachePath: iconPath, iconDataUrl };
-  } catch {
-    return { ...appEntry, iconDataUrl: fallbackIconDataUrl(appEntry.name) };
+    return { ...appEntry, iconCachePath: iconPath, iconDataUrl, iconCacheVersion: APP_ICON_CACHE_VERSION, iconPixelSize: Math.min(size.width, size.height) };
+  } catch (reason) {
+    console.warn(`[icons] Icon cache failed for ${appEntry.name}:`, reason);
+    return { ...appEntry, iconCachePath: undefined, iconDataUrl: fallbackIconDataUrl(appEntry.name), iconCacheVersion: APP_ICON_CACHE_VERSION, iconPixelSize: 0 };
   }
+}
+
+function refreshAppIcons() {
+  if (iconRefreshInFlight) return iconRefreshInFlight;
+  iconRefreshInFlight = (async () => {
+    const current = loadApps();
+    const next = [...current];
+    for (let index = 0; index < current.length; index += 1) {
+      const entry = current[index];
+      let cacheUsable = false;
+      if (entry.iconCachePath && existsSync(entry.iconCachePath)) {
+        const cachedImage = nativeImage.createFromPath(entry.iconCachePath);
+        const size = cachedImage.getSize();
+        cacheUsable = !cachedImage.isEmpty() && size.width > 0 && size.height > 0;
+      }
+      if (shouldRefreshAppIcon(entry, cacheUsable)) next[index] = await cacheAppIcon(entry);
+    }
+    saveApps(next);
+    return next;
+  })().finally(() => { iconRefreshInFlight = null; });
+  return iconRefreshInFlight;
 }
 
 const runtimeMonitor = new RuntimeMonitor({
@@ -505,6 +602,7 @@ function registerIpc() {
     return { groups: listGroups(), apps: nextApps, targetGroupId };
   });
   ipcMain.handle("apps:list", () => loadApps());
+  ipcMain.handle("apps:refreshIcons", () => refreshAppIcons());
 
   ipcMain.handle("apps:addFromDialog", async (_event, groupId?: AppEntry["groupId"]) => {
     const filePath = await showExeDialog("选择要加入 Star Engineer 的程序");
