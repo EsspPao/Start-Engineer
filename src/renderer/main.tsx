@@ -269,6 +269,9 @@ function App() {
   }, [lockedProcessName, lockedProcessOrder, menu, processFilter, processes, query, sortDirection, sortKey]);
   const selectedApp = runtimeApps.find((item) => item.id === selectedAppId);
   const draggedApp = runtimeApps.find((item) => item.id === drag?.appId);
+  const activeGroup = groups.find((group) => group.id === activeSection);
+  const pageTitle = activeSection === "processes" ? "进程监控" : activeSection === "settings" ? "偏好设置" : activeGroup?.name ?? "应用";
+  const pageSubtitle = activeSection === "processes" ? `${visibleProcesses.length} 个进程正在显示` : activeSection === "settings" ? "管理应用分组与启动配置" : `${visibleApps.length} 个应用`;
   const processMenuItem: DisplayProcess | undefined = menu?.kind === "process"
     ? processes.find((item) => item.name.toLowerCase() === menu.process.name.toLowerCase()) ?? {
       ...menu.process,
@@ -375,7 +378,7 @@ function App() {
   return (
     <main className="app-shell drag-region" onPointerDown={closeMenu}>
       <aside className="sidebar no-drag">
-        <div className="brand"><div className="brand-mark">★</div><span>Star Engineer</span></div>
+        <div className="brand"><div className="brand-mark">✦</div><span><strong>Star Engineer</strong><small>Command Center</small></span></div>
         <nav className="nav">
           {groups.filter((group) => group.id !== "settings").map((group) => {
             const acceptsDrop = !group.isSystem;
@@ -389,12 +392,15 @@ function App() {
       </aside>
 
       <section className="window">
-        <header className="titlebar"><div /><div className="window-controls no-drag">
-          <button title="最小化" aria-label="最小化" onClick={() => void api().windowAction("minimize")}>−</button>
-          <button title="最大化或还原" aria-label="最大化或还原" onClick={() => void api().windowAction("maximize")}>□</button>
-          <button title="关闭" aria-label="关闭" className="close" onClick={() => void api().windowAction("close")}>×</button>
-        </div></header>
-        <section className="searchbar no-drag"><label><Icon name="search" /><input value={searchDraft} onFocus={closeMenu} onChange={(event) => setSearchDraft(event.target.value)} onKeyDown={(event) => event.key === "Enter" && submitSearch()} placeholder="搜索..." /></label><button className="search-button" onClick={submitSearch}><Icon name="search" />搜索</button></section>
+        <header className="topbar">
+          <div className="page-heading"><span>{pageSubtitle}</span><h1>{pageTitle}</h1></div>
+          <section className="searchbar no-drag"><label><Icon name="search" /><input value={searchDraft} onFocus={closeMenu} onChange={(event) => setSearchDraft(event.target.value)} onKeyDown={(event) => event.key === "Enter" && submitSearch()} placeholder="搜索应用或进程" /></label><button className="search-button" onClick={submitSearch} aria-label="搜索"><Icon name="search" /></button></section>
+          <div className="window-controls no-drag">
+            <button title="最小化" aria-label="最小化" onClick={() => void api().windowAction("minimize")}>−</button>
+            <button title="最大化或还原" aria-label="最大化或还原" onClick={() => void api().windowAction("maximize")}>□</button>
+            <button title="关闭" aria-label="关闭" className="close" onClick={() => void api().windowAction("close")}>×</button>
+          </div>
+        </header>
 
         {activeSection === "processes" ? <ProcessPage processes={visibleProcesses} lockedProcessName={lockedProcessName} sortKey={sortKey} sortDirection={sortDirection} changeSort={changeSort} filter={processFilter} setFilter={changeProcessFilter} onContextMenu={openProcessMenu} />
           : activeSection === "settings" ? <SettingsPage apps={runtimeApps} groups={appGroups} onAdd={addApp} onAddToGroup={(groupId) => void runAppAction(() => api().addAppFromDialog(groupId))} onCreate={() => setGroupEdit({ name: "", icon: "grid" })} onEdit={(group) => setGroupEdit({ id: group.id, name: group.name, icon: group.icon })} onDelete={requestDeleteGroup} onReorder={reorderGroups} onOpenApp={(app) => { setActiveSection(app.groupId); setSelectedAppId(app.id); }} onAppContextMenu={(event, app) => { event.preventDefault(); event.stopPropagation(); openMenu({ kind: "app", x: event.clientX, y: event.clientY, appId: app.id }); }} onMoveApp={moveAppWithinSettings} />

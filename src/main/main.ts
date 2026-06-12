@@ -131,7 +131,8 @@ function createWindow() {
     minWidth: 1060,
     minHeight: 680,
     frame: false,
-    backgroundColor: "#f7f9fd",
+    backgroundColor: "#00000000",
+    roundedCorners: true,
     title: "Star Engineer",
     webPreferences: {
       preload: preloadPath,
@@ -139,6 +140,14 @@ function createWindow() {
       nodeIntegration: false
     }
   });
+
+  if (process.platform === "win32") {
+    try {
+      mainWindow.setBackgroundMaterial("mica");
+    } catch {
+      mainWindow.setBackgroundColor("#edf4ff");
+    }
+  }
 
   if (isDev && rendererUrl) {
     void mainWindow.loadURL(rendererUrl);
