@@ -6,11 +6,11 @@
 ## 1. 项目名称
 
 - 当前项目名称：**Start Engineer**
-- 界面品牌名称：**Star Engineer**
+- 界面品牌名称：**Start Engineer**
 - 原开发代号：**CommandDeck Next**
 - 当前项目路径：`D:\Code\Start Engineer`
 - 原项目备份：`D:\IDE\Codex\2026-05-29\CommandDeckNext`
-- Electron 用户数据目录：`%APPDATA%\commanddeck-next`
+- Electron 用户数据目录：`%APPDATA%\start-engineer`
 
 当前只迁移了项目位置，没有修改内部包名、用户数据目录或界面品牌。
 
@@ -153,7 +153,7 @@ Windows 关键进程和 Start Engineer 自身进程禁止结束。
 
 - Windows 11
 - Windows 任务管理器
-- 用户提供的 Star Engineer 页面设计稿
+- 用户提供的 Start Engineer 页面设计稿
 
 需要避免：
 
@@ -465,8 +465,8 @@ src/shared/types.ts
 - 没有自动化单元测试
 - 没有端到端测试
 - 没有 Electron 打包配置
-- `package.json`名称仍为 `commanddeck-next`
-- 项目目录叫 Start Engineer，但界面显示 Star Engineer，名称尚未统一
+- `package.json`名称已统一为 `start-engineer`
+- 项目目录和界面均统一显示 Start Engineer
 
 ## 12. 下一步开发计划
 
@@ -500,7 +500,7 @@ src/shared/types.ts
 4. 增加资源监控单元测试。
 5. 增加应用和分组 IPC 测试。
 6. 增加 Electron 烟测脚本。
-7. 统一 Start Engineer / Star Engineer 命名。
+7. Start Engineer 命名已统一。
 8. 完善 README 和开发命令。
 
 ### 第三阶段：桌面产品能力
@@ -524,7 +524,7 @@ src/shared/types.ts
 系统：Windows
 包管理器：npm
 旧项目备份：D:\IDE\Codex\2026-05-29\CommandDeckNext
-当前 Electron 用户数据目录保持为 %APPDATA%\commanddeck-next
+当前 Electron 用户数据目录为 %APPDATA%\start-engineer，旧 %APPDATA%\commanddeck-next 首次启动时迁移保留
 ```
 
 开发前需要执行：

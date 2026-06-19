@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { AppEntry, CommandDeckApi, GroupInput, GroupUpdateInput, SnapshotMode, UpdateAppInput, WindowAction } from "../shared/types.js";
+import type { AppEntry, GroupInput, GroupUpdateInput, SnapshotMode, StartEngineerApi, UpdateAppInput, UpdatePreferencesInput, WindowAction } from "../shared/types.js";
 
-const api: CommandDeckApi = {
+const api: StartEngineerApi = {
   listGroups: () => ipcRenderer.invoke("groups:list"),
   createGroup: (input: GroupInput) => ipcRenderer.invoke("groups:create", input),
   updateGroup: (input: GroupUpdateInput) => ipcRenderer.invoke("groups:update", input),
@@ -13,16 +13,31 @@ const api: CommandDeckApi = {
   pickExecutable: (id: string) => ipcRenderer.invoke("apps:pickExecutable", id),
   updateApp: (input: UpdateAppInput) => ipcRenderer.invoke("apps:update", input),
   setAppGroup: (id: string, groupId: AppEntry["groupId"]) => ipcRenderer.invoke("apps:setGroup", id, groupId),
+  setAppLaunchSelected: (id: string, selected: boolean) => ipcRenderer.invoke("apps:setLaunchSelected", id, selected),
+  setGroupLaunchSelected: (groupId: string, selected: boolean) => ipcRenderer.invoke("groups:setLaunchSelected", groupId, selected),
   launchApp: (id: string) => ipcRenderer.invoke("apps:launch", id),
+  launchSelectedApps: (groupId: string) => ipcRenderer.invoke("groups:launchSelected", groupId),
   killApp: (id: string) => ipcRenderer.invoke("apps:kill", id),
+  killGroupApps: (groupId: string) => ipcRenderer.invoke("groups:killApps", groupId),
   removeApp: (id: string) => ipcRenderer.invoke("apps:remove", id),
   killProcessGroup: (input: { name: string; pids: number[] }) => ipcRenderer.invoke("processes:killGroup", input),
   showItemInFolder: (path: string) => ipcRenderer.invoke("shell:showItemInFolder", path),
   writeClipboardText: (text: string) => ipcRenderer.invoke("clipboard:writeText", text),
+  searchEverything: (query: string) => ipcRenderer.invoke("search:everything", query),
+  pickEverythingCli: () => ipcRenderer.invoke("search:pickEverythingCli"),
+  getSearchDependencyStatus: () => ipcRenderer.invoke("search:dependencyStatus"),
+  prepareSearchDependencies: () => ipcRenderer.invoke("search:prepareDependencies"),
+  openSearchDependencyFolder: () => ipcRenderer.invoke("search:openDependencyFolder"),
+  openSearchResult: (path: string) => ipcRenderer.invoke("search:openResult", path),
+  showSearchResultInFolder: (path: string) => ipcRenderer.invoke("search:showInFolder", path),
   getMetricsSnapshot: () => ipcRenderer.invoke("metrics:snapshot"),
   getProcessSnapshot: () => ipcRenderer.invoke("processes:snapshot"),
   getRuntimeSnapshot: (mode?: SnapshotMode, force?: boolean) => ipcRenderer.invoke("runtime:snapshot", mode, force),
+  getPreferences: () => ipcRenderer.invoke("preferences:get"),
+  updatePreferences: (input: UpdatePreferencesInput) => ipcRenderer.invoke("preferences:update", input),
+  restartWithConfiguredPrivileges: () => ipcRenderer.invoke("preferences:restartWithConfiguredPrivileges"),
   windowAction: (action: WindowAction) => ipcRenderer.invoke("window:action", action)
 };
 
+contextBridge.exposeInMainWorld("startEngineer", api);
 contextBridge.exposeInMainWorld("commandDeck", api);
