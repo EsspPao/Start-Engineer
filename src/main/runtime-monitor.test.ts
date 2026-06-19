@@ -69,6 +69,40 @@ describe("RuntimeMonitor", () => {
     expect(result.metrics[0].diskBytesPerSecond).toBe(200);
   });
 
+  it("does not match managed apps by persisted process aliases", async () => {
+    const collect = vi.fn(async () => [process({ pid: 20, name: "real-client", path: "C:\\Apps\\Client\\real-client.exe" })]);
+    const monitor = new RuntimeMonitor({
+      collect,
+      loadApps: () => [{ ...app, processAliases: ["real-client"] }],
+      resolveIcon: async () => "icon",
+      getTerminationBlockReason: () => undefined,
+      processorCount: 2,
+      ttlMs: 800,
+      now: () => 1000
+    });
+
+    const result = await monitor.getSnapshot("managed", true);
+
+    expect(result.metrics[0]).toMatchObject({ isRunning: false, pids: [] });
+  });
+
+  it("matches managed apps by runtime associated PIDs", async () => {
+    const collect = vi.fn(async () => [process({ pid: 20, name: "real-client", path: "C:\\Apps\\Client\\real-client.exe" })]);
+    const monitor = new RuntimeMonitor({
+      collect,
+      loadApps: () => [{ ...app, associatedPids: [20] }],
+      resolveIcon: async () => "icon",
+      getTerminationBlockReason: () => undefined,
+      processorCount: 2,
+      ttlMs: 800,
+      now: () => 1000
+    });
+
+    const result = await monitor.getSnapshot("managed", true);
+
+    expect(result.metrics[0]).toMatchObject({ isRunning: true, pids: [20] });
+  });
+
   it("clears samples for PIDs that disappear", async () => {
     const collect = vi.fn().mockResolvedValueOnce([process()]).mockResolvedValueOnce([]);
     const monitor = createMonitor(collect);

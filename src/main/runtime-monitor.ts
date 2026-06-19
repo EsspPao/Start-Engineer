@@ -2,6 +2,7 @@ import type { AppEntry, AppMetrics, ProcessInfo, RuntimeSnapshot, SnapshotMode }
 
 export type ProcessSnapshot = {
   pid: number;
+  parentPid?: number;
   name: string;
   path: string;
   cpuSeconds: number;
@@ -40,6 +41,9 @@ export function buildAppIndex(apps: AppEntry[]): AppIndex {
   const index: AppIndex = { byPid: new Map(), byName: new Map(), byPath: new Map() };
   for (const app of apps) {
     if (app.launchedPid) index.byPid.set(app.launchedPid, app);
+    for (const pid of app.associatedPids ?? []) {
+      if (Number.isSafeInteger(pid) && pid > 0) index.byPid.set(pid, app);
+    }
     const name = normalizeName(app.processName || app.executablePath);
     if (name && !index.byName.has(name)) index.byName.set(name, app);
     const path = normalizePath(app.executablePath);

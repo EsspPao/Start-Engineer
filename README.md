@@ -1,6 +1,6 @@
-# Star Engineer
+# Start Engineer
 
-Star Engineer is a lightweight Windows launcher and process monitor built with Electron, React, TypeScript, and Vite.
+Start Engineer is a lightweight Windows launcher and process monitor built with Electron, React, TypeScript, and Vite.
 
 ## Commands
 

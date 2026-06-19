@@ -1,5 +1,5 @@
 {
-  "name": "commanddeck-next",
+  "name": "start-engineer",
   "version": "0.1.0",
   "private": true,
   "description": "A lightweight Windows application launcher and process monitor.",
@@ -32,8 +32,8 @@
     "vitest": "^2.1.9"
   },
   "build": {
-    "appId": "com.essppao.starengineer",
-    "productName": "Star Engineer",
+    "appId": "com.essppao.startengineer",
+    "productName": "Start Engineer",
     "asar": true,
     "directories": {
       "output": "release"
@@ -43,8 +43,13 @@
       "dist-electron/**/*",
       "package.json"
     ],
+    "extraResources": [
+      { "from": "build/icon.ico", "to": "icon.ico" },
+      { "from": "build/tray-icon.png", "to": "tray-icon.png" }
+    ],
     "win": {
-      "executableName": "Star Engineer",
+      "executableName": "Start Engineer",
+      "icon": "build/icon.ico",
       "signAndEditExecutable": false,
       "target": [
         "nsis",
@@ -56,11 +61,13 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
-      "shortcutName": "Star Engineer",
-      "artifactName": "Star-Engineer-Setup-${version}.${ext}"
+      "shortcutName": "Start Engineer",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "artifactName": "Start-Engineer-Setup-${version}.${ext}"
     },
     "portable": {
-      "artifactName": "Star-Engineer-Portable-${version}.${ext}"
+      "artifactName": "Start-Engineer-Portable-${version}.${ext}"
     }
   }
 }

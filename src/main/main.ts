@@ -1,5 +1,5 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, shell, type OpenDialogOptions } from "electron";
-import { execFile } from "node:child_process";
+import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, nativeImage, nativeTheme, shell, Tray, type OpenDialogOptions } from "electron";
+import { execFile, execFileSync, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { cpus } from "node:os";
@@ -9,26 +9,47 @@ import type {
   AppEntry,
   AppGroup,
   AppMetrics,
+  AppPreferences,
+  AppPreferencesState,
+  BatchKillResult,
+  BatchLaunchResult,
+  SearchDependencyStatus,
   GroupInput,
   GroupUpdateInput,
   LaunchAppResult,
   ProcessInfo,
   SnapshotMode,
   UpdateAppInput,
+  UpdatePreferencesInput,
   WindowAction
 } from "../shared/types.js";
 import { RuntimeMonitor, type ProcessSnapshot } from "./runtime-monitor.js";
 import { migrateAppEntry, normalizeGroups } from "./config-migration.js";
 import { APP_ICON_CACHE_VERSION, APP_ICON_TARGET_SIZE, shouldRefreshAppIcon } from "./icon-cache.js";
+import { defaultPreferences, normalizePreferences, resolveLoginExecutable } from "./preferences.js";
+import { validateShortcut } from "../shared/global-shortcut.js";
+import { terminatePids } from "./process-termination.js";
+import { resolveUiTheme, themeUsesMica } from "../shared/theme.js";
+import { collectGroupTermination, launchAppsSequentially } from "./batch-app-actions.js";
+import { administratorRestartRequired, buildRestartRequest, shouldRequestAdministratorRelaunch } from "./administrator-launch.js";
+import { migrateLegacyUserData } from "./user-data-migration.js";
+import { searchEverything as runEverythingSearch } from "./everything-search.js";
+import { buildEverythingDownloadPlan, clearTempDependencyDir, downloadFile, expandZip, getManagedEverythingPaths, getSearchDependencyStatus as resolveSearchDependencyStatus } from "./search-dependencies.js";
 
 const isDev = process.env.VITE_DEV_SERVER_URL !== undefined;
 const appRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const rendererUrl = process.env.VITE_DEV_SERVER_URL;
 const rendererIndex = join(appRoot, "dist", "index.html");
 const preloadPath = join(appRoot, "dist-electron", "preload", "preload.cjs");
-app.setPath("userData", join(app.getPath("appData"), "commanddeck-next"));
+const appIconPath = () => app.isPackaged ? join(process.resourcesPath, "icon.ico") : join(appRoot, "build", "icon.ico");
+const trayIconPath = () => app.isPackaged ? join(process.resourcesPath, "tray-icon.png") : join(appRoot, "build", "tray-icon.png");
+const smokeMode = process.env.START_ENGINEER_SMOKE === "1" || process.env.STAR_ENGINEER_SMOKE === "1";
+const startEngineerUserData = smokeMode ? join(app.getPath("temp"), `start-engineer-smoke-${process.pid}`) : join(app.getPath("appData"), "start-engineer");
+if (!smokeMode) migrateLegacyUserData(startEngineerUserData, join(app.getPath("appData"), "commanddeck-next"));
+app.setPath("userData", startEngineerUserData);
 const configPath = () => join(app.getPath("userData"), "apps.json");
 const groupsPath = () => join(app.getPath("userData"), "groups.json");
+const preferencesPath = () => join(app.getPath("userData"), "preferences.json");
 const iconCacheDir = () => join(app.getPath("userData"), "icons");
 const processIconCache = new Map<string, string>();
 const protectedProcessNames = new Set([
@@ -45,9 +66,30 @@ const protectedProcessNames = new Set([
 ]);
 
 let mainWindow: BrowserWindow | null = null;
+let tray: Tray | null = null;
+let isQuitting = false;
 let appsCache: AppEntry[] = [];
 let groupsCache: AppGroup[] = [];
+let preferencesCache: AppPreferences | null = null;
+let registeredShortcut = "";
+let shortcutState: Pick<AppPreferencesState, "globalShortcutStatus" | "globalShortcutMessage"> = { globalShortcutStatus: "disabled" };
 let iconRefreshInFlight: Promise<AppEntry[]> | null = null;
+let administratorMessage = "";
+let searchDependencyStatus: SearchDependencyStatus | null = null;
+let prepareDependenciesInFlight: Promise<SearchDependencyStatus> | null = null;
+const runtimeAssociatedPids = new Map<string, Set<number>>();
+
+function detectAdministratorPrivileges() {
+  if (process.platform !== "win32") return false;
+  try {
+    const result = execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", "[Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)"], { encoding: "utf8", windowsHide: true, timeout: 5000 });
+    return result.trim().toLowerCase() === "true";
+  } catch {
+    return false;
+  }
+}
+
+const isRunningAsAdministrator = detectAdministratorPrivileges();
 
 function ownProcessIds() {
   const ids = new Set([process.pid]);
@@ -63,7 +105,7 @@ function getTerminationBlockReason(name: string, pids: number[]) {
   }
   const ownIds = ownProcessIds();
   if (pids.some((pid) => ownIds.has(pid))) {
-    return "不能结束 Star Engineer 自身进程";
+    return "不能结束 Start Engineer 自身进程";
   }
   return undefined;
 }
@@ -87,6 +129,241 @@ function saveGroups(groups: AppGroup[]) {
   mkdirSync(dirname(groupsPath()), { recursive: true });
   writeFileSync(groupsPath(), JSON.stringify(normalized, null, 2), "utf8");
   groupsCache = normalized;
+}
+
+function savePreferences(preferences: AppPreferences) {
+  const normalized = normalizePreferences(preferences);
+  mkdirSync(dirname(preferencesPath()), { recursive: true });
+  writeFileSync(preferencesPath(), JSON.stringify(normalized, null, 2), "utf8");
+  preferencesCache = normalized;
+  return normalized;
+}
+
+function loadPreferences() {
+  if (preferencesCache) return preferencesCache;
+  try {
+    preferencesCache = normalizePreferences(JSON.parse(readFileSync(preferencesPath(), "utf8")) as Partial<AppPreferences>);
+  } catch {
+    if (existsSync(preferencesPath())) {
+      try { renameSync(preferencesPath(), `${preferencesPath()}.corrupt-${Date.now()}.bak`); } catch { /* Keep running with defaults. */ }
+    }
+    preferencesCache = { ...defaultPreferences };
+    savePreferences(preferencesCache);
+  }
+  return preferencesCache;
+}
+
+function loginExecutable() {
+  return resolveLoginExecutable(process.execPath, process.env.PORTABLE_EXECUTABLE_FILE);
+}
+
+const loginArgs = ["--autostart"];
+
+function loginItemEnabled() {
+  const path = loginExecutable();
+  return app.getLoginItemSettings({ path, args: loginArgs }).openAtLogin;
+}
+
+function preferencesSnapshot(): AppPreferencesState {
+  const preferences = loadPreferences();
+  return {
+    ...preferences,
+    launchAtStartup: loginItemEnabled(),
+    ...shortcutState,
+    isRunningAsAdministrator,
+    administratorRestartRequired: administratorRestartRequired(preferences.runAsAdministrator, isRunningAsAdministrator),
+    ...(administratorMessage ? { administratorMessage } : {})
+  };
+}
+
+function getSearchDependencyStatus(): SearchDependencyStatus {
+  if (searchDependencyStatus && searchDependencyStatus.state !== "ready" && searchDependencyStatus.state !== "missing") return searchDependencyStatus;
+  const status = resolveSearchDependencyStatus(loadPreferences(), app.getPath("userData"));
+  searchDependencyStatus = status;
+  return status;
+}
+
+async function prepareSearchDependencies(): Promise<SearchDependencyStatus> {
+  if (prepareDependenciesInFlight) return prepareDependenciesInFlight;
+  prepareDependenciesInFlight = (async () => {
+    const existing = resolveSearchDependencyStatus(loadPreferences(), app.getPath("userData"));
+    if (existing.state === "ready") return existing;
+    const userDataPath = app.getPath("userData");
+    const plan = buildEverythingDownloadPlan(userDataPath);
+    const paths = getManagedEverythingPaths(userDataPath);
+    try {
+      clearTempDependencyDir(userDataPath);
+      searchDependencyStatus = { state: "downloading", message: "正在下载 Everything 便携版" };
+      await downloadFile(plan.everything.url, plan.everything.tempZip, (downloadedBytes, totalBytes) => { searchDependencyStatus = { state: "downloading", message: "正在下载 Everything 便携版", downloadedBytes, totalBytes }; });
+      searchDependencyStatus = { state: "downloading", message: "正在下载 Everything 命令行工具" };
+      await downloadFile(plan.es.url, plan.es.tempZip, (downloadedBytes, totalBytes) => { searchDependencyStatus = { state: "downloading", message: "正在下载 Everything 命令行工具", downloadedBytes, totalBytes }; });
+      searchDependencyStatus = { state: "extracting", message: "正在解压 Everything 搜索依赖" };
+      await expandZip(plan.everything.tempZip, plan.everything.finalDir);
+      await expandZip(plan.es.tempZip, plan.es.finalDir);
+      clearTempDependencyDir(userDataPath);
+      if (!existsSync(paths.everythingCliPath) || !existsSync(paths.everythingPath)) throw new Error("Everything 依赖解压后不完整");
+      savePreferences({ ...loadPreferences(), everythingCliPath: paths.everythingCliPath, everythingManagedPath: paths.everythingPath });
+      searchDependencyStatus = { state: "starting", message: "正在启动 Everything 便携版", everythingPath: paths.everythingPath, everythingCliPath: paths.everythingCliPath };
+      spawn(paths.everythingPath, ["-startup"], { detached: true, stdio: "ignore", windowsHide: true }).unref();
+      searchDependencyStatus = { state: "ready", message: "Everything 搜索依赖已就绪", everythingPath: paths.everythingPath, everythingCliPath: paths.everythingCliPath };
+      return searchDependencyStatus;
+    } catch (reason) {
+      clearTempDependencyDir(userDataPath);
+      searchDependencyStatus = { state: "failed", message: cleanDependencyError(reason) };
+      return searchDependencyStatus;
+    } finally {
+      prepareDependenciesInFlight = null;
+    }
+  })();
+  return prepareDependenciesInFlight;
+}
+
+function cleanDependencyError(reason: unknown) {
+  return reason instanceof Error ? reason.message : typeof reason === "string" ? reason : "准备 Everything 搜索依赖失败";
+}
+
+function powershellEncoded(script: string) {
+  return Buffer.from(script, "utf16le").toString("base64");
+}
+
+function launchRestartRequest(request: ReturnType<typeof buildRestartRequest>) {
+  if (request.elevated) {
+    const payload = Buffer.from(JSON.stringify(request), "utf8").toString("base64");
+    const script = `$request = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${payload}')) | ConvertFrom-Json\nStart-Process -FilePath ([string]$request.executablePath) -ArgumentList ([string[]]$request.args) -Verb RunAs -ErrorAction Stop`;
+    return new Promise<void>((resolve, reject) => {
+      execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", powershellEncoded(script)], { windowsHide: true }, (error) => error ? reject(new Error("管理员授权已取消或启动失败")) : resolve());
+    });
+  }
+
+  const child = spawn("explorer.exe", [request.executablePath, ...request.args], { detached: true, stdio: "ignore", windowsHide: true });
+  child.unref();
+  return Promise.resolve();
+}
+
+function launchElevatedSynchronously(request: ReturnType<typeof buildRestartRequest>) {
+  const payload = Buffer.from(JSON.stringify(request), "utf8").toString("base64");
+  const script = `$request = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${payload}')) | ConvertFrom-Json\nStart-Process -FilePath ([string]$request.executablePath) -ArgumentList ([string[]]$request.args) -Verb RunAs -ErrorAction Stop`;
+  execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", powershellEncoded(script)], { windowsHide: true, timeout: 120000 });
+}
+
+async function restartWithConfiguredPrivileges() {
+  const request = buildRestartRequest(process.execPath, process.env.PORTABLE_EXECUTABLE_FILE, loadPreferences().runAsAdministrator);
+  app.releaseSingleInstanceLock();
+  try {
+    await launchRestartRequest(request);
+  } catch (reason) {
+    app.requestSingleInstanceLock();
+    throw reason;
+  }
+  isQuitting = true;
+  globalShortcut.unregisterAll();
+  registeredShortcut = "";
+  tray?.destroy();
+  tray = null;
+  setTimeout(() => app.quit(), 150);
+}
+
+function toggleMainWindow() {
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() && !mainWindow.isMinimized() && mainWindow.isFocused()) {
+    mainWindow.hide();
+    return;
+  }
+  showMainWindow();
+}
+
+function applyGlobalShortcut(preferences: AppPreferences, persist: boolean): AppPreferencesState {
+  if (!preferences.globalShortcutEnabled) {
+    if (registeredShortcut) globalShortcut.unregister(registeredShortcut);
+    registeredShortcut = "";
+    shortcutState = { globalShortcutStatus: "disabled" };
+    if (persist) savePreferences(preferences);
+    return preferencesSnapshot();
+  }
+
+  const validation = validateShortcut(preferences.globalShortcut);
+  if (!validation.valid) {
+    shortcutState = { globalShortcutStatus: "invalid", globalShortcutMessage: validation.message };
+    return { ...preferencesSnapshot(), globalShortcutStatus: "invalid", globalShortcutMessage: validation.message };
+  }
+
+  const accelerator = validation.accelerator;
+  if (registeredShortcut === accelerator && globalShortcut.isRegistered(accelerator)) {
+    shortcutState = { globalShortcutStatus: "registered" };
+    if (persist) savePreferences({ ...preferences, globalShortcut: accelerator });
+    return preferencesSnapshot();
+  }
+
+  if (!globalShortcut.register(accelerator, toggleMainWindow)) {
+    const message = "快捷键已被其他应用占用";
+    shortcutState = { globalShortcutStatus: "unavailable", globalShortcutMessage: message };
+    return { ...preferencesSnapshot(), globalShortcutStatus: "unavailable", globalShortcutMessage: message };
+  }
+
+  if (registeredShortcut) globalShortcut.unregister(registeredShortcut);
+  registeredShortcut = accelerator;
+  shortcutState = { globalShortcutStatus: "registered" };
+  const normalized = { ...preferences, globalShortcut: accelerator };
+  if (persist) savePreferences(normalized);
+  return preferencesSnapshot();
+}
+
+function updatePreferences(input: UpdatePreferencesInput): AppPreferencesState {
+  const current = preferencesSnapshot();
+  const next = normalizePreferences({ ...current, ...input });
+  if (input.runAsAdministrator !== undefined) administratorMessage = "";
+  if (input.launchAtStartup !== undefined) {
+    const path = loginExecutable();
+    app.setLoginItemSettings({ openAtLogin: next.launchAtStartup, path, args: loginArgs });
+    if (loginItemEnabled() !== next.launchAtStartup) throw new Error("Windows 开机启动设置未能生效");
+  }
+  if (input.globalShortcut !== undefined || input.globalShortcutEnabled !== undefined) {
+    return applyGlobalShortcut(next, true);
+  }
+  savePreferences(next);
+  if (input.uiTheme !== undefined) applyWindowTheme(next);
+  return preferencesSnapshot();
+}
+
+function showMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow();
+    return;
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+function applyWindowTheme(preferences = loadPreferences()) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const theme = resolveUiTheme(preferences.uiTheme, nativeTheme.shouldUseDarkColors);
+  const backgroundColor = theme === "midnight" ? "#07111f" : theme === "utility" ? "#f3efe6" : "#00000000";
+
+  if (process.platform === "win32") {
+    try {
+      mainWindow.setBackgroundMaterial(themeUsesMica(theme) ? "mica" : "none");
+    } catch {
+      // CSS backgrounds remain the visual fallback on unsupported Windows versions.
+    }
+  }
+  mainWindow.setBackgroundColor(backgroundColor);
+}
+
+async function createTray() {
+  if (tray) return;
+  let icon = nativeImage.createFromPath(trayIconPath());
+  if (icon.isEmpty()) {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#52c8ed"/><stop offset=".55" stop-color="#6370f3"/><stop offset="1" stop-color="#9361eb"/></linearGradient></defs><rect width="32" height="32" rx="8" fill="url(#g)"/><path d="m16 7 2.1 5.2L23 14l-4.9 1.8L16 21l-2.1-5.2L9 14l4.9-1.8L16 7Z" fill="white"/></svg>`;
+    icon = nativeImage.createFromDataURL(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`);
+  }
+  tray = new Tray(icon.resize({ width: 16, height: 16 }));
+  tray.setToolTip("Start Engineer");
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: "打开 Start Engineer", click: showMainWindow },
+    { type: "separator" },
+    { label: "退出", click: () => { isQuitting = true; app.quit(); } }
+  ]));
+  tray.on("click", showMainWindow);
 }
 
 function loadAppGroups(): AppGroup[] {
@@ -137,7 +414,8 @@ function createWindow() {
     hasShadow: true,
     transparent: true,
     backgroundColor: "#00000000",
-    title: "Star Engineer",
+    title: "Start Engineer",
+    icon: appIconPath(),
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
@@ -145,13 +423,15 @@ function createWindow() {
     }
   });
 
-  if (process.platform === "win32") {
-    try {
-      mainWindow.setBackgroundMaterial("mica");
-    } catch {
-      mainWindow.setBackgroundColor("#edf4ff");
+  mainWindow.on("close", (event) => {
+    if (!isQuitting && loadPreferences().closeBehavior === "tray") {
+      event.preventDefault();
+      mainWindow?.hide();
     }
-  }
+  });
+  mainWindow.on("closed", () => { mainWindow = null; });
+
+  applyWindowTheme();
 
   if (isDev && rendererUrl) {
     void mainWindow.loadURL(rendererUrl);
@@ -237,11 +517,20 @@ function loadApps(): AppEntry[] {
   return appsCache;
 }
 
+function loadAppsWithRuntimeAssociations(): AppEntry[] {
+  return loadApps().map((entry) => {
+    const associatedPids = [...(runtimeAssociatedPids.get(entry.id) ?? [])];
+    return associatedPids.length ? { ...entry, associatedPids } : entry;
+  });
+}
+
 function saveApps(apps: AppEntry[]) {
   const path = configPath();
+  const cached = apps.map(({ associatedPids: _associatedPids, processAliases: _processAliases, ...entry }) => entry);
+  const persisted = cached.map(({ launchedPid: _launchedPid, ...entry }) => entry);
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(apps, null, 2), "utf8");
-  appsCache = apps;
+  writeFileSync(path, JSON.stringify(persisted, null, 2), "utf8");
+  appsCache = cached;
 }
 
 function getApp(id: string) {
@@ -265,7 +554,7 @@ function runPowerShell(script: string): Promise<string> {
       { windowsHide: true, maxBuffer: 1024 * 1024 * 20 },
       (error, stdout, stderr) => {
         if (error) {
-          reject(new Error(stderr || error.message));
+          reject(new Error(`${String(stderr || error.message).trim()}${error.code !== undefined ? ` (exit ${error.code})` : ""}`));
           return;
         }
 
@@ -275,16 +564,57 @@ function runPowerShell(script: string): Promise<string> {
   });
 }
 
+function runTaskkill(args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    execFile("taskkill.exe", args, { windowsHide: true }, (error, _stdout, stderr) => {
+      if (error) {
+        reject(new Error(String(stderr || error.message).trim()));
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+async function runElevatedTaskkill(args: string[]) {
+  const encodedArgs = Buffer.from(JSON.stringify(args), "utf8").toString("base64");
+  const script = `
+$arguments = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encodedArgs}')) | ConvertFrom-Json
+try {
+  $process = Start-Process -FilePath 'taskkill.exe' -ArgumentList ([string[]]$arguments) -Verb RunAs -Wait -PassThru -ErrorAction Stop
+  if ($process.ExitCode -ne 0) { throw "taskkill exited with code $($process.ExitCode)" }
+} catch {
+  if ($_.Exception.NativeErrorCode -eq 1223 -or $_.Exception.Message -match 'cancel|取消') { exit 1223 }
+  throw
+}
+`;
+  try {
+    await runPowerShell(script);
+  } catch (reason) {
+    const message = reason instanceof Error ? reason.message : String(reason);
+    if (/1223|cancel|取消/i.test(message)) {
+      throw Object.assign(new Error(message), { code: "ELEVATION_CANCELLED" });
+    }
+    throw reason;
+  }
+}
+
+async function getRunningPids(pids: number[]) {
+  const candidates = new Set(pids);
+  return (await getProcessSnapshots()).filter((process) => candidates.has(process.pid)).map((process) => process.pid);
+}
+
 async function getProcessSnapshots(): Promise<ProcessSnapshot[]> {
   const script = `
 $processes = Get-Process | Select-Object Id,ProcessName,CPU,WorkingSet64
-$cim = Get-CimInstance Win32_Process | Select-Object ProcessId,ExecutablePath,ReadTransferCount,WriteTransferCount
+$cim = Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,ExecutablePath,ReadTransferCount,WriteTransferCount
 $infoMap = @{}
 foreach ($item in $cim) { $infoMap[[int]$item.ProcessId] = $item }
 $rows = foreach ($proc in $processes) {
   $info = $infoMap[[int]$proc.Id]
   [PSCustomObject]@{
     pid = [int]$proc.Id
+    parentPid = if ($null -eq $info -or $null -eq $info.ParentProcessId) { 0 } else { [int]$info.ParentProcessId }
     name = [string]$proc.ProcessName
     path = if ($null -eq $info) { "" } else { [string]$info.ExecutablePath }
     cpuSeconds = if ($null -eq $proc.CPU) { 0 } else { [double]$proc.CPU }
@@ -453,7 +783,7 @@ function refreshAppIcons() {
 
 const runtimeMonitor = new RuntimeMonitor({
   collect: getProcessSnapshots,
-  loadApps,
+  loadApps: loadAppsWithRuntimeAssociations,
   resolveIcon: getIconDataUrl,
   getTerminationBlockReason,
   processorCount: cpus().length,
@@ -557,6 +887,106 @@ try {
   };
 }
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const normalizeFilesystemPath = (value: string) => value.replace(/\//g, "\\").replace(/\\+$/, "").toLowerCase();
+
+function isProcessInsideAppDirectory(processPath: string, appEntry: AppEntry) {
+  if (!processPath || !appEntry.executablePath) return false;
+  const appDirectory = normalizeFilesystemPath(dirname(appEntry.executablePath));
+  const childPath = normalizeFilesystemPath(processPath);
+  return childPath === normalizeFilesystemPath(appEntry.executablePath) || childPath.startsWith(`${appDirectory}\\`);
+}
+
+function collectDescendantProcesses(processes: ProcessSnapshot[], rootPid: number) {
+  const byParent = new Map<number, ProcessSnapshot[]>();
+  for (const process of processes) {
+    if (!process.parentPid) continue;
+    const children = byParent.get(process.parentPid) ?? [];
+    children.push(process);
+    byParent.set(process.parentPid, children);
+  }
+
+  const descendants: ProcessSnapshot[] = [];
+  const seen = new Set<number>();
+  const queue = [...(byParent.get(rootPid) ?? [])];
+  while (queue.length) {
+    const current = queue.shift()!;
+    if (seen.has(current.pid)) continue;
+    seen.add(current.pid);
+    descendants.push(current);
+    queue.push(...(byParent.get(current.pid) ?? []));
+  }
+  return descendants;
+}
+
+async function learnProcessAliasesFromLaunch(appId: string, launchedPid: number) {
+  const descendants = collectDescendantProcesses(await getProcessSnapshots(), launchedPid);
+  const current = getApp(appId);
+  if (!current || !descendants.length) return { apps: loadApps(), learned: false, linked: descendants };
+
+  const associated = runtimeAssociatedPids.get(appId) ?? new Set<number>();
+  const before = associated.size;
+
+  for (const process of descendants) {
+    if (!isProcessInsideAppDirectory(process.path, current)) continue;
+    associated.add(process.pid);
+  }
+
+  if (associated.size) runtimeAssociatedPids.set(appId, associated);
+  return { apps: loadApps(), learned: associated.size > before, linked: descendants };
+}
+
+async function settleLaunchedAppAssociation(appId: string, launchedPid: number) {
+  await sleep(800);
+  let learned = await learnProcessAliasesFromLaunch(appId, launchedPid);
+  let snapshot = await buildRuntimeSnapshot("managed", true);
+  if (snapshot.metrics.find((metric) => metric.appId === appId)?.isRunning) {
+    void (async () => {
+      await sleep(1200);
+      await learnProcessAliasesFromLaunch(appId, launchedPid);
+      await buildRuntimeSnapshot("managed", true);
+    })().catch((reason) => console.warn(`[launch] Deferred child process learning failed for ${appId}:`, reason));
+    return loadApps();
+  }
+
+  await sleep(1200);
+  learned = await learnProcessAliasesFromLaunch(appId, launchedPid);
+  snapshot = await buildRuntimeSnapshot("managed", true);
+  return learned.learned ? learned.apps : snapshot.apps;
+}
+
+function saveLaunchedPidAndTrack(appId: string, launchedPid: number | undefined, waitForAssociation: boolean) {
+  const nextApps = loadApps().map((item) => item.id === appId ? { ...item, launchedPid } : item);
+  saveApps(nextApps);
+  if (!launchedPid) return Promise.resolve(nextApps);
+  const tracking = settleLaunchedAppAssociation(appId, launchedPid);
+  if (waitForAssociation) return tracking;
+  void tracking.catch((reason) => console.warn(`[launch] Failed to learn child process aliases for ${appId}:`, reason));
+  return Promise.resolve(nextApps);
+}
+
+async function launchConfiguredApp(id: string, options: { waitForAssociation?: boolean } = {}): Promise<LaunchAppResult> {
+  const entry = getApp(id);
+  if (!entry) return { status: "failed", apps: loadApps(), errorCode: 2, message: "未找到该应用配置。" };
+
+  const currentMetrics = (await metricsSnapshot()).find((item) => item.appId === id);
+  if (currentMetrics?.isRunning) return { status: "alreadyRunning", apps: loadApps() };
+  if (!entry.executablePath || !existsSync(entry.executablePath)) {
+    return { status: "failed", apps: loadApps(), errorCode: 2, message: "程序路径不存在，请重新选择启动程序。" };
+  }
+
+  const workingDirectory = entry.workingDirectory || dirname(entry.executablePath);
+  if (!existsSync(workingDirectory)) {
+    return { status: "failed", apps: loadApps(), errorCode: 267, message: "应用配置的工作目录无效。" };
+  }
+
+  const launchResult = await launchExecutable(entry);
+  if (launchResult.status !== "launched") return { ...launchResult, apps: loadApps() };
+
+  const nextApps = await saveLaunchedPidAndTrack(id, launchResult.pid, options.waitForAssociation === true);
+  return { ...launchResult, apps: nextApps };
+}
+
 function registerIpc() {
   ipcMain.handle("groups:list", () => listGroups());
   ipcMain.handle("groups:create", (_event, input: GroupInput) => {
@@ -605,7 +1035,7 @@ function registerIpc() {
   ipcMain.handle("apps:refreshIcons", () => refreshAppIcons());
 
   ipcMain.handle("apps:addFromDialog", async (_event, groupId?: AppEntry["groupId"]) => {
-    const filePath = await showExeDialog("选择要加入 Star Engineer 的程序");
+    const filePath = await showExeDialog("选择要加入 Start Engineer 的程序");
     return filePath ? addExecutable(filePath, validAppGroup(groupId)) : loadApps();
   });
 
@@ -614,6 +1044,7 @@ function registerIpc() {
     if (!filePath) {
       return loadApps();
     }
+    runtimeAssociatedPids.delete(id);
 
     const nextApps = await Promise.all(
       loadApps().map(async (item) => {
@@ -634,6 +1065,7 @@ function registerIpc() {
   });
 
   ipcMain.handle("apps:update", async (_event, input: UpdateAppInput) => {
+    runtimeAssociatedPids.delete(input.id);
     const nextApps = await Promise.all(
       loadApps().map(async (item) => {
         if (item.id !== input.id) {
@@ -651,6 +1083,20 @@ function registerIpc() {
     const validGroupId = validAppGroup(groupId);
     const group = loadAppGroups().find((item) => item.id === validGroupId)!;
     const nextApps = loadApps().map((item) => (item.id === id ? { ...item, groupId: validGroupId, category: group.name } : item));
+    saveApps(nextApps);
+    return nextApps;
+  });
+
+  ipcMain.handle("apps:setLaunchSelected", (_event, id: string, selected: boolean) => {
+    if (!getApp(id)) throw new Error("未找到该应用配置。");
+    const nextApps = loadApps().map((item) => item.id === id ? { ...item, launchSelected: Boolean(selected) } : item);
+    saveApps(nextApps);
+    return nextApps;
+  });
+
+  ipcMain.handle("groups:setLaunchSelected", (_event, groupId: string, selected: boolean) => {
+    if (!loadAppGroups().some((group) => group.id === groupId)) throw new Error("分组不存在。");
+    const nextApps = loadApps().map((item) => item.groupId === groupId ? { ...item, launchSelected: Boolean(selected) } : item);
     saveApps(nextApps);
     return nextApps;
   });
@@ -680,32 +1126,68 @@ function registerIpc() {
       return { ...launchResult, apps: loadApps() } satisfies LaunchAppResult;
     }
 
-    const nextApps = loadApps().map((item) => (item.id === id ? { ...item, launchedPid: launchResult.pid } : item));
-    saveApps(nextApps);
+    const nextApps = await saveLaunchedPidAndTrack(id, launchResult.pid, true);
     return { ...launchResult, apps: nextApps } satisfies LaunchAppResult;
   });
 
+  ipcMain.handle("groups:launchSelected", async (_event, groupId: string) => {
+    if (!loadAppGroups().some((group) => group.id === groupId)) throw new Error("分组不存在。");
+    const groupApps = loadApps().filter((item) => item.groupId === groupId);
+    const results = await launchAppsSequentially(groupApps, (entry) => launchConfiguredApp(entry.id));
+    return { apps: loadApps(), results } satisfies BatchLaunchResult;
+  });
+
   ipcMain.handle("apps:kill", async (_event, id: string) => {
-    const metrics = (await metricsSnapshot()).find((item) => item.appId === id);
+    const metrics = (await buildRuntimeSnapshot("managed", true)).metrics.find((item) => item.appId === id);
     const pids = metrics?.pids ?? [];
     const entry = getApp(id);
+    if (!entry) throw new Error("未找到该应用配置");
     const blockedReason = getTerminationBlockReason(`${entry?.processName || ""}.exe`, pids);
     if (blockedReason) {
       throw new Error(blockedReason);
     }
-    for (const pid of pids) {
-      await new Promise<void>((resolve) => {
-        execFile("taskkill.exe", ["/PID", String(pid), "/T", "/F"], { windowsHide: true }, () => resolve());
-      });
-    }
+    await terminatePids(pids, { runNormal: runTaskkill, runElevated: runElevatedTaskkill, getRunningPids });
 
+    const refreshedMetrics = (await buildRuntimeSnapshot("managed", true)).metrics.find((item) => item.appId === id);
+    if (refreshedMetrics?.isRunning) throw new Error("应用进程仍在运行，可能已被后台服务重新启动");
+
+    runtimeAssociatedPids.delete(id);
     const nextApps = loadApps().map((item) => (item.id === id ? { ...item, launchedPid: undefined } : item));
     saveApps(nextApps);
     return nextApps;
   });
 
+  ipcMain.handle("groups:killApps", async (_event, groupId: string) => {
+    if (!loadAppGroups().some((group) => group.id === groupId)) throw new Error("分组不存在。");
+    const groupApps = loadApps().filter((item) => item.groupId === groupId);
+    const snapshot = await buildRuntimeSnapshot("managed", true);
+    const targets = collectGroupTermination(groupApps, snapshot.metrics);
+
+    for (const entry of targets.apps) {
+      const metric = snapshot.metrics.find((item) => item.appId === entry.id);
+      const blockedReason = getTerminationBlockReason(`${entry.processName || ""}.exe`, metric?.pids ?? []);
+      if (blockedReason) throw new Error(`${entry.name}：${blockedReason}`);
+    }
+
+    if (targets.pids.length) {
+      await terminatePids(targets.pids, { runNormal: runTaskkill, runElevated: runElevatedTaskkill, getRunningPids });
+    }
+
+    const refreshed = await buildRuntimeSnapshot("managed", true);
+    const refreshedByApp = new Map(refreshed.metrics.map((metric) => [metric.appId, metric]));
+    const results = targets.apps.map((entry) => refreshedByApp.get(entry.id)?.isRunning
+      ? { appId: entry.id, name: entry.name, status: "restarted" as const, message: "应用进程仍在运行，可能已被后台服务重新启动。" }
+      : { appId: entry.id, name: entry.name, status: "terminated" as const });
+    const stoppedIds = new Set(results.filter((item) => item.status === "terminated").map((item) => item.appId));
+    for (const id of stoppedIds) runtimeAssociatedPids.delete(id);
+    const nextApps = loadApps().map((item) => stoppedIds.has(item.id) ? { ...item, launchedPid: undefined } : item);
+    saveApps(nextApps);
+    return { apps: nextApps, results } satisfies BatchKillResult;
+  });
+
   ipcMain.handle("apps:remove", (_event, id: string) => {
     const entry = getApp(id);
+    runtimeAssociatedPids.delete(id);
     const nextApps = loadApps().filter((item) => item.id !== id);
     saveApps(nextApps);
 
@@ -762,12 +1244,56 @@ function registerIpc() {
     clipboard.writeText(String(text ?? ""));
   });
 
+  ipcMain.handle("search:everything", (_event, query: string) => {
+    const dependency = getSearchDependencyStatus();
+    if (dependency.state !== "ready" || !dependency.everythingCliPath) {
+      throw new Error(dependency.message || "请先一键准备 Everything 搜索依赖");
+    }
+    return runEverythingSearch(String(query ?? ""), { cliPath: dependency.everythingCliPath });
+  });
+  ipcMain.handle("search:pickEverythingCli", async () => {
+    const options: OpenDialogOptions = {
+      title: "选择 Everything 的 ES.exe",
+      filters: [{ name: "Everything 命令行工具", extensions: ["exe"] }],
+      properties: ["openFile"]
+    };
+    const result = mainWindow && !mainWindow.isDestroyed()
+      ? await dialog.showOpenDialog(mainWindow, options)
+      : await dialog.showOpenDialog(options);
+    if (result.canceled || !result.filePaths[0]) return preferencesSnapshot();
+    if (basename(result.filePaths[0]).toLowerCase() !== "es.exe") {
+      throw new Error("请选择 Everything 的 ES.exe 命令行工具。");
+    }
+    savePreferences({ ...loadPreferences(), everythingCliPath: result.filePaths[0] });
+    searchDependencyStatus = null;
+    return preferencesSnapshot();
+  });
+  ipcMain.handle("search:dependencyStatus", () => getSearchDependencyStatus());
+  ipcMain.handle("search:prepareDependencies", () => prepareSearchDependencies());
+  ipcMain.handle("search:openDependencyFolder", () => {
+    const paths = getManagedEverythingPaths(app.getPath("userData"));
+    mkdirSync(paths.root, { recursive: true });
+    shell.openPath(paths.root);
+  });
+  ipcMain.handle("search:openResult", async (_event, filePath: string) => {
+    if (!filePath || !existsSync(filePath)) throw new Error("搜索结果不存在或当前无权访问");
+    const error = await shell.openPath(filePath);
+    if (error) throw new Error(error);
+  });
+  ipcMain.handle("search:showInFolder", (_event, filePath: string) => {
+    if (!filePath || !existsSync(filePath)) throw new Error("搜索结果不存在或当前无权访问");
+    shell.showItemInFolder(filePath);
+  });
+
   ipcMain.handle("metrics:snapshot", () => metricsSnapshot());
   ipcMain.handle("processes:snapshot", () => processSnapshot());
   ipcMain.handle("runtime:snapshot", (_event, mode: SnapshotMode = "full", force = false) => {
     const safeMode: SnapshotMode = mode === "managed" ? "managed" : "full";
     return buildRuntimeSnapshot(safeMode, Boolean(force));
   });
+  ipcMain.handle("preferences:get", () => preferencesSnapshot());
+  ipcMain.handle("preferences:update", (_event, input: UpdatePreferencesInput) => updatePreferences(input));
+  ipcMain.handle("preferences:restartWithConfiguredPrivileges", () => restartWithConfiguredPrivileges());
 
   ipcMain.handle("window:action", (_event, action: WindowAction) => {
     if (!mainWindow) {
@@ -784,19 +1310,36 @@ function registerIpc() {
   });
 }
 
-app.whenReady().then(() => {
-  registerIpc();
-  createWindow();
-
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
-  });
-});
-
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
-    app.quit();
+let handedOffToAdministrator = false;
+if (process.platform === "win32" && shouldRequestAdministratorRelaunch(loadPreferences().runAsAdministrator, isRunningAsAdministrator, process.argv)) {
+  try {
+    launchElevatedSynchronously(buildRestartRequest(process.execPath, process.env.PORTABLE_EXECUTABLE_FILE, true));
+    handedOffToAdministrator = true;
+  } catch {
+    administratorMessage = "管理员授权已取消，当前仍以普通权限运行";
   }
-});
+}
+
+const hasSingleInstanceLock = !handedOffToAdministrator && app.requestSingleInstanceLock();
+if (handedOffToAdministrator || !hasSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on("second-instance", showMainWindow);
+  app.on("before-quit", () => { isQuitting = true; globalShortcut.unregisterAll(); registeredShortcut = ""; });
+  app.whenReady().then(async () => {
+    registerIpc();
+    const preferences = loadPreferences();
+    createWindow();
+    await createTray();
+    applyGlobalShortcut(preferences, false);
+    nativeTheme.on("updated", () => {
+      if (loadPreferences().uiTheme === "system") applyWindowTheme();
+    });
+
+    app.on("activate", showMainWindow);
+  });
+
+  app.on("window-all-closed", () => {
+    if (process.platform !== "darwin" && (isQuitting || loadPreferences().closeBehavior === "quit")) app.quit();
+  });
+}
