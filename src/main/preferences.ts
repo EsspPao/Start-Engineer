@@ -11,7 +11,8 @@ export const defaultPreferences: AppPreferences = {
   uiTheme: "utility",
   runAsAdministrator: false,
   searchProvider: "everything",
-  sortRunningAppsFirst: true
+  sortRunningAppsFirst: true,
+  firstRunImportCompleted: false
 };
 
 export function normalizePreferences(raw: Partial<AppPreferences> | null | undefined): AppPreferences {
@@ -26,6 +27,7 @@ export function normalizePreferences(raw: Partial<AppPreferences> | null | undef
     runAsAdministrator: raw?.runAsAdministrator === true,
     searchProvider: supportedSearchProviders.has(raw?.searchProvider as SearchProvider) ? raw?.searchProvider as SearchProvider : defaultPreferences.searchProvider,
     sortRunningAppsFirst: raw?.sortRunningAppsFirst !== false,
+    firstRunImportCompleted: raw?.firstRunImportCompleted === true,
     ...(typeof raw?.everythingCliPath === "string" && raw.everythingCliPath.trim() ? { everythingCliPath: raw.everythingCliPath.trim() } : {}),
     ...(typeof raw?.everythingManagedPath === "string" && raw.everythingManagedPath.trim() ? { everythingManagedPath: raw.everythingManagedPath.trim() } : {})
   };

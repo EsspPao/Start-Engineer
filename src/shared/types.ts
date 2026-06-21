@@ -81,6 +81,7 @@ export type AppPreferences = {
   runAsAdministrator: boolean;
   searchProvider: SearchProvider;
   sortRunningAppsFirst: boolean;
+  firstRunImportCompleted: boolean;
   everythingCliPath?: string;
   everythingManagedPath?: string;
 };
@@ -150,6 +151,16 @@ export type BatchKillResult = {
   results: BatchKillItemResult[];
 };
 
+export type DiscoveredAppCandidate = {
+  id: string;
+  name: string;
+  executablePath: string;
+  processName: string;
+  groupId: string;
+  category: string;
+  source: "start-menu" | "desktop";
+};
+
 export type StartEngineerApi = {
   listGroups: () => Promise<AppGroup[]>;
   createGroup: (input: GroupInput) => Promise<AppGroup[]>;
@@ -157,11 +168,14 @@ export type StartEngineerApi = {
   reorderGroups: (groupIds: string[]) => Promise<AppGroup[]>;
   removeGroup: (groupId: string, targetGroupId: string) => Promise<RemoveGroupResult>;
   listApps: () => Promise<AppEntry[]>;
+  discoverImportCandidates: () => Promise<DiscoveredAppCandidate[]>;
+  importDiscoveredApps: (candidateIds: string[]) => Promise<AppEntry[]>;
   refreshAppIcons: () => Promise<AppEntry[]>;
   addAppFromDialog: (groupId?: AppEntry["groupId"]) => Promise<AppEntry[]>;
   pickExecutable: (id: string) => Promise<AppEntry[]>;
   updateApp: (input: UpdateAppInput) => Promise<AppEntry[]>;
   setAppGroup: (id: string, groupId: AppEntry["groupId"]) => Promise<AppEntry[]>;
+  reorderAppsInGroup: (groupId: AppEntry["groupId"], appIds: string[]) => Promise<AppEntry[]>;
   setAppLaunchSelected: (id: string, selected: boolean) => Promise<AppEntry[]>;
   setGroupLaunchSelected: (groupId: string, selected: boolean) => Promise<AppEntry[]>;
   launchApp: (id: string) => Promise<LaunchAppResult>;

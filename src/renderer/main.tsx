@@ -1,11 +1,13 @@
 ﻿import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import type { AppEntry, AppGroup, AppMetrics, AppPreferencesState, EverythingSearchResult, GroupInput, InternalSearchResult, ProcessInfo, SearchDependencyStatus, SearchProvider, SectionId, StartEngineerApi, UiTheme, UpdateAppInput, UpdatePreferencesInput } from "../shared/types";
+import type { AppEntry, AppGroup, AppMetrics, AppPreferencesState, DiscoveredAppCandidate, EverythingSearchResult, GroupInput, InternalSearchResult, ProcessInfo, SearchDependencyStatus, SearchProvider, SectionId, StartEngineerApi, UiTheme, UpdateAppInput, UpdatePreferencesInput } from "../shared/types";
 import { GroupPage, ProcessPage } from "./pages";
 import { sortAppsForDisplay } from "./app-display";
+import { hitTestAppOrder, type AppDragRect } from "./app-drag-order";
 import { buildInternalSearchResults, matchesAppSearch, matchesProcessSearch } from "./search";
 import { SEARCH_RESULT_OPTION_ATTRIBUTE, scrollSelectedSearchResultIntoView } from "./search-panel-behavior";
 import { buildLaunchFeedbackMessage } from "./launch-feedback";
+import { firstAppGroupId, resolveLoadedSection } from "./navigation";
 import { shortcutFromKeyboardEvent, validateShortcut } from "../shared/global-shortcut";
 import { resolveUiTheme } from "../shared/theme";
 import "./styles.css";
@@ -22,7 +24,7 @@ type MenuState =
   | null;
 type ConfirmState = { title: string; message: string; confirmLabel: string; onConfirm: () => Promise<void> } | null;
 type EditState = { id: string; name: string; launchArgs: string; workingDirectory: string } | null;
-type DragState = { appId: string; x: number; y: number; grabOffsetX: number; grabOffsetY: number; targetGroup?: AppGroupId } | null;
+type DragState = { appId: string; x: number; y: number; grabOffsetX: number; grabOffsetY: number; width: number; height: number; targetGroup?: AppGroupId; reorderGroupId?: AppGroupId; previewOrder?: string[] } | null;
 type GroupEditState = { id?: string; name: string; icon: string } | null;
 type GroupDeleteState = { groupId: string; targetGroupId: string } | null;
 
@@ -51,11 +53,14 @@ const fallbackApi: StartEngineerApi = {
   reorderGroups: electronOnly,
   removeGroup: electronOnly,
   listApps: async () => [],
+  discoverImportCandidates: async () => [],
+  importDiscoveredApps: async () => [],
   refreshAppIcons: async () => [],
   addAppFromDialog: electronOnly,
   pickExecutable: electronOnly,
   updateApp: async () => [],
   setAppGroup: async () => [],
+  reorderAppsInGroup: async () => [],
   setAppLaunchSelected: async () => [],
   setGroupLaunchSelected: async () => [],
   launchApp: electronOnly,
@@ -76,8 +81,8 @@ const fallbackApi: StartEngineerApi = {
   openSearchDependencyFolder: electronOnly,
   openSearchResult: async () => electronOnly(),
   showSearchResultInFolder: async () => electronOnly(),
-  getPreferences: async () => ({ launchAtStartup: false, closeBehavior: "tray", globalShortcutEnabled: true, globalShortcut: "Ctrl+Shift+Space", uiTheme: "utility", runAsAdministrator: false, searchProvider: "everything", sortRunningAppsFirst: true, globalShortcutStatus: "registered", isRunningAsAdministrator: false, administratorRestartRequired: false }),
-  updatePreferences: async (input) => ({ launchAtStartup: input.launchAtStartup ?? false, closeBehavior: input.closeBehavior ?? "tray", globalShortcutEnabled: input.globalShortcutEnabled ?? true, globalShortcut: input.globalShortcut ?? "Ctrl+Shift+Space", uiTheme: input.uiTheme ?? "utility", runAsAdministrator: input.runAsAdministrator ?? false, searchProvider: input.searchProvider ?? "everything", sortRunningAppsFirst: input.sortRunningAppsFirst ?? true, everythingCliPath: input.everythingCliPath, globalShortcutStatus: "registered", isRunningAsAdministrator: false, administratorRestartRequired: Boolean(input.runAsAdministrator) }),
+  getPreferences: async () => ({ launchAtStartup: false, closeBehavior: "tray", globalShortcutEnabled: true, globalShortcut: "Ctrl+Shift+Space", uiTheme: "utility", runAsAdministrator: false, searchProvider: "everything", sortRunningAppsFirst: true, firstRunImportCompleted: false, globalShortcutStatus: "registered", isRunningAsAdministrator: false, administratorRestartRequired: false }),
+  updatePreferences: async (input) => ({ launchAtStartup: input.launchAtStartup ?? false, closeBehavior: input.closeBehavior ?? "tray", globalShortcutEnabled: input.globalShortcutEnabled ?? true, globalShortcut: input.globalShortcut ?? "Ctrl+Shift+Space", uiTheme: input.uiTheme ?? "utility", runAsAdministrator: input.runAsAdministrator ?? false, searchProvider: input.searchProvider ?? "everything", sortRunningAppsFirst: input.sortRunningAppsFirst ?? true, firstRunImportCompleted: input.firstRunImportCompleted ?? false, everythingCliPath: input.everythingCliPath, globalShortcutStatus: "registered", isRunningAsAdministrator: false, administratorRestartRequired: Boolean(input.runAsAdministrator) }),
   restartWithConfiguredPrivileges: electronOnly,
   windowAction: async () => electronOnly()
 };
@@ -97,10 +102,10 @@ function App() {
   const [apps, setApps] = useState<AppEntry[]>([]);
   const [metrics, setMetrics] = useState<AppMetrics[]>([]);
   const [processes, setProcesses] = useState<ProcessInfo[]>([]);
-  const [activeSection, setActiveSection] = useState<SectionId>("processes");
+  const [activeSection, setActiveSection] = useState<SectionId>(() => firstAppGroupId(fallbackGroups));
   const [selectedAppId, setSelectedAppId] = useState("");
   const [query, setQuery] = useState("");
-  const [preferences, setPreferences] = useState<AppPreferencesState>({ launchAtStartup: false, closeBehavior: "tray", globalShortcutEnabled: true, globalShortcut: "Ctrl+Shift+Space", uiTheme: "utility", runAsAdministrator: false, searchProvider: "everything", sortRunningAppsFirst: true, globalShortcutStatus: "registered", isRunningAsAdministrator: false, administratorRestartRequired: false });
+  const [preferences, setPreferences] = useState<AppPreferencesState>({ launchAtStartup: false, closeBehavior: "tray", globalShortcutEnabled: true, globalShortcut: "Ctrl+Shift+Space", uiTheme: "utility", runAsAdministrator: false, searchProvider: "everything", sortRunningAppsFirst: true, firstRunImportCompleted: false, globalShortcutStatus: "registered", isRunningAsAdministrator: false, administratorRestartRequired: false });
   const [everythingResults, setEverythingResults] = useState<EverythingSearchResult[]>([]);
   const [searchDependencyStatus, setSearchDependencyStatus] = useState<SearchDependencyStatus>({ state: "missing" });
   const [searchLoading, setSearchLoading] = useState(false);
@@ -121,8 +126,11 @@ function App() {
   const [drag, setDrag] = useState<DragState>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [importCandidates, setImportCandidates] = useState<DiscoveredAppCandidate[]>([]);
+  const [selectedImportIds, setSelectedImportIds] = useState<Set<string>>(new Set());
+  const [importingApps, setImportingApps] = useState(false);
   const [launchingAppIds, setLaunchingAppIds] = useState<Set<string>>(new Set());
-  const dragCandidate = useRef<{ appId: string; startX: number; startY: number; grabOffsetX: number; grabOffsetY: number } | null>(null);
+  const dragCandidate = useRef<{ appId: string; sourceGroupId: AppGroupId; startX: number; startY: number; grabOffsetX: number; grabOffsetY: number; width: number; height: number; initialOrder: string[] } | null>(null);
   const iconRefreshStarted = useRef(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchRequest = useRef(0);
@@ -168,9 +176,23 @@ function App() {
     let running = false;
     void Promise.all([api().listGroups(), api().listApps(), api().getPreferences()]).then(([nextGroups, nextApps, nextPreferences]) => {
       if (cancelled) return;
-      setGroups(nextGroups.length ? nextGroups : fallbackGroups);
+      const loadedGroups = nextGroups.length ? nextGroups : fallbackGroups;
+      setGroups(loadedGroups);
       setApps(nextApps);
       setPreferences(nextPreferences);
+      setActiveSection((current) => resolveLoadedSection(current, loadedGroups));
+      if (!nextPreferences.firstRunImportCompleted && nextApps.length === 0) {
+        void api().discoverImportCandidates().then(async (candidates) => {
+          if (cancelled) return;
+          if (!candidates.length) {
+            const updated = await api().updatePreferences({ firstRunImportCompleted: true });
+            if (!cancelled) setPreferences(updated);
+            return;
+          }
+          setImportCandidates(candidates);
+          setSelectedImportIds(new Set(candidates.map((candidate) => candidate.id)));
+        }).catch((reason) => setError(cleanErrorMessage(reason, "扫描可导入应用失败")));
+      }
       if (!iconRefreshStarted.current) {
         iconRefreshStarted.current = true;
         window.requestAnimationFrame(() => void api().refreshAppIcons().then(setApps).catch((reason) => setError(cleanErrorMessage(reason, "应用图标刷新失败"))));
@@ -281,6 +303,34 @@ function App() {
     }
   }, []);
 
+  const dismissFirstRunImport = useCallback(async () => {
+    setImportCandidates([]);
+    setSelectedImportIds(new Set());
+    try {
+      setPreferences(await api().updatePreferences({ firstRunImportCompleted: true }));
+    } catch (reason) {
+      setError(cleanErrorMessage(reason, "保存首次导入状态失败"));
+    }
+  }, []);
+
+  const importSelectedApps = useCallback(async () => {
+    if (importingApps) return;
+    setImportingApps(true);
+    try {
+      const imported = await api().importDiscoveredApps([...selectedImportIds]);
+      setApps(imported);
+      setPreferences((current) => ({ ...current, firstRunImportCompleted: true }));
+      setImportCandidates([]);
+      setSelectedImportIds(new Set());
+      setNotice(selectedImportIds.size ? `已导入 ${selectedImportIds.size} 个应用` : "已跳过应用导入");
+      await refreshRuntimeData("managed", true);
+    } catch (reason) {
+      setError(cleanErrorMessage(reason, "导入应用失败"));
+    } finally {
+      setImportingApps(false);
+    }
+  }, [importingApps, refreshRuntimeData, selectedImportIds]);
+
   const saveTheme = useCallback(async (uiTheme: UiTheme) => {
     const previous = preferences;
     setPreferences({ ...preferences, uiTheme });
@@ -309,6 +359,15 @@ function App() {
       setError(cleanErrorMessage(reason, "移动应用失败"));
     }
   }, [apps, closeMenu]);
+  const reorderAppsInGroup = useCallback(async (groupId: AppGroupId, orderedVisibleIds: string[]) => {
+    if (orderedVisibleIds.length < 2) return;
+    try {
+      setApps(await api().reorderAppsInGroup(groupId, orderedVisibleIds));
+      closeMenu();
+    } catch (reason) {
+      setError(cleanErrorMessage(reason, "应用排序失败"));
+    }
+  }, [closeMenu]);
   const moveAppWithinSettings = useCallback(async (appId: string, targetGroup: AppGroupId) => {
     const current = apps.find((item) => item.id === appId);
     if (!current || current.groupId === targetGroup) return;
@@ -332,7 +391,26 @@ function App() {
       const node = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("[data-drop-group]");
       const targetGroup = node?.dataset.dropGroup as AppGroupId | undefined;
       const app = apps.find((item) => item.id === candidate.appId);
-      setDrag({ appId: candidate.appId, x: event.clientX, y: event.clientY, grabOffsetX: candidate.grabOffsetX, grabOffsetY: candidate.grabOffsetY, targetGroup: targetGroup && app?.groupId !== targetGroup ? targetGroup : undefined });
+      const cardNodes = [...document.querySelectorAll<HTMLElement>("[data-app-card-id]")];
+      const cardIds = cardNodes.map((card) => card.dataset.appCardId).filter((id): id is string => Boolean(id));
+      const cardRects: AppDragRect[] = cardNodes.map((card) => {
+        const rect = card.getBoundingClientRect();
+        return { id: card.dataset.appCardId ?? "", left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+      }).filter((rect) => Boolean(rect.id));
+      const canSortInCurrentGroup = !targetGroup && app?.groupId === activeSection && cardIds.includes(candidate.appId);
+      const previewOrder = canSortInCurrentGroup ? hitTestAppOrder(cardIds, cardRects, candidate.appId, event.clientX, event.clientY) : undefined;
+      setDrag({
+        appId: candidate.appId,
+        x: event.clientX,
+        y: event.clientY,
+        grabOffsetX: candidate.grabOffsetX,
+        grabOffsetY: candidate.grabOffsetY,
+        width: candidate.width,
+        height: candidate.height,
+        targetGroup: targetGroup && app?.groupId !== targetGroup ? targetGroup : undefined,
+        reorderGroupId: previewOrder ? candidate.sourceGroupId : undefined,
+        previewOrder
+      });
     };
     const onMove = (event: PointerEvent) => {
       const candidate = dragCandidate.current;
@@ -343,9 +421,13 @@ function App() {
     };
     const onUp = () => {
       const current = drag;
+      const candidate = dragCandidate.current;
       dragCandidate.current = null;
       setDrag(null);
       if (current?.targetGroup) void moveAppToGroup(current.appId, current.targetGroup);
+      else if (candidate && current?.reorderGroupId && current.previewOrder && current.previewOrder.join("\u0000") !== candidate.initialOrder.join("\u0000")) {
+        void reorderAppsInGroup(current.reorderGroupId, current.previewOrder);
+      }
     };
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -366,7 +448,7 @@ function App() {
       window.removeEventListener("keydown", onKey);
       if (frame) window.cancelAnimationFrame(frame);
     };
-  }, [apps, closeMenu, drag, moveAppToGroup]);
+  }, [activeSection, apps, closeMenu, drag, moveAppToGroup, reorderAppsInGroup]);
 
   const pageQuery = preferences.searchProvider === "internal" ? query : "";
   const activeGroupApps = useMemo(() => runtimeApps.filter((item) => item.groupId === activeSection), [activeSection, runtimeApps]);
@@ -374,6 +456,13 @@ function App() {
     activeGroupApps.filter((item) => matchesAppSearch(item, pageQuery)),
     preferences.sortRunningAppsFirst
   ), [activeGroupApps, pageQuery, preferences.sortRunningAppsFirst]);
+  const displayedApps = useMemo(() => {
+    if (!drag?.previewOrder || drag.reorderGroupId !== activeSection) return visibleApps;
+    const byId = new Map(visibleApps.map((app) => [app.id, app]));
+    const ordered = drag.previewOrder.map((id) => byId.get(id)).filter((app): app is RuntimeApp => Boolean(app));
+    const included = new Set(ordered.map((app) => app.id));
+    return ordered.length ? [...ordered, ...visibleApps.filter((app) => !included.has(app.id))] : visibleApps;
+  }, [activeSection, drag, visibleApps]);
   const visibleProcesses = useMemo<DisplayProcess[]>(() => {
     const direction = sortDirection === "asc" ? 1 : -1;
     const sorted = processes
@@ -699,7 +788,7 @@ function App() {
 
         {activeSection === "processes" ? <ProcessPage processes={visibleProcesses} lockedProcessName={lockedProcessName} sortKey={sortKey} sortDirection={sortDirection} changeSort={changeSort} filter={processFilter} setFilter={changeProcessFilter} onContextMenu={openProcessMenu} />
           : activeSection === "settings" ? <SettingsPage apps={runtimeApps} groups={appGroups} preferences={preferences} onPreferencesChange={savePreferences} onThemeChange={saveTheme} onPickEverythingCli={pickEverythingCli} onAdd={addApp} onAddToGroup={(groupId) => void runAppAction(() => api().addAppFromDialog(groupId))} onCreate={() => setGroupEdit({ name: "", icon: "grid" })} onEdit={(group) => setGroupEdit({ id: group.id, name: group.name, icon: group.icon })} onDelete={requestDeleteGroup} onReorder={reorderGroups} onOpenApp={(app) => { setActiveSection(app.groupId); setSelectedAppId(app.id); }} onAppContextMenu={(event, app) => { event.preventDefault(); event.stopPropagation(); openMenu({ kind: "app", x: event.clientX, y: event.clientY, appId: app.id }); }} onMoveApp={moveAppWithinSettings} />
-          : <GroupPage apps={visibleApps} launchingAppIds={launchingAppIds} draggingAppId={drag?.appId} selectedCount={activeGroupApps.filter((app) => app.launchSelected).length} runningCount={activeGroupApps.filter((app) => app.metrics.isRunning).length} onToggleSelected={toggleAppLaunchSelected} onDoubleLaunch={(app) => void launchApp(app.id)} onLaunchSelected={() => void launchSelectedApps()} onCloseAll={() => void requestCloseGroupApps()} onAdd={addApp} onContextMenu={(event, app) => { event.preventDefault(); event.stopPropagation(); if (!drag) openMenu({ kind: "app", x: event.clientX, y: event.clientY, appId: app.id }); }} onPointerDown={(event, app) => { if (event.button !== 0) return; const rect = event.currentTarget.getBoundingClientRect(); dragCandidate.current = { appId: app.id, startX: event.clientX, startY: event.clientY, grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top }; }} onRequestClose={requestCloseApp} />}
+          : <GroupPage apps={displayedApps} launchingAppIds={launchingAppIds} draggingAppId={drag?.appId} selectedCount={activeGroupApps.filter((app) => app.launchSelected).length} runningCount={activeGroupApps.filter((app) => app.metrics.isRunning).length} onToggleSelected={toggleAppLaunchSelected} onDoubleLaunch={(app) => void launchApp(app.id)} onLaunchSelected={() => void launchSelectedApps()} onCloseAll={() => void requestCloseGroupApps()} onAdd={addApp} onContextMenu={(event, app) => { event.preventDefault(); event.stopPropagation(); if (!drag) openMenu({ kind: "app", x: event.clientX, y: event.clientY, appId: app.id }); }} onPointerDown={(event, app) => { if (event.button !== 0) return; const rect = event.currentTarget.getBoundingClientRect(); dragCandidate.current = { appId: app.id, sourceGroupId: app.groupId, startX: event.clientX, startY: event.clientY, grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top, width: rect.width, height: rect.height, initialOrder: displayedApps.map((item) => item.id) }; }} onRequestClose={requestCloseApp} />}
         {notice || error ? <ToastStack notice={notice} error={error} onDismissNotice={() => setNotice("")} onDismissError={() => setError("")} /> : null}
       </section>
 
@@ -707,10 +796,11 @@ function App() {
       {menu?.kind === "app" ? <AppContextMenu state={menu} app={runtimeApps.find((item) => item.id === menu.appId)} groups={appGroups} onClose={closeMenu} onLaunch={launchApp} onKill={requestCloseApp} onPick={(app) => void runAppAction(() => api().pickExecutable(app.id))} onEdit={editApp} onMove={activeSection === "settings" ? moveAppWithinSettings : moveAppToGroup} onRemove={(app) => setConfirm({ title: "移除应用", message: `确定从 Start Engineer 中移除 ${app.name} 吗？本地程序文件不会被删除。`, confirmLabel: "移除应用", onConfirm: async () => { await runAppAction(() => api().removeApp(app.id)); setSelectedAppId(""); } })} onError={setError} /> : null}
       {menu?.kind === "group" ? <GroupContextMenu state={menu} groups={appGroups} onClose={closeMenu} onCreate={() => setGroupEdit({ name: "", icon: "grid" })} onEdit={(group) => setGroupEdit({ id: group.id, name: group.name, icon: group.icon })} onDelete={requestDeleteGroup} onReorder={reorderGroups} /> : null}
       {confirm ? <ConfirmDialog state={confirm} onClose={() => setConfirm(null)} onError={(message) => { setConfirm(null); setError(cleanErrorMessage(message)); }} /> : null}
+      {importCandidates.length ? <FirstRunImportDialog candidates={importCandidates} selectedIds={selectedImportIds} busy={importingApps} onToggle={(id) => setSelectedImportIds((current) => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next; })} onSkip={dismissFirstRunImport} onImport={importSelectedApps} /> : null}
       {edit ? <AppEditDialog state={edit} onClose={() => setEdit(null)} onSave={(input) => runAppAction(() => api().updateApp(input))} /> : null}
       {groupEdit ? <GroupEditDialog state={groupEdit} onClose={() => setGroupEdit(null)} onSave={saveGroup} /> : null}
       {groupDelete ? <GroupDeleteDialog state={groupDelete} groups={appGroups} appCount={apps.filter((item) => item.groupId === groupDelete.groupId).length} onChangeTarget={(targetGroupId) => setGroupDelete({ ...groupDelete, targetGroupId })} onClose={() => setGroupDelete(null)} onConfirm={removeGroup} /> : null}
-      {drag && draggedApp ? <div className="drag-preview no-drag" style={{ left: drag.x - drag.grabOffsetX, top: drag.y - drag.grabOffsetY }}>{draggedApp.iconDataUrl ? <img src={draggedApp.iconDataUrl} alt="" /> : <Icon name="grid" />}<span>{draggedApp.name}</span></div> : null}
+      {drag && draggedApp ? <div className="drag-preview app-card-drag-preview no-drag" style={{ left: drag.x - drag.grabOffsetX, top: drag.y - drag.grabOffsetY, width: drag.width, height: drag.height }}>{draggedApp.iconDataUrl ? <img src={draggedApp.iconDataUrl} alt="" /> : <Icon name="grid" />}<span>{draggedApp.name}</span></div> : null}
     </main>
   );
 }
@@ -724,6 +814,11 @@ function ToastStack({ notice, error, onDismissNotice, onDismissError }: { notice
     {notice ? <div className="toast info" role="status"><span>{notice}</span><button type="button" aria-label="关闭提示" onClick={onDismissNotice}>×</button></div> : null}
     {error ? <div className="toast" role="alert"><span>{error}</span><button type="button" aria-label="关闭错误" onClick={onDismissError}>×</button></div> : null}
   </div>;
+}
+
+function FirstRunImportDialog({ candidates, selectedIds, busy, onToggle, onSkip, onImport }: { candidates: DiscoveredAppCandidate[]; selectedIds: Set<string>; busy: boolean; onToggle: (id: string) => void; onSkip: () => void; onImport: () => void }) {
+  const sourceLabel = (source: DiscoveredAppCandidate["source"]) => source === "desktop" ? "桌面" : "开始菜单";
+  return <div className="modal-backdrop no-drag"><section className="dialog import-dialog" onPointerDown={(event) => event.stopPropagation()}><div className="import-heading"><span className="import-spark">✦</span><div><h2>发现可导入应用</h2><p>选择要加入 Start Engineer 的应用。</p></div></div><div className="import-list">{candidates.map((candidate) => <button key={candidate.id} className={`import-row ${selectedIds.has(candidate.id) ? "selected" : ""}`} onClick={() => onToggle(candidate.id)}><span className="import-check">{selectedIds.has(candidate.id) ? "✓" : ""}</span><span><strong>{candidate.name}</strong><small>{candidate.category} · {sourceLabel(candidate.source)}</small></span></button>)}</div><div className="dialog-actions"><button className="ghost" disabled={busy} onClick={onSkip}>跳过</button><button className="launch" disabled={busy || selectedIds.size === 0} onClick={onImport}>{busy ? "导入中..." : `导入 ${selectedIds.size} 个`}</button></div></section></div>;
 }
 
 function ProcessContextMenu({ state, process, onClose, onConfirm, onError }: { state: Extract<MenuState, { kind: "process" }>; process: DisplayProcess; onClose: () => void; onConfirm: (value: ConfirmState) => void; onError: (message: string) => void }) {

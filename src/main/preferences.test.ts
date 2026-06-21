@@ -17,6 +17,7 @@ describe("preferences", () => {
       runAsAdministrator: false,
       searchProvider: "internal",
       sortRunningAppsFirst: false,
+      firstRunImportCompleted: false,
       everythingCliPath: "C:\\Tools\\ES.exe"
     });
   });
@@ -28,6 +29,10 @@ describe("preferences", () => {
 
   it("preserves the administrator launch preference", () => {
     expect(normalizePreferences({ runAsAdministrator: true }).runAsAdministrator).toBe(true);
+  });
+
+  it("preserves the first-run import completion flag", () => {
+    expect(normalizePreferences({ firstRunImportCompleted: true }).firstRunImportCompleted).toBe(true);
   });
 
   it("falls back to Modern Utility for unsupported themes", () => {

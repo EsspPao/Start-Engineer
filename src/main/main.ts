@@ -13,6 +13,7 @@ import type {
   AppPreferencesState,
   BatchKillResult,
   BatchLaunchResult,
+  DiscoveredAppCandidate,
   SearchDependencyStatus,
   GroupInput,
   GroupUpdateInput,
@@ -35,6 +36,8 @@ import { administratorRestartRequired, buildRestartRequest, shouldRequestAdminis
 import { migrateLegacyUserData } from "./user-data-migration.js";
 import { searchEverything as runEverythingSearch } from "./everything-search.js";
 import { buildEverythingDownloadPlan, clearTempDependencyDir, downloadFile, expandZip, getManagedEverythingPaths, getSearchDependencyStatus as resolveSearchDependencyStatus } from "./search-dependencies.js";
+import { buildDiscoveredApps, filterNewShortcuts, type ShortcutInfo, type ShortcutSource } from "./app-discovery.js";
+import { mergeVisibleAppOrder } from "./app-order.js";
 
 const isDev = process.env.VITE_DEV_SERVER_URL !== undefined;
 const appRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -78,6 +81,7 @@ let administratorMessage = "";
 let searchDependencyStatus: SearchDependencyStatus | null = null;
 let prepareDependenciesInFlight: Promise<SearchDependencyStatus> | null = null;
 const runtimeAssociatedPids = new Map<string, Set<number>>();
+let importCandidatesCache: DiscoveredAppCandidate[] = [];
 
 function detectAdministratorPrivileges() {
   if (process.platform !== "win32") return false;
@@ -448,44 +452,7 @@ function createWindow() {
 }
 
 function defaultApps(): AppEntry[] {
-  return [
-    {
-      id: randomUUID(),
-      name: "鸣潮",
-      category: "游戏",
-      groupId: "games",
-      executablePath: "",
-      processName: "launcher",
-      accent: "#2f66e8"
-    },
-    {
-      id: randomUUID(),
-      name: "终末地",
-      category: "游戏",
-      groupId: "games",
-      executablePath: "",
-      processName: "Endfield",
-      accent: "#2f66e8"
-    },
-    {
-      id: randomUUID(),
-      name: "Steam",
-      category: "工具",
-      groupId: "tools",
-      executablePath: "C:\\Program Files (x86)\\Steam\\steam.exe",
-      processName: "steam",
-      accent: "#2f66e8"
-    },
-    {
-      id: randomUUID(),
-      name: "微信",
-      category: "办公",
-      groupId: "office",
-      executablePath: "",
-      processName: "WeChat",
-      accent: "#2f66e8"
-    }
-  ];
+  return [];
 }
 
 function migrateApp(raw: Partial<AppEntry>): AppEntry {
@@ -501,7 +468,7 @@ function loadApps(): AppEntry[] {
   try {
     const raw = readFileSync(configPath(), "utf8");
     const parsed = JSON.parse(raw) as Partial<AppEntry>[];
-    if (Array.isArray(parsed) && parsed.length > 0) {
+    if (Array.isArray(parsed)) {
       appsCache = parsed.map(migrateApp);
       saveApps(appsCache);
       return appsCache;
@@ -515,6 +482,78 @@ function loadApps(): AppEntry[] {
   appsCache = defaultApps();
   saveApps(appsCache);
   return appsCache;
+}
+
+function shortcutSearchRoots() {
+  const roots: Array<{ path: string; source: ShortcutSource }> = [
+    { path: join(app.getPath("appData"), "Microsoft", "Windows", "Start Menu", "Programs"), source: "start-menu" },
+    { path: app.getPath("desktop"), source: "desktop" }
+  ];
+  if (process.env.ProgramData) roots.push({ path: join(process.env.ProgramData, "Microsoft", "Windows", "Start Menu", "Programs"), source: "start-menu" });
+  if (process.env.PUBLIC) roots.push({ path: join(process.env.PUBLIC, "Desktop"), source: "desktop" });
+  return roots.filter((root) => existsSync(root.path));
+}
+
+async function discoverShortcuts(): Promise<ShortcutInfo[]> {
+  const roots = shortcutSearchRoots();
+  if (!roots.length) return [];
+  const payload = Buffer.from(JSON.stringify(roots), "utf16le").toString("base64");
+  const script = `
+$roots = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('${payload}')) | ConvertFrom-Json
+$shell = New-Object -ComObject WScript.Shell
+$rows = foreach ($root in $roots) {
+  if (-not (Test-Path -LiteralPath ([string]$root.path))) { continue }
+  Get-ChildItem -LiteralPath ([string]$root.path) -Filter '*.lnk' -File -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+    try {
+      $shortcut = $shell.CreateShortcut($_.FullName)
+      if ([string]::IsNullOrWhiteSpace($shortcut.TargetPath)) { return }
+      [PSCustomObject]@{
+        name = [IO.Path]::GetFileNameWithoutExtension($_.Name)
+        targetPath = [string]$shortcut.TargetPath
+        source = [string]$root.source
+      }
+    } catch {}
+  }
+}
+$rows | ConvertTo-Json -Compress
+`;
+  const output = (await runPowerShell(script)).trim();
+  if (!output) return [];
+  const parsed = JSON.parse(output) as ShortcutInfo[] | ShortcutInfo;
+  return Array.isArray(parsed) ? parsed : [parsed];
+}
+
+async function discoverImportCandidates() {
+  const shortcuts = filterNewShortcuts(await discoverShortcuts(), loadApps().map((entry) => entry.executablePath));
+  importCandidatesCache = buildDiscoveredApps(shortcuts, loadAppGroups(), randomUUID).slice(0, 80);
+  return importCandidatesCache;
+}
+
+async function importDiscoveredApps(candidateIds: string[]) {
+  const selected = new Set(candidateIds);
+  const candidates = importCandidatesCache.filter((candidate) => selected.has(candidate.id));
+  const existing = new Set(loadApps().map((entry) => entry.executablePath.trim().toLowerCase()));
+  const imported: AppEntry[] = [];
+  for (const candidate of candidates) {
+    const key = candidate.executablePath.trim().toLowerCase();
+    if (!key || existing.has(key) || !existsSync(candidate.executablePath)) continue;
+    existing.add(key);
+    imported.push(await cacheAppIcon({
+      id: randomUUID(),
+      name: candidate.name,
+      category: candidate.category,
+      groupId: validAppGroup(candidate.groupId),
+      executablePath: candidate.executablePath,
+      processName: candidate.processName,
+      workingDirectory: dirname(candidate.executablePath),
+      accent: "#2f66e8"
+    }));
+  }
+  const nextApps = [...loadApps(), ...imported];
+  saveApps(nextApps);
+  savePreferences({ ...loadPreferences(), firstRunImportCompleted: true });
+  importCandidatesCache = [];
+  return nextApps;
 }
 
 function loadAppsWithRuntimeAssociations(): AppEntry[] {
@@ -1032,6 +1071,8 @@ function registerIpc() {
     return { groups: listGroups(), apps: nextApps, targetGroupId };
   });
   ipcMain.handle("apps:list", () => loadApps());
+  ipcMain.handle("apps:discoverImportCandidates", () => discoverImportCandidates());
+  ipcMain.handle("apps:importDiscovered", (_event, candidateIds: string[]) => importDiscoveredApps(Array.isArray(candidateIds) ? candidateIds : []));
   ipcMain.handle("apps:refreshIcons", () => refreshAppIcons());
 
   ipcMain.handle("apps:addFromDialog", async (_event, groupId?: AppEntry["groupId"]) => {
@@ -1083,6 +1124,14 @@ function registerIpc() {
     const validGroupId = validAppGroup(groupId);
     const group = loadAppGroups().find((item) => item.id === validGroupId)!;
     const nextApps = loadApps().map((item) => (item.id === id ? { ...item, groupId: validGroupId, category: group.name } : item));
+    saveApps(nextApps);
+    return nextApps;
+  });
+
+  ipcMain.handle("apps:reorderInGroup", (_event, groupId: AppEntry["groupId"], appIds: string[]) => {
+    if (!loadAppGroups().some((group) => group.id === groupId)) throw new Error("分组不存在。");
+    if (!Array.isArray(appIds) || appIds.length === 0) throw new Error("排序数据无效。");
+    const nextApps = mergeVisibleAppOrder(loadApps(), groupId, appIds);
     saveApps(nextApps);
     return nextApps;
   });
