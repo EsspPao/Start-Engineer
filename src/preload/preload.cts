@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { AppEntry, GroupInput, GroupUpdateInput, SnapshotMode, StartEngineerApi, UpdateAppInput, UpdatePreferencesInput, WindowAction } from "../shared/types.js";
+import type { AppEntry, FocusWindowHints, GroupInput, GroupUpdateInput, SnapshotMode, StartEngineerApi, UpdateAppInput, UpdatePreferencesInput, WindowAction } from "../shared/types.js";
 
 const api: StartEngineerApi = {
   listGroups: () => ipcRenderer.invoke("groups:list"),
@@ -19,6 +19,10 @@ const api: StartEngineerApi = {
   setAppLaunchSelected: (id: string, selected: boolean) => ipcRenderer.invoke("apps:setLaunchSelected", id, selected),
   setGroupLaunchSelected: (groupId: string, selected: boolean) => ipcRenderer.invoke("groups:setLaunchSelected", groupId, selected),
   launchApp: (id: string) => ipcRenderer.invoke("apps:launch", id),
+  focusAppWindow: (id: string, hints?: FocusWindowHints) => ipcRenderer.invoke("apps:focusWindow", id, hints),
+  focusAppWindowHandle: (id: string, handle: number, hints?: FocusWindowHints) => ipcRenderer.invoke("apps:focusWindowHandle", id, handle, hints),
+  listAppWindows: (id: string, hints?: FocusWindowHints) => ipcRenderer.invoke("apps:listWindows", id, hints),
+  getAppWindowDiagnostics: (id: string, hints?: FocusWindowHints) => ipcRenderer.invoke("apps:windowDiagnostics", id, hints),
   launchSelectedApps: (groupId: string) => ipcRenderer.invoke("groups:launchSelected", groupId),
   killApp: (id: string) => ipcRenderer.invoke("apps:kill", id),
   killGroupApps: (groupId: string) => ipcRenderer.invoke("groups:killApps", groupId),

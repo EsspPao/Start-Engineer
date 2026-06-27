@@ -40,6 +40,10 @@ export type AppMetrics = {
   memoryBytes: number;
   diskBytesPerSecond: number;
   pids: number[];
+  matchedPids: number[];
+  associatedPids: number[];
+  matchedProcessNames: string[];
+  matchedPaths: string[];
   lastSeenPath?: string;
 };
 
@@ -68,20 +72,27 @@ export type UpdateAppInput = Partial<Omit<AppEntry, "id">> & {
 };
 
 export type WindowAction = "minimize" | "maximize" | "close";
+export type WindowBounds = { x: number; y: number; width: number; height: number };
 export type CloseBehavior = "tray" | "quit";
-export type FixedUiTheme = "fluent" | "midnight" | "utility" | "glass";
+export type FixedUiTheme = "fluent" | "midnight" | "utility" | "glass" | "wallpaper";
 export type UiTheme = FixedUiTheme | "system";
 export type SearchProvider = "everything" | "internal";
+export type WallpaperGlassIntensity = "weak" | "medium" | "strong";
+export type WallpaperGlassVariant = "dark" | "light";
 export type AppPreferences = {
   launchAtStartup: boolean;
   closeBehavior: CloseBehavior;
   globalShortcutEnabled: boolean;
   globalShortcut: string;
   uiTheme: UiTheme;
+  wallpaperGlassIntensity: WallpaperGlassIntensity;
+  wallpaperGlassVariant: WallpaperGlassVariant;
   runAsAdministrator: boolean;
   searchProvider: SearchProvider;
   sortRunningAppsFirst: boolean;
+  showAppNames: boolean;
   firstRunImportCompleted: boolean;
+  windowBounds?: WindowBounds;
   everythingCliPath?: string;
   everythingManagedPath?: string;
 };
@@ -91,6 +102,7 @@ export type AppPreferencesState = AppPreferences & {
   globalShortcutStatus: GlobalShortcutStatus;
   globalShortcutMessage?: string;
   isRunningAsAdministrator: boolean;
+  administratorStatusLoading?: boolean;
   administratorRestartRequired: boolean;
   administratorMessage?: string;
 };
@@ -151,6 +163,39 @@ export type BatchKillResult = {
   results: BatchKillItemResult[];
 };
 
+export type FocusAppWindowResult = {
+  focused: boolean;
+  reason?:
+    | "no-window"
+    | "tray-hidden"
+    | "foreground-blocked"
+    | "stale"
+    | "unknown"
+    | "trayRestoreFailed"
+    | "trayRestoreUnsupported"
+    | "trayIconNotFound"
+    | "suspectedWrongWindow"
+    | "restoredButNotInteractive"
+    | "fallbackRelaunchDisabled";
+};
+
+export type AppWindowInfo = {
+  handle: number;
+  pid: number;
+  title: string;
+  stage?: string;
+  visible?: boolean;
+  minimized?: boolean;
+};
+
+export type FocusWindowHints = {
+  pids?: number[];
+  matchedPids?: number[];
+  associatedPids?: number[];
+  matchedProcessNames?: string[];
+  matchedPaths?: string[];
+};
+
 export type DiscoveredAppCandidate = {
   id: string;
   name: string;
@@ -179,6 +224,10 @@ export type StartEngineerApi = {
   setAppLaunchSelected: (id: string, selected: boolean) => Promise<AppEntry[]>;
   setGroupLaunchSelected: (groupId: string, selected: boolean) => Promise<AppEntry[]>;
   launchApp: (id: string) => Promise<LaunchAppResult>;
+  focusAppWindow: (id: string, hints?: FocusWindowHints) => Promise<FocusAppWindowResult>;
+  focusAppWindowHandle: (id: string, handle: number, hints?: FocusWindowHints) => Promise<FocusAppWindowResult>;
+  listAppWindows: (id: string, hints?: FocusWindowHints) => Promise<AppWindowInfo[]>;
+  getAppWindowDiagnostics: (id: string, hints?: FocusWindowHints) => Promise<string>;
   launchSelectedApps: (groupId: string) => Promise<BatchLaunchResult>;
   killApp: (id: string) => Promise<AppEntry[]>;
   killGroupApps: (groupId: string) => Promise<BatchKillResult>;

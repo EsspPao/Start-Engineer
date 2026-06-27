@@ -7,6 +7,18 @@ import { GroupManagerItem } from "./main";
 type RuntimeApp = AppEntry & { metrics: AppMetrics };
 
 const group: AppGroup = { id: "office", name: "办公", icon: "briefcase", isSystem: false, order: 1 };
+const metrics: AppMetrics = {
+  appId: "weixin",
+  isRunning: true,
+  cpuPercent: 0,
+  memoryBytes: 0,
+  diskBytesPerSecond: 0,
+  pids: [42],
+  matchedPids: [42],
+  associatedPids: [],
+  matchedProcessNames: ["Weixin"],
+  matchedPaths: ["C:\\Apps\\Weixin.exe"]
+};
 const app: RuntimeApp = {
   id: "weixin",
   name: "Weixin",
@@ -15,7 +27,7 @@ const app: RuntimeApp = {
   executablePath: "C:\\Apps\\Weixin.exe",
   processName: "Weixin.exe",
   accent: "#2563eb",
-  metrics: { appId: "weixin", isRunning: true, cpuPercent: 0, memoryBytes: 0, diskBytesPerSecond: 0, pids: [42] },
+  metrics,
 };
 
 const renderItem = (expanded: boolean) => renderToStaticMarkup(createElement(GroupManagerItem, {

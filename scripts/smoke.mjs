@@ -1,7 +1,11 @@
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 
-const child = spawn("npx", ["electron", "."], {
-  shell: process.platform === "win32",
+const require = createRequire(import.meta.url);
+const electronPath = require("electron");
+
+const child = spawn(electronPath, ["."], {
+  shell: false,
   env: { ...process.env, STAR_ENGINEER_SMOKE: "1" },
   stdio: ["ignore", "pipe", "pipe"]
 });

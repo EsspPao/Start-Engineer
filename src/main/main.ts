@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { cpus } from "node:os";
 import { basename, dirname, extname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type {
   AppEntry,
   AppGroup,
@@ -14,6 +14,7 @@ import type {
   BatchKillResult,
   BatchLaunchResult,
   DiscoveredAppCandidate,
+  FocusWindowHints,
   SearchDependencyStatus,
   GroupInput,
   GroupUpdateInput,
@@ -32,12 +33,14 @@ import { validateShortcut } from "../shared/global-shortcut.js";
 import { terminatePids } from "./process-termination.js";
 import { resolveUiTheme, themeUsesMica } from "../shared/theme.js";
 import { collectGroupTermination, launchAppsSequentially } from "./batch-app-actions.js";
-import { administratorRestartRequired, buildRestartRequest, shouldRequestAdministratorRelaunch } from "./administrator-launch.js";
+import { administratorRestartRequired, buildRestartRequest, shouldDetectAdministratorSynchronously, shouldRequestAdministratorRelaunch } from "./administrator-launch.js";
 import { migrateLegacyUserData } from "./user-data-migration.js";
 import { searchEverything as runEverythingSearch } from "./everything-search.js";
 import { buildEverythingDownloadPlan, clearTempDependencyDir, downloadFile, expandZip, getManagedEverythingPaths, getSearchDependencyStatus as resolveSearchDependencyStatus } from "./search-dependencies.js";
 import { buildDiscoveredApps, filterNewShortcuts, type ShortcutInfo, type ShortcutSource } from "./app-discovery.js";
 import { mergeVisibleAppOrder } from "./app-order.js";
+import { splashHtmlDataUrl, splashWindowOptions, wireSplashToMainWindow } from "./splash-window.js";
+import { AppWindowManager } from "./window-manager.js";
 
 const isDev = process.env.VITE_DEV_SERVER_URL !== undefined;
 const appRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -69,6 +72,7 @@ const protectedProcessNames = new Set([
 ]);
 
 let mainWindow: BrowserWindow | null = null;
+let splashWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let isQuitting = false;
 let appsCache: AppEntry[] = [];
@@ -80,6 +84,7 @@ let iconRefreshInFlight: Promise<AppEntry[]> | null = null;
 let administratorMessage = "";
 let searchDependencyStatus: SearchDependencyStatus | null = null;
 let prepareDependenciesInFlight: Promise<SearchDependencyStatus> | null = null;
+let windowBoundsSaveTimer: NodeJS.Timeout | null = null;
 const runtimeAssociatedPids = new Map<string, Set<number>>();
 let importCandidatesCache: DiscoveredAppCandidate[] = [];
 
@@ -93,7 +98,9 @@ function detectAdministratorPrivileges() {
   }
 }
 
-const isRunningAsAdministrator = detectAdministratorPrivileges();
+const startupPreferences = loadPreferences();
+let administratorStatusLoading = process.platform === "win32" && !shouldDetectAdministratorSynchronously(startupPreferences.runAsAdministrator, process.argv);
+let isRunningAsAdministrator = administratorStatusLoading ? false : detectAdministratorPrivileges();
 
 function ownProcessIds() {
   const ids = new Set([process.pid]);
@@ -175,9 +182,29 @@ function preferencesSnapshot(): AppPreferencesState {
     launchAtStartup: loginItemEnabled(),
     ...shortcutState,
     isRunningAsAdministrator,
+    administratorStatusLoading,
     administratorRestartRequired: administratorRestartRequired(preferences.runAsAdministrator, isRunningAsAdministrator),
     ...(administratorMessage ? { administratorMessage } : {})
   };
+}
+
+function scheduleSaveMainWindowBounds() {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isMinimized() || mainWindow.isFullScreen()) return;
+  if (windowBoundsSaveTimer) clearTimeout(windowBoundsSaveTimer);
+  windowBoundsSaveTimer = setTimeout(() => {
+    windowBoundsSaveTimer = null;
+    if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isMinimized() || mainWindow.isFullScreen()) return;
+    const bounds = mainWindow.getBounds();
+    savePreferences({ ...loadPreferences(), windowBounds: bounds });
+  }, 500);
+}
+
+function refreshAdministratorStatusInBackground() {
+  if (!administratorStatusLoading) return;
+  setTimeout(() => {
+    isRunningAsAdministrator = detectAdministratorPrivileges();
+    administratorStatusLoading = false;
+  }, 0);
 }
 
 function getSearchDependencyStatus(): SearchDependencyStatus {
@@ -353,6 +380,14 @@ function applyWindowTheme(preferences = loadPreferences()) {
   mainWindow.setBackgroundColor(backgroundColor);
 }
 
+function createSplashWindow() {
+  if (splashWindow && !splashWindow.isDestroyed()) return splashWindow;
+  splashWindow = new BrowserWindow(splashWindowOptions(appIconPath()));
+  splashWindow.on("closed", () => { splashWindow = null; });
+  void splashWindow.loadURL(splashHtmlDataUrl(pathToFileURL(appIconPath()).toString()));
+  return splashWindow;
+}
+
 async function createTray() {
   if (tray) return;
   let icon = nativeImage.createFromPath(trayIconPath());
@@ -408,15 +443,19 @@ function validateGroupIcon(icon: string) {
 }
 
 function createWindow() {
+  const preferences = loadPreferences();
+  const savedBounds = preferences.windowBounds;
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 760,
+    width: savedBounds?.width ?? 1280,
+    height: savedBounds?.height ?? 760,
+    ...(savedBounds ? { x: savedBounds.x, y: savedBounds.y } : {}),
     minWidth: 1060,
     minHeight: 680,
     frame: false,
     thickFrame: false,
     hasShadow: true,
     transparent: true,
+    show: false,
     backgroundColor: "#00000000",
     title: "Start Engineer",
     icon: appIconPath(),
@@ -433,7 +472,16 @@ function createWindow() {
       mainWindow?.hide();
     }
   });
+  mainWindow.on("move", scheduleSaveMainWindowBounds);
+  mainWindow.on("resize", scheduleSaveMainWindowBounds);
   mainWindow.on("closed", () => { mainWindow = null; });
+  wireSplashToMainWindow(mainWindow, splashWindow, () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.show();
+    mainWindow.focus();
+  }, () => {
+    dialog.showErrorBox("Start Engineer", "主窗口加载失败，请重新启动应用。");
+  });
 
   applyWindowTheme();
 
@@ -576,6 +624,37 @@ function getApp(id: string) {
   return loadApps().find((item) => item.id === id);
 }
 
+function validFocusHintNumbers(values: unknown) {
+  return Array.isArray(values) ? [...new Set(values.filter((value): value is number => Number.isSafeInteger(value) && value > 0))] : [];
+}
+
+function validFocusHintStrings(values: unknown) {
+  return Array.isArray(values) ? [...new Set(values.filter((value): value is string => typeof value === "string").map((value) => value.trim()).filter(Boolean))] : [];
+}
+
+function metricsFromFocusHints(appId: string, hints: FocusWindowHints | undefined): AppMetrics | undefined {
+  if (!hints || typeof hints !== "object") return undefined;
+  const pids = validFocusHintNumbers(hints.pids);
+  const matchedPids = validFocusHintNumbers(hints.matchedPids);
+  const associatedPids = validFocusHintNumbers(hints.associatedPids);
+  const matchedProcessNames = validFocusHintStrings(hints.matchedProcessNames);
+  const matchedPaths = validFocusHintStrings(hints.matchedPaths);
+  if (!pids.length && !matchedPids.length && !associatedPids.length && !matchedProcessNames.length && !matchedPaths.length) return undefined;
+  return {
+    appId,
+    isRunning: Boolean(pids.length || matchedPids.length || associatedPids.length),
+    cpuPercent: 0,
+    memoryBytes: 0,
+    diskBytesPerSecond: 0,
+    pids,
+    matchedPids,
+    associatedPids,
+    matchedProcessNames,
+    matchedPaths,
+    lastSeenPath: matchedPaths[0]
+  };
+}
+
 function validAppGroup(groupId?: string): AppEntry["groupId"] {
   const groups = loadAppGroups();
   return groups.some((group) => group.id === groupId) ? String(groupId) : groups[0].id;
@@ -603,6 +682,11 @@ function runPowerShell(script: string): Promise<string> {
   });
 }
 
+const windowManager = new AppWindowManager({
+  runPowerShell,
+  getProcesses: () => getProcessSnapshots()
+});
+
 function runTaskkill(args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
     execFile("taskkill.exe", args, { windowsHide: true }, (error, _stdout, stderr) => {
@@ -621,7 +705,6 @@ async function runElevatedTaskkill(args: string[]) {
 $arguments = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encodedArgs}')) | ConvertFrom-Json
 try {
   $process = Start-Process -FilePath 'taskkill.exe' -ArgumentList ([string[]]$arguments) -Verb RunAs -Wait -PassThru -ErrorAction Stop
-  if ($process.ExitCode -ne 0) { throw "taskkill exited with code $($process.ExitCode)" }
 } catch {
   if ($_.Exception.NativeErrorCode -eq 1223 -or $_.Exception.Message -match 'cancel|取消') { exit 1223 }
   throw
@@ -1179,6 +1262,30 @@ function registerIpc() {
     return { ...launchResult, apps: nextApps } satisfies LaunchAppResult;
   });
 
+  ipcMain.handle("apps:focusWindow", async (_event, id: string, hints?: FocusWindowHints) => {
+    const entry = getApp(id);
+    if (!entry) throw new Error("未找到该应用配置。");
+    return windowManager.focusAppWindow(entry, metricsFromFocusHints(entry.id, hints));
+  });
+
+  ipcMain.handle("apps:focusWindowHandle", async (_event, id: string, handle: number, hints?: FocusWindowHints) => {
+    const entry = getApp(id);
+    if (!entry) throw new Error("未找到该应用配置。");
+    return windowManager.focusHandle(entry, handle, metricsFromFocusHints(entry.id, hints));
+  });
+
+  ipcMain.handle("apps:listWindows", async (_event, id: string, hints?: FocusWindowHints) => {
+    const entry = getApp(id);
+    if (!entry) throw new Error("未找到该应用配置。");
+    return windowManager.listWindows(entry, metricsFromFocusHints(entry.id, hints));
+  });
+
+  ipcMain.handle("apps:windowDiagnostics", async (_event, id: string, hints?: FocusWindowHints) => {
+    const entry = getApp(id);
+    if (!entry) throw new Error("未找到该应用配置。");
+    return windowManager.diagnostics(entry, metricsFromFocusHints(entry.id, hints));
+  });
+
   ipcMain.handle("groups:launchSelected", async (_event, groupId: string) => {
     if (!loadAppGroups().some((group) => group.id === groupId)) throw new Error("分组不存在。");
     const groupApps = loadApps().filter((item) => item.groupId === groupId);
@@ -1360,7 +1467,7 @@ function registerIpc() {
 }
 
 let handedOffToAdministrator = false;
-if (process.platform === "win32" && shouldRequestAdministratorRelaunch(loadPreferences().runAsAdministrator, isRunningAsAdministrator, process.argv)) {
+if (process.platform === "win32" && shouldRequestAdministratorRelaunch(startupPreferences.runAsAdministrator, isRunningAsAdministrator, process.argv)) {
   try {
     launchElevatedSynchronously(buildRestartRequest(process.execPath, process.env.PORTABLE_EXECUTABLE_FILE, true));
     handedOffToAdministrator = true;
@@ -1378,7 +1485,9 @@ if (handedOffToAdministrator || !hasSingleInstanceLock) {
   app.whenReady().then(async () => {
     registerIpc();
     const preferences = loadPreferences();
+    createSplashWindow();
     createWindow();
+    refreshAdministratorStatusInBackground();
     await createTray();
     applyGlobalShortcut(preferences, false);
     nativeTheme.on("updated", () => {

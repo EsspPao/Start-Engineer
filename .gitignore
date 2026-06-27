@@ -1,6 +1,9 @@
 node_modules/
 dist/
 dist-electron/
+dist-native/
+native/**/bin/
+native/**/obj/
 coverage/
 release/
 *.log

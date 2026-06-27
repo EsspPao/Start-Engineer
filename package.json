@@ -10,7 +10,8 @@
     "dev": "node scripts/dev.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json",
-    "build": "tsc -p tsconfig.json && vite build && tsc -p tsconfig.electron.json",
+    "build:helper": "node scripts/build-window-helper.mjs",
+    "build": "npm run build:helper && tsc -p tsconfig.json && vite build && tsc -p tsconfig.electron.json",
     "start": "electron .",
     "start:build": "npm run build && electron .",
     "smoke": "node scripts/smoke.mjs",
@@ -45,7 +46,8 @@
     ],
     "extraResources": [
       { "from": "build/icon.ico", "to": "icon.ico" },
-      { "from": "build/tray-icon.png", "to": "tray-icon.png" }
+      { "from": "build/tray-icon.png", "to": "tray-icon.png" },
+      { "from": "dist-native/window-focus-helper/win-x64", "to": "window-focus-helper/win-x64" }
     ],
     "win": {
       "executableName": "Start Engineer",

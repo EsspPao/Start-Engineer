@@ -1,6 +1,6 @@
-﻿import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import type { AppEntry, AppGroup, AppMetrics, AppPreferencesState, DiscoveredAppCandidate, EverythingSearchResult, GroupInput, InternalSearchResult, ProcessInfo, SearchDependencyStatus, SearchProvider, SectionId, StartEngineerApi, UiTheme, UpdateAppInput, UpdatePreferencesInput } from "../shared/types";
+import type { AppEntry, AppGroup, AppMetrics, AppPreferencesState, AppWindowInfo, DiscoveredAppCandidate, EverythingSearchResult, FocusAppWindowResult, FocusWindowHints, GroupInput, InternalSearchResult, ProcessInfo, SearchDependencyStatus, SearchProvider, SectionId, StartEngineerApi, UiTheme, UpdateAppInput, UpdatePreferencesInput } from "../shared/types";
 import { GroupPage, ProcessPage } from "./pages";
 import { sortAppsForDisplay } from "./app-display";
 import { hitTestAppOrder, type AppDragRect } from "./app-drag-order";
@@ -8,8 +8,12 @@ import { buildInternalSearchResults, matchesAppSearch, matchesProcessSearch } fr
 import { SEARCH_RESULT_OPTION_ATTRIBUTE, scrollSelectedSearchResultIntoView } from "./search-panel-behavior";
 import { buildLaunchFeedbackMessage } from "./launch-feedback";
 import { firstAppGroupId, resolveLoadedSection } from "./navigation";
+import { shouldStartProcessPrewarm, STARTUP_DEFERRED_IMPORT_MS, STARTUP_DEFERRED_RUNTIME_MS, STARTUP_PROCESS_PREWARM_MS } from "./startup-schedule";
 import { shortcutFromKeyboardEvent, validateShortcut } from "../shared/global-shortcut";
-import { resolveUiTheme } from "../shared/theme";
+import { cleanErrorMessage } from "./error-message";
+import { buildThemeAttributes } from "./theme-attributes";
+import { themeOptions } from "./theme-options";
+import { WallpaperGlassIntensityControl, WallpaperGlassVariantControl } from "./theme-settings";
 import "./styles.css";
 
 type SortKey = "name" | "cpuPercent" | "memoryBytes" | "diskBytesPerSecond";
@@ -37,13 +41,6 @@ const fallbackGroups: AppGroup[] = [
 ];
 const groupIcons = ["compass", "briefcase", "wrench", "grid", "star", "gamepad", "folder", "music", "code"];
 export const SEARCH_INPUT_PLACEHOLDER = "搜索";
-const themeOptions: Array<{ id: UiTheme; name: string; description: string }> = [
-  { id: "fluent", name: "Fluent 任务中心", description: "清爽原生的 Windows 11 风格" },
-  { id: "midnight", name: "Midnight Control", description: "高对比深色控制中心" },
-  { id: "utility", name: "Modern Utility", description: "暖白、深色侧栏与亮绿强调" },
-  { id: "glass", name: "Refined Glass", description: "克制的蓝紫玻璃质感" },
-  { id: "system", name: "跟随 Windows", description: "浅色 Utility，深色 Midnight" }
-];
 
 const electronOnly = () => Promise.reject(new Error("此操作需要在 Electron 应用窗口中运行"));
 const fallbackApi: StartEngineerApi = {
@@ -64,6 +61,10 @@ const fallbackApi: StartEngineerApi = {
   setAppLaunchSelected: async () => [],
   setGroupLaunchSelected: async () => [],
   launchApp: electronOnly,
+  focusAppWindow: async () => ({ focused: false }),
+  focusAppWindowHandle: async () => ({ focused: false }),
+  listAppWindows: async () => [],
+  getAppWindowDiagnostics: async () => "",
   launchSelectedApps: electronOnly,
   killApp: async () => [],
   killGroupApps: electronOnly,
@@ -81,31 +82,56 @@ const fallbackApi: StartEngineerApi = {
   openSearchDependencyFolder: electronOnly,
   openSearchResult: async () => electronOnly(),
   showSearchResultInFolder: async () => electronOnly(),
-  getPreferences: async () => ({ launchAtStartup: false, closeBehavior: "tray", globalShortcutEnabled: true, globalShortcut: "Ctrl+Shift+Space", uiTheme: "utility", runAsAdministrator: false, searchProvider: "everything", sortRunningAppsFirst: true, firstRunImportCompleted: false, globalShortcutStatus: "registered", isRunningAsAdministrator: false, administratorRestartRequired: false }),
-  updatePreferences: async (input) => ({ launchAtStartup: input.launchAtStartup ?? false, closeBehavior: input.closeBehavior ?? "tray", globalShortcutEnabled: input.globalShortcutEnabled ?? true, globalShortcut: input.globalShortcut ?? "Ctrl+Shift+Space", uiTheme: input.uiTheme ?? "utility", runAsAdministrator: input.runAsAdministrator ?? false, searchProvider: input.searchProvider ?? "everything", sortRunningAppsFirst: input.sortRunningAppsFirst ?? true, firstRunImportCompleted: input.firstRunImportCompleted ?? false, everythingCliPath: input.everythingCliPath, globalShortcutStatus: "registered", isRunningAsAdministrator: false, administratorRestartRequired: Boolean(input.runAsAdministrator) }),
+  getPreferences: async () => ({ launchAtStartup: false, closeBehavior: "tray", globalShortcutEnabled: true, globalShortcut: "Ctrl+Shift+Space", uiTheme: "utility", wallpaperGlassIntensity: "medium", wallpaperGlassVariant: "dark", runAsAdministrator: false, searchProvider: "everything", sortRunningAppsFirst: true, showAppNames: false, firstRunImportCompleted: false, globalShortcutStatus: "registered", isRunningAsAdministrator: false, administratorStatusLoading: false, administratorRestartRequired: false }),
+  updatePreferences: async (input) => ({ launchAtStartup: input.launchAtStartup ?? false, closeBehavior: input.closeBehavior ?? "tray", globalShortcutEnabled: input.globalShortcutEnabled ?? true, globalShortcut: input.globalShortcut ?? "Ctrl+Shift+Space", uiTheme: input.uiTheme ?? "utility", wallpaperGlassIntensity: input.wallpaperGlassIntensity ?? "medium", wallpaperGlassVariant: input.wallpaperGlassVariant ?? "dark", runAsAdministrator: input.runAsAdministrator ?? false, searchProvider: input.searchProvider ?? "everything", sortRunningAppsFirst: input.sortRunningAppsFirst ?? true, showAppNames: input.showAppNames ?? false, firstRunImportCompleted: input.firstRunImportCompleted ?? false, everythingCliPath: input.everythingCliPath, globalShortcutStatus: "registered", isRunningAsAdministrator: false, administratorStatusLoading: false, administratorRestartRequired: Boolean(input.runAsAdministrator) }),
   restartWithConfiguredPrivileges: electronOnly,
   windowAction: async () => electronOnly()
 };
 
 const api = () => window.startEngineer ?? window.commandDeck ?? fallbackApi;
-const emptyMetrics = (appId: string): AppMetrics => ({ appId, isRunning: false, cpuPercent: 0, memoryBytes: 0, diskBytesPerSecond: 0, pids: [] });
-const cleanErrorMessage = (reason: unknown, fallback = "操作失败") => {
-  const message = reason instanceof Error ? reason.message : typeof reason === "string" ? reason : fallback;
-  return message
-    .replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/i, "")
-    .replace(/^Error:\s*/i, "")
-    .trim() || fallback;
-};
+
+function focusHintsForApp(app: RuntimeApp): FocusWindowHints {
+  return {
+    pids: app.metrics.pids,
+    matchedPids: app.metrics.matchedPids,
+    associatedPids: app.metrics.associatedPids,
+    matchedProcessNames: app.metrics.matchedProcessNames,
+    matchedPaths: app.metrics.matchedPaths
+  };
+}
+
+function focusResultMessage(result: FocusAppWindowResult) {
+  if (result.focused) return "";
+  if (result.reason === "tray-hidden") return "应用仍在托盘运行，请从托盘图标打开";
+  if (result.reason === "trayIconNotFound") return "应用可能在托盘中";
+  if (result.reason === "trayRestoreUnsupported") return "微信可能在托盘中，暂不支持直接恢复";
+  if (result.reason === "trayRestoreFailed" || result.reason === "suspectedWrongWindow" || result.reason === "restoredButNotInteractive" || result.reason === "fallbackRelaunchDisabled") return "未能正常恢复应用窗口";
+  if (result.reason === "foreground-blocked") return "窗口已找到，但 Windows 阻止了前台切换，可从任务栏点开";
+  return "未找到可唤起窗口";
+}
+const emptyMetrics = (appId: string): AppMetrics => ({
+  appId,
+  isRunning: false,
+  cpuPercent: 0,
+  memoryBytes: 0,
+  diskBytesPerSecond: 0,
+  pids: [],
+  matchedPids: [],
+  associatedPids: [],
+  matchedProcessNames: [],
+  matchedPaths: []
+});
 
 function App() {
   const [groups, setGroups] = useState(fallbackGroups);
   const [apps, setApps] = useState<AppEntry[]>([]);
   const [metrics, setMetrics] = useState<AppMetrics[]>([]);
   const [processes, setProcesses] = useState<ProcessInfo[]>([]);
+  const [processesLoading, setProcessesLoading] = useState(false);
   const [activeSection, setActiveSection] = useState<SectionId>(() => firstAppGroupId(fallbackGroups));
   const [selectedAppId, setSelectedAppId] = useState("");
   const [query, setQuery] = useState("");
-  const [preferences, setPreferences] = useState<AppPreferencesState>({ launchAtStartup: false, closeBehavior: "tray", globalShortcutEnabled: true, globalShortcut: "Ctrl+Shift+Space", uiTheme: "utility", runAsAdministrator: false, searchProvider: "everything", sortRunningAppsFirst: true, firstRunImportCompleted: false, globalShortcutStatus: "registered", isRunningAsAdministrator: false, administratorRestartRequired: false });
+  const [preferences, setPreferences] = useState<AppPreferencesState>({ launchAtStartup: false, closeBehavior: "tray", globalShortcutEnabled: true, globalShortcut: "Ctrl+Shift+Space", uiTheme: "utility", wallpaperGlassIntensity: "medium", wallpaperGlassVariant: "dark", runAsAdministrator: false, searchProvider: "everything", sortRunningAppsFirst: true, showAppNames: false, firstRunImportCompleted: false, globalShortcutStatus: "registered", isRunningAsAdministrator: false, administratorStatusLoading: false, administratorRestartRequired: false });
   const [everythingResults, setEverythingResults] = useState<EverythingSearchResult[]>([]);
   const [searchDependencyStatus, setSearchDependencyStatus] = useState<SearchDependencyStatus>({ state: "missing" });
   const [searchLoading, setSearchLoading] = useState(false);
@@ -130,10 +156,14 @@ function App() {
   const [selectedImportIds, setSelectedImportIds] = useState<Set<string>>(new Set());
   const [importingApps, setImportingApps] = useState(false);
   const [launchingAppIds, setLaunchingAppIds] = useState<Set<string>>(new Set());
+  const [invalidAppIds, setInvalidAppIds] = useState<Set<string>>(new Set());
   const dragCandidate = useRef<{ appId: string; sourceGroupId: AppGroupId; startX: number; startY: number; grabOffsetX: number; grabOffsetY: number; width: number; height: number; initialOrder: string[] } | null>(null);
   const iconRefreshStarted = useRef(false);
+  const runtimePollingStarted = useRef(false);
+  const processPrewarmStarted = useRef(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchRequest = useRef(0);
+  const focusRequestSeq = useRef(0);
   const launchingAppIdsRef = useRef(new Set<string>());
   const metricsByApp = useMemo(() => new Map(metrics.map((metric) => [metric.appId, metric])), [metrics]);
   const runtimeApps = useMemo<RuntimeApp[]>(() => apps.map((item) => ({ ...item, metrics: metricsByApp.get(item.id) ?? emptyMetrics(item.id) })), [apps, metricsByApp]);
@@ -152,14 +182,18 @@ function App() {
     return () => media.removeEventListener("change", update);
   }, []);
 
+  const themeAttributes = useMemo(() => buildThemeAttributes(preferences, systemIsDark), [preferences.uiTheme, preferences.wallpaperGlassIntensity, preferences.wallpaperGlassVariant, systemIsDark]);
+
   useEffect(() => {
-    const resolvedTheme = resolveUiTheme(preferences.uiTheme, systemIsDark);
-    document.documentElement.dataset.theme = resolvedTheme;
-    document.documentElement.style.colorScheme = resolvedTheme === "midnight" ? "dark" : "light";
+    document.documentElement.dataset.theme = themeAttributes.theme;
+    document.documentElement.dataset.wallpaperIntensity = themeAttributes.wallpaperIntensity;
+    document.documentElement.dataset.wallpaperVariant = themeAttributes.wallpaperVariant;
+    document.documentElement.style.colorScheme = themeAttributes.colorScheme;
     window.localStorage.setItem("start-engineer-ui-theme", preferences.uiTheme);
-  }, [preferences.uiTheme, systemIsDark]);
+  }, [preferences.uiTheme, themeAttributes]);
 
   const refreshRuntimeData = useCallback(async (mode: "full" | "managed" = "full", force = false) => {
+    if (mode === "full") setProcessesLoading(true);
     try {
       const snapshot = await api().getRuntimeSnapshot(mode, force);
       setApps(snapshot.apps);
@@ -167,12 +201,19 @@ function App() {
       if (mode === "full") setProcesses(snapshot.processes);
     } catch (reason) {
       setError(cleanErrorMessage(reason, "资源监控刷新失败"));
+    } finally {
+      if (mode === "full") setProcessesLoading(false);
     }
   }, []);
 
   useEffect(() => {
     let cancelled = false;
     let timer = 0;
+    let startupRuntimeTimer = 0;
+    let startupIconTimer = 0;
+    let startupPreferencesTimer = 0;
+    let startupImportTimer = 0;
+    let startupProcessPrewarmTimer = 0;
     let running = false;
     void Promise.all([api().listGroups(), api().listApps(), api().getPreferences()]).then(([nextGroups, nextApps, nextPreferences]) => {
       if (cancelled) return;
@@ -181,7 +222,8 @@ function App() {
       setApps(nextApps);
       setPreferences(nextPreferences);
       setActiveSection((current) => resolveLoadedSection(current, loadedGroups));
-      if (!nextPreferences.firstRunImportCompleted && nextApps.length === 0) {
+      startupImportTimer = window.setTimeout(() => {
+        if (cancelled || nextPreferences.firstRunImportCompleted || nextApps.length !== 0) return;
         void api().discoverImportCandidates().then(async (candidates) => {
           if (cancelled) return;
           if (!candidates.length) {
@@ -192,13 +234,27 @@ function App() {
           setImportCandidates(candidates);
           setSelectedImportIds(new Set(candidates.map((candidate) => candidate.id)));
         }).catch((reason) => setError(cleanErrorMessage(reason, "扫描可导入应用失败")));
-      }
+      }, STARTUP_DEFERRED_IMPORT_MS);
       if (!iconRefreshStarted.current) {
         iconRefreshStarted.current = true;
-        window.requestAnimationFrame(() => void api().refreshAppIcons().then(setApps).catch((reason) => setError(cleanErrorMessage(reason, "应用图标刷新失败"))));
+        startupIconTimer = window.setTimeout(() => {
+          window.requestAnimationFrame(() => void api().refreshAppIcons().then(setApps).catch((reason) => setError(cleanErrorMessage(reason, "应用图标刷新失败"))));
+        }, STARTUP_DEFERRED_RUNTIME_MS);
       }
+      startupPreferencesTimer = window.setTimeout(() => {
+        if (!cancelled) void api().getPreferences().then(setPreferences).catch(() => undefined);
+      }, STARTUP_DEFERRED_RUNTIME_MS);
+      startupProcessPrewarmTimer = window.setTimeout(() => {
+        if (cancelled || !shouldStartProcessPrewarm(document.hidden, processPrewarmStarted.current)) return;
+        processPrewarmStarted.current = true;
+        void api().getRuntimeSnapshot("full").then((snapshot) => {
+          if (cancelled) return;
+          setApps(snapshot.apps);
+          setMetrics(snapshot.metrics);
+          setProcesses(snapshot.processes);
+        }).catch(() => undefined);
+      }, STARTUP_PROCESS_PREWARM_MS);
     }).catch((reason) => setError(cleanErrorMessage(reason, "基础数据加载失败")));
-    void api().getSearchDependencyStatus().then(setSearchDependencyStatus).catch(() => setSearchDependencyStatus({ state: "missing" }));
     const schedule = () => {
       const mode = activeSection === "processes" ? "full" : "managed";
       const delay = mode === "full" ? 1000 : 5000;
@@ -224,10 +280,22 @@ function App() {
       }
     };
     document.addEventListener("visibilitychange", start);
-    start();
+    if (runtimePollingStarted.current) {
+      start();
+    } else {
+      startupRuntimeTimer = window.setTimeout(() => {
+        runtimePollingStarted.current = true;
+        start();
+      }, STARTUP_DEFERRED_RUNTIME_MS);
+    }
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
+      window.clearTimeout(startupRuntimeTimer);
+      window.clearTimeout(startupIconTimer);
+      window.clearTimeout(startupPreferencesTimer);
+      window.clearTimeout(startupImportTimer);
+      window.clearTimeout(startupProcessPrewarmTimer);
       document.removeEventListener("visibilitychange", start);
     };
   }, [activeSection, refreshRuntimeData]);
@@ -596,6 +664,7 @@ function App() {
 
   const switchSection = (id: SectionId) => {
     if (drag) return;
+    if (id === "processes" && !processes.length) setProcessesLoading(true);
     setActiveSection(id);
     setQuery("");
     closeFloatingUi();
@@ -637,9 +706,27 @@ function App() {
       setApps(result.apps);
       if (result.status === "failed") {
         setNotice("");
+        if (result.errorCode === 2 || /路径|不存在/.test(result.message ?? "")) {
+          setInvalidAppIds((current) => new Set(current).add(id));
+          setError(result.message || "程序路径不存在，请重新选择启动程序。");
+          const nextApps = await api().pickExecutable(id);
+          setApps(nextApps);
+          setInvalidAppIds((current) => {
+            const next = new Set(current);
+            next.delete(id);
+            return next;
+          });
+          return;
+        }
         setError(result.message || "启动失败，请检查程序路径和启动参数。");
         return;
       }
+      setInvalidAppIds((current) => {
+        if (!current.has(id)) return current;
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
       setNotice(buildLaunchFeedbackMessage(result.status, appName));
       if (result.status === "launched" || result.status === "alreadyRunning") {
         await refreshRuntimeData(activeSection === "processes" ? "full" : "managed", true);
@@ -651,6 +738,24 @@ function App() {
       launchingAppIdsRef.current.delete(id);
       setLaunchingAppIds(new Set(launchingAppIdsRef.current));
     }
+  };
+  const focusAppWindow = async (app: RuntimeApp) => {
+    const requestId = ++focusRequestSeq.current;
+    try {
+      setError("");
+      const result = await api().focusAppWindow(app.id, focusHintsForApp(app));
+      if (requestId !== focusRequestSeq.current) return;
+      const message = focusResultMessage(result);
+      if (message) setNotice(message);
+    } catch (reason) {
+      if (requestId === focusRequestSeq.current) setError(cleanErrorMessage(reason, "唤起应用窗口失败"));
+    }
+  };
+  const handleAppSelection = (app: RuntimeApp) => {
+    setSelectedAppId(app.id);
+  };
+  const handleLaunchingFeedback = (app: RuntimeApp) => {
+    setNotice(buildLaunchFeedbackMessage("starting", app.name));
   };
   const toggleAppLaunchSelected = async (app: RuntimeApp) => {
     try {
@@ -756,7 +861,7 @@ function App() {
   };
 
   return (
-    <main className="app-shell drag-region" data-theme={resolveUiTheme(preferences.uiTheme, systemIsDark)} onPointerDown={closeFloatingUi}>
+    <main className="app-shell drag-region" data-theme={themeAttributes.theme} data-wallpaper-intensity={themeAttributes.wallpaperIntensity} data-wallpaper-variant={themeAttributes.wallpaperVariant} onPointerDown={closeFloatingUi}>
       <aside className="sidebar no-drag">
         <div className="brand"><div className="brand-mark"><BrandLogo /></div><span><strong>Start Engineer</strong><small>Command Center</small></span></div>
         <nav className="nav">
@@ -786,14 +891,14 @@ function App() {
           </div>
         </header>
 
-        {activeSection === "processes" ? <ProcessPage processes={visibleProcesses} lockedProcessName={lockedProcessName} sortKey={sortKey} sortDirection={sortDirection} changeSort={changeSort} filter={processFilter} setFilter={changeProcessFilter} onContextMenu={openProcessMenu} />
+        {activeSection === "processes" ? <ProcessPage processes={visibleProcesses} loading={processesLoading} lockedProcessName={lockedProcessName} sortKey={sortKey} sortDirection={sortDirection} changeSort={changeSort} filter={processFilter} setFilter={changeProcessFilter} onContextMenu={openProcessMenu} />
           : activeSection === "settings" ? <SettingsPage apps={runtimeApps} groups={appGroups} preferences={preferences} onPreferencesChange={savePreferences} onThemeChange={saveTheme} onPickEverythingCli={pickEverythingCli} onAdd={addApp} onAddToGroup={(groupId) => void runAppAction(() => api().addAppFromDialog(groupId))} onCreate={() => setGroupEdit({ name: "", icon: "grid" })} onEdit={(group) => setGroupEdit({ id: group.id, name: group.name, icon: group.icon })} onDelete={requestDeleteGroup} onReorder={reorderGroups} onOpenApp={(app) => { setActiveSection(app.groupId); setSelectedAppId(app.id); }} onAppContextMenu={(event, app) => { event.preventDefault(); event.stopPropagation(); openMenu({ kind: "app", x: event.clientX, y: event.clientY, appId: app.id }); }} onMoveApp={moveAppWithinSettings} />
-          : <GroupPage apps={displayedApps} launchingAppIds={launchingAppIds} draggingAppId={drag?.appId} selectedCount={activeGroupApps.filter((app) => app.launchSelected).length} runningCount={activeGroupApps.filter((app) => app.metrics.isRunning).length} onToggleSelected={toggleAppLaunchSelected} onDoubleLaunch={(app) => void launchApp(app.id)} onLaunchSelected={() => void launchSelectedApps()} onCloseAll={() => void requestCloseGroupApps()} onAdd={addApp} onContextMenu={(event, app) => { event.preventDefault(); event.stopPropagation(); if (!drag) openMenu({ kind: "app", x: event.clientX, y: event.clientY, appId: app.id }); }} onPointerDown={(event, app) => { if (event.button !== 0) return; const rect = event.currentTarget.getBoundingClientRect(); dragCandidate.current = { appId: app.id, sourceGroupId: app.groupId, startX: event.clientX, startY: event.clientY, grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top, width: rect.width, height: rect.height, initialOrder: displayedApps.map((item) => item.id) }; }} onRequestClose={requestCloseApp} />}
+          : <GroupPage apps={displayedApps} launchingAppIds={launchingAppIds} selectedAppId={selectedAppId} invalidAppIds={invalidAppIds} draggingAppId={drag?.appId} selectedCount={activeGroupApps.filter((app) => app.launchSelected).length} runningCount={activeGroupApps.filter((app) => app.metrics.isRunning).length} showAppNames={preferences.showAppNames} onSelectApp={handleAppSelection} onFocusApp={(app) => void focusAppWindow(app)} onLaunchApp={(app) => void launchApp(app.id)} onLaunchingFeedback={handleLaunchingFeedback} onToggleLaunchSelected={toggleAppLaunchSelected} onLaunchSelected={() => void launchSelectedApps()} onCloseAll={() => void requestCloseGroupApps()} onAdd={addApp} onContextMenu={(event, app) => { event.preventDefault(); event.stopPropagation(); if (!drag) openMenu({ kind: "app", x: event.clientX, y: event.clientY, appId: app.id }); }} onPointerDown={(event, app) => { if (event.button !== 0) return; const rect = event.currentTarget.getBoundingClientRect(); dragCandidate.current = { appId: app.id, sourceGroupId: app.groupId, startX: event.clientX, startY: event.clientY, grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top, width: rect.width, height: rect.height, initialOrder: displayedApps.map((item) => item.id) }; }} onRequestClose={requestCloseApp} />}
         {notice || error ? <ToastStack notice={notice} error={error} onDismissNotice={() => setNotice("")} onDismissError={() => setError("")} /> : null}
       </section>
 
       {menu?.kind === "process" && processMenuItem ? <ProcessContextMenu state={menu} process={processMenuItem} onClose={closeMenu} onConfirm={setConfirm} onError={setError} /> : null}
-      {menu?.kind === "app" ? <AppContextMenu state={menu} app={runtimeApps.find((item) => item.id === menu.appId)} groups={appGroups} onClose={closeMenu} onLaunch={launchApp} onKill={requestCloseApp} onPick={(app) => void runAppAction(() => api().pickExecutable(app.id))} onEdit={editApp} onMove={activeSection === "settings" ? moveAppWithinSettings : moveAppToGroup} onRemove={(app) => setConfirm({ title: "移除应用", message: `确定从 Start Engineer 中移除 ${app.name} 吗？本地程序文件不会被删除。`, confirmLabel: "移除应用", onConfirm: async () => { await runAppAction(() => api().removeApp(app.id)); setSelectedAppId(""); } })} onError={setError} /> : null}
+      {menu?.kind === "app" ? <AppContextMenu state={menu} app={runtimeApps.find((item) => item.id === menu.appId)} groups={appGroups} onClose={closeMenu} onLaunch={launchApp} onKill={requestCloseApp} onPick={(app) => void runAppAction(() => api().pickExecutable(app.id))} onEdit={editApp} onMove={activeSection === "settings" ? moveAppWithinSettings : moveAppToGroup} onRemove={(app) => setConfirm({ title: "移除应用", message: `确定从 Start Engineer 中移除 ${app.name} 吗？本地程序文件不会被删除。`, confirmLabel: "移除应用", onConfirm: async () => { await runAppAction(() => api().removeApp(app.id)); setSelectedAppId(""); } })} onNotice={setNotice} onError={setError} /> : null}
       {menu?.kind === "group" ? <GroupContextMenu state={menu} groups={appGroups} onClose={closeMenu} onCreate={() => setGroupEdit({ name: "", icon: "grid" })} onEdit={(group) => setGroupEdit({ id: group.id, name: group.name, icon: group.icon })} onDelete={requestDeleteGroup} onReorder={reorderGroups} /> : null}
       {confirm ? <ConfirmDialog state={confirm} onClose={() => setConfirm(null)} onError={(message) => { setConfirm(null); setError(cleanErrorMessage(message)); }} /> : null}
       {importCandidates.length ? <FirstRunImportDialog candidates={importCandidates} selectedIds={selectedImportIds} busy={importingApps} onToggle={(id) => setSelectedImportIds((current) => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next; })} onSkip={dismissFirstRunImport} onImport={importSelectedApps} /> : null}
@@ -827,10 +932,72 @@ function ProcessContextMenu({ state, process, onClose, onConfirm, onError }: { s
   return <ContextMenu x={state.x} y={state.y} onClose={onClose}><div className="process-menu-header"><strong>{item.name}</strong><span>{item.isEnded ? "进程已结束" : `${item.processCount} 个进程`}</span></div><MenuDivider /><MenuButton disabled={!item.canTerminate || item.isEnded} title={item.terminationBlockedReason} danger onClick={() => { onClose(); onConfirm({ title: "结束进程组", message: `确定结束 ${item.name} 的 ${item.pids.length} 个进程吗？`, confirmLabel: "结束进程组", onConfirm: () => api().killProcessGroup({ name: item.name, pids: item.pids }) }); }}>结束进程组</MenuButton><MenuButton disabled={!item.exePath} onClick={() => { onClose(); if (item.exePath) void api().showItemInFolder(item.exePath).catch((reason) => onError(reason.message)); }}>打开文件所在位置</MenuButton><MenuDivider /><MenuButton onClick={() => void copy(item.name)}>复制进程名称</MenuButton><MenuButton disabled={!item.exePath} onClick={() => item.exePath && void copy(item.exePath)}>复制文件路径</MenuButton><MenuButton disabled={item.isEnded} onClick={() => void copy(item.pids.join(", "))}>复制 PID</MenuButton></ContextMenu>;
 }
 
-function AppContextMenu({ state, app, groups, onClose, onLaunch, onKill, onPick, onEdit, onMove, onRemove, onError }: { state: Extract<MenuState, { kind: "app" }>; app?: RuntimeApp; groups: AppGroup[]; onClose: () => void; onLaunch: (id: string) => void; onKill: (app: RuntimeApp) => void; onPick: (app: RuntimeApp) => void; onEdit: (app: RuntimeApp) => void; onMove: (id: string, group: AppGroupId) => Promise<void>; onRemove: (app: RuntimeApp) => void; onError: (message: string) => void }) {
+function AppContextMenu({ state, app, groups, onClose, onLaunch, onKill, onPick, onEdit, onMove, onRemove, onNotice, onError }: { state: Extract<MenuState, { kind: "app" }>; app?: RuntimeApp; groups: AppGroup[]; onClose: () => void; onLaunch: (id: string) => void; onKill: (app: RuntimeApp) => void; onPick: (app: RuntimeApp) => void; onEdit: (app: RuntimeApp) => void; onMove: (id: string, group: AppGroupId) => Promise<void>; onRemove: (app: RuntimeApp) => void; onNotice: (message: string) => void; onError: (message: string) => void }) {
+  const [windows, setWindows] = useState<AppWindowInfo[] | null>(null);
+  const windowDependencyKey = app ? [
+    app.id,
+    app.metrics.isRunning,
+    app.metrics.pids.join(","),
+    app.metrics.matchedPids.join(","),
+    app.metrics.associatedPids.join(","),
+    app.metrics.matchedProcessNames.join(","),
+    app.metrics.matchedPaths.join(",")
+  ].join("|") : "";
+
+  useEffect(() => {
+    let cancelled = false;
+    setWindows(null);
+    if (!app?.metrics.isRunning) return;
+    void api().listAppWindows(app.id, focusHintsForApp(app))
+      .then((items) => { if (!cancelled) setWindows(items); })
+      .catch(() => { if (!cancelled) setWindows([]); });
+    return () => { cancelled = true; };
+  }, [windowDependencyKey]);
+
   if (!app) return null;
   const invoke = (action: () => void) => { onClose(); action(); };
-  return <ContextMenu x={state.x} y={state.y} onClose={onClose}><MenuButton onClick={() => invoke(() => onLaunch(app.id))}>启动</MenuButton><MenuButton disabled={!app.metrics.isRunning} danger onClick={() => invoke(() => onKill(app))}>结束进程</MenuButton><MenuButton disabled={!app.executablePath} onClick={() => { onClose(); void api().showItemInFolder(app.executablePath).catch((reason) => onError(reason.message)); }}>打开文件所在位置</MenuButton><MenuDivider /><MenuButton onClick={() => invoke(() => onPick(app))}>修改启动程序</MenuButton><MenuButton onClick={() => invoke(() => onEdit(app))}>编辑应用信息</MenuButton><div className="menu-label">移动到分组</div>{groups.map((group) => <MenuButton key={group.id} disabled={app.groupId === group.id} onClick={() => { onClose(); void onMove(app.id, group.id); }}>{group.name}{app.groupId === group.id ? "（当前）" : ""}</MenuButton>)}<MenuDivider /><MenuButton disabled={!app.executablePath} onClick={() => { onClose(); void api().writeClipboardText(app.executablePath).catch((reason) => onError(reason.message)); }}>复制程序路径</MenuButton><MenuButton danger onClick={() => invoke(() => onRemove(app))}>移除应用</MenuButton></ContextMenu>;
+  const focusWindow = async (handle: number) => {
+    try {
+      const result = await api().focusAppWindowHandle(app.id, handle, focusHintsForApp(app));
+      const message = focusResultMessage(result);
+      if (message) onNotice(message);
+    } catch (reason) {
+      onError(cleanErrorMessage(reason, "唤起应用窗口失败"));
+    }
+  };
+  const copyDiagnostics = async () => {
+    try {
+      const diagnostics = await api().getAppWindowDiagnostics(app.id, focusHintsForApp(app));
+      await api().writeClipboardText(diagnostics);
+      onNotice("已复制窗口诊断信息");
+    } catch (reason) {
+      onError(cleanErrorMessage(reason, "复制窗口诊断信息失败"));
+    }
+  };
+
+  return <ContextMenu x={state.x} y={state.y} onClose={onClose}>
+    <MenuButton onClick={() => invoke(() => onLaunch(app.id))}>启动</MenuButton>
+    {app.metrics.isRunning ? <>
+      <MenuDivider />
+      <div className="menu-label">窗口列表</div>
+      {windows === null ? <div className="menu-label muted">正在读取窗口…</div> : windows.length ? windows.slice(0, 8).map((window) => (
+        <MenuButton key={`${window.handle}-${window.pid}`} onClick={() => { onClose(); void focusWindow(window.handle); }}>
+          {window.title || `窗口 ${window.pid}`}{window.minimized ? "（最小化）" : ""}
+        </MenuButton>
+      )) : <div className="menu-label muted">未找到窗口</div>}
+      <MenuButton onClick={() => { onClose(); void copyDiagnostics(); }}>复制窗口诊断信息</MenuButton>
+    </> : null}
+    <MenuButton disabled={!app.metrics.isRunning} danger onClick={() => invoke(() => onKill(app))}>结束进程</MenuButton>
+    <MenuButton disabled={!app.executablePath} onClick={() => { onClose(); void api().showItemInFolder(app.executablePath).catch((reason) => onError(reason.message)); }}>打开文件所在位置</MenuButton>
+    <MenuDivider />
+    <MenuButton onClick={() => invoke(() => onPick(app))}>修改启动程序</MenuButton>
+    <MenuButton onClick={() => invoke(() => onEdit(app))}>编辑应用信息</MenuButton>
+    <div className="menu-label">移动到分组</div>
+    {groups.map((group) => <MenuButton key={group.id} disabled={app.groupId === group.id} onClick={() => { onClose(); void onMove(app.id, group.id); }}>{group.name}{app.groupId === group.id ? "（当前）" : ""}</MenuButton>)}
+    <MenuDivider />
+    <MenuButton disabled={!app.executablePath} onClick={() => { onClose(); void api().writeClipboardText(app.executablePath).catch((reason) => onError(reason.message)); }}>复制程序路径</MenuButton>
+    <MenuButton danger onClick={() => invoke(() => onRemove(app))}>移除应用</MenuButton>
+  </ContextMenu>;
 }
 
 function GroupContextMenu({ state, groups, onClose, onCreate, onEdit, onDelete, onReorder }: { state: Extract<MenuState, { kind: "group" }>; groups: AppGroup[]; onClose: () => void; onCreate: () => void; onEdit: (group: AppGroup) => void; onDelete: (id: string) => void; onReorder: (ids: string[]) => Promise<unknown> }) {
@@ -888,7 +1055,7 @@ function SettingsPage({ apps, groups, preferences, onPreferencesChange, onThemeC
   const [expandedSettings, setExpandedSettings] = useState<Set<"general" | "theme" | "dependency">>(new Set());
   const [sortPreview, setSortPreview] = useState<{ id: string; left: number; top: number; width: number } | null>(null);
   const [appDrag, setAppDrag] = useState<{ appId: string; x: number; y: number; grabOffsetX: number; grabOffsetY: number; targetGroup?: string } | null>(null);
-  const [savingPreference, setSavingPreference] = useState<"startup" | "close" | "shortcut" | "theme" | "administrator" | "search" | "runningSort" | null>(null);
+  const [savingPreference, setSavingPreference] = useState<"startup" | "close" | "shortcut" | "theme" | "wallpaperIntensity" | "wallpaperVariant" | "administrator" | "search" | "runningSort" | "appNames" | null>(null);
   const [recordingShortcut, setRecordingShortcut] = useState(false);
   const [shortcutMessage, setShortcutMessage] = useState("");
   const [administratorActionMessage, setAdministratorActionMessage] = useState("");
@@ -1022,7 +1189,7 @@ function SettingsPage({ apps, groups, preferences, onPreferencesChange, onThemeC
   const draggedApp = apps.find((app) => app.id === appDrag?.appId);
   const previewGroup = ordered.find((group) => group.id === sortPreview?.id);
   const toggle = (id: string) => setExpanded((current) => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next; });
-  const savePreference = async (kind: "startup" | "close" | "shortcut" | "administrator" | "search" | "runningSort", input: UpdatePreferencesInput) => {
+  const savePreference = async (kind: "startup" | "close" | "shortcut" | "wallpaperIntensity" | "wallpaperVariant" | "administrator" | "search" | "runningSort" | "appNames", input: UpdatePreferencesInput) => {
     setSavingPreference(kind);
     if (kind === "administrator") setAdministratorActionMessage("");
     try {
@@ -1061,6 +1228,7 @@ function SettingsPage({ apps, groups, preferences, onPreferencesChange, onThemeC
             aria-checked={preferences.uiTheme === theme.id}
             className={`theme-card theme-${theme.id} ${preferences.uiTheme === theme.id ? "selected" : ""}`}
             disabled={savingPreference !== null}
+            title={theme.title ?? theme.description}
             onClick={() => void selectTheme(theme.id)}
           >
             <span className="theme-preview" aria-hidden="true"><i /><b /><em /></span>
@@ -1069,6 +1237,7 @@ function SettingsPage({ apps, groups, preferences, onPreferencesChange, onThemeC
           </button>
         ))}
       </div>
+      {preferences.uiTheme === "wallpaper" ? <div className="wallpaper-controls"><WallpaperGlassVariantControl value={preferences.wallpaperGlassVariant} disabled={savingPreference !== null} onChange={(value) => void savePreference("wallpaperVariant", { wallpaperGlassVariant: value })} /><WallpaperGlassIntensityControl value={preferences.wallpaperGlassIntensity} disabled={savingPreference !== null} onChange={(value) => void savePreference("wallpaperIntensity", { wallpaperGlassIntensity: value })} /></div> : null}
     </section>
   );
   const app = appDrag ?? { grabOffsetX: 0, grabOffsetY: 0 };
@@ -1088,9 +1257,9 @@ function SettingsPage({ apps, groups, preferences, onPreferencesChange, onThemeC
     return next;
   });
 
-  const administratorStatus = administratorActionMessage || (preferences.administratorRestartRequired ? shortcutMessage : "") || preferences.administratorMessage || (preferences.administratorRestartRequired ? "下次启动生效" : preferences.isRunningAsAdministrator ? "当前以管理员权限运行" : "当前以普通权限运行");
+  const administratorStatus = administratorActionMessage || (preferences.administratorRestartRequired ? shortcutMessage : "") || preferences.administratorMessage || (preferences.administratorStatusLoading ? "权限状态检测中" : preferences.administratorRestartRequired ? "下次启动生效" : preferences.isRunningAsAdministrator ? "当前以管理员权限运行" : "当前以普通权限运行");
 
-  return <section className="content settings-page no-drag"><SettingsCollapsibleSection title="常规设置" description="控制 Windows 启动、窗口关闭和快速唤出行为。" expanded={expandedSettings.has("general")} onToggle={() => toggleSettingsSection("general")}><div className="preference-grid"><div className="preference-row"><span><strong>开机启动</strong><small>登录 Windows 后自动打开 Start Engineer 主窗口。</small></span><button className={`setting-switch ${preferences.launchAtStartup ? "enabled" : ""}`} role="switch" aria-checked={preferences.launchAtStartup} disabled={savingPreference !== null} onClick={() => void savePreference("startup", { launchAtStartup: !preferences.launchAtStartup })}><i /></button></div><div className="preference-row close-preference"><span><strong>关闭主窗口时</strong><small>选择继续在托盘运行，或直接退出启动器。</small></span><div className="preference-options"><button className={preferences.closeBehavior === "tray" ? "selected" : ""} disabled={savingPreference !== null} onClick={() => void savePreference("close", { closeBehavior: "tray" })}>最小化到托盘</button><button className={preferences.closeBehavior === "quit" ? "selected" : ""} disabled={savingPreference !== null} onClick={() => void savePreference("close", { closeBehavior: "quit" })}>直接退出</button></div></div><div className="preference-row shortcut-preference"><span><strong>快速唤出</strong><small>在任意界面按快捷键显示或隐藏 Start Engineer。</small>{shortcutMessage || preferences.globalShortcutMessage ? <em>{shortcutMessage || preferences.globalShortcutMessage}</em> : null}</span><div className="shortcut-controls"><button className={`shortcut-recorder ${recordingShortcut ? "recording" : ""}`} disabled={savingPreference !== null} onClick={() => { setRecordingShortcut(true); setShortcutMessage("请按下新的快捷键，Esc 取消"); }} onKeyDown={recordShortcut}>{recordingShortcut ? "等待按键…" : preferences.globalShortcut}</button><button className={`setting-switch ${preferences.globalShortcutEnabled ? "enabled" : ""}`} role="switch" aria-checked={preferences.globalShortcutEnabled} disabled={savingPreference !== null} onClick={() => void savePreference("shortcut", { globalShortcutEnabled: !preferences.globalShortcutEnabled })}><i /></button><button className="shortcut-reset" disabled={savingPreference !== null || preferences.globalShortcut === "Ctrl+Shift+Space"} onClick={() => void savePreference("shortcut", { globalShortcut: "Ctrl+Shift+Space", globalShortcutEnabled: true })}>恢复默认</button></div></div><div className="preference-row search-preference"><span><strong>搜索范围</strong><small>默认调用 Everything 搜索文件；开启后只筛选 Start Engineer 内的应用和进程。</small><em>{preferences.searchProvider === "everything" ? "当前使用 Everything" : "当前仅搜索内部应用"}</em></span><div className="administrator-controls"><button className="shortcut-reset" disabled={savingPreference !== null || preferences.searchProvider !== "everything"} onClick={() => void api().pickEverythingCli().then(setPreferences).catch((reason) => setShortcutMessage(cleanErrorMessage(reason, "选择 ES.exe 失败")))}>选择 ES.exe</button><button className={`setting-switch ${preferences.searchProvider === "internal" ? "enabled" : ""}`} role="switch" aria-checked={preferences.searchProvider === "internal"} disabled={savingPreference !== null} onClick={() => void savePreference("search", { searchProvider: preferences.searchProvider === "internal" ? "everything" : "internal" })}><i /></button></div></div><div className="preference-row running-sort-preference"><span><strong>运行应用置顶</strong><small>分组内已启动应用自动显示在前面，关闭后恢复原有顺序。</small></span><button className={`setting-switch ${preferences.sortRunningAppsFirst ? "enabled" : ""}`} role="switch" aria-checked={preferences.sortRunningAppsFirst} disabled={savingPreference !== null} onClick={() => void savePreference("runningSort", { sortRunningAppsFirst: !preferences.sortRunningAppsFirst })}><i /></button></div><div className="preference-row administrator-preference"><span><strong>以管理员方式启动</strong><small>启动时请求 Windows 管理员权限，结束高权限应用时通常无需再次授权。</small><em className={preferences.administratorRestartRequired ? "pending" : "active"}>{administratorStatus}</em></span><div className="administrator-controls">{preferences.administratorRestartRequired ? <button className="shortcut-reset administrator-restart" onClick={() => void api().restartWithConfiguredPrivileges().catch((reason) => setShortcutMessage(cleanErrorMessage(reason, "重启失败")))}>{preferences.runAsAdministrator ? "立即以管理员身份重启" : "立即以普通权限重启"}</button> : null}<button className={`setting-switch ${preferences.runAsAdministrator ? "enabled" : ""}`} role="switch" aria-checked={preferences.runAsAdministrator} disabled={savingPreference !== null} onClick={() => void savePreference("administrator", { runAsAdministrator: !preferences.runAsAdministrator })}><i /></button></div></div></div></SettingsCollapsibleSection><SettingsCollapsibleSection title="界面主题" description="选择一套固定外观，或让界面跟随 Windows 明暗模式。" expanded={expandedSettings.has("theme")} onToggle={() => toggleSettingsSection("theme")}>{themePicker}</SettingsCollapsibleSection><div className="settings-heading group-settings-heading"><div><h2>分组管理</h2><p>点击分组查看应用，拖动手柄调整左侧导航顺序。</p></div><div className="settings-actions"><button className="ghost" onClick={onAdd}>添加应用</button><button className="launch" onClick={onCreate}>新建分组</button></div></div><div className="group-manager">{ordered.map((group) => <GroupManagerItem key={group.id} group={group} apps={apps.filter((app) => app.groupId === group.id)} expanded={expanded.has(group.id)} sorting={sortPreview?.id === group.id} appDrag={appDrag} register={(element) => { if (element) rows.current.set(group.id, element); else rows.current.delete(group.id); }} onToggle={() => toggle(group.id)} onSortStart={(event) => { if (appCandidate.current) return; event.preventDefault(); const rect = rows.current.get(group.id)?.getBoundingClientRect(); sortCandidate.current = { id: group.id, startX: event.clientX, startY: event.clientY, grabOffsetX: rect ? event.clientX - rect.left : 40, grabOffsetY: rect ? event.clientY - rect.top : 32, original: [...ordered], active: false, valid: true }; }} onEdit={() => onEdit(group)} onDelete={() => onDelete(group.id)} canDelete={groups.length > 1} onAdd={() => onAddToGroup(group.id)} onOpenApp={(app) => { if (!suppressAppClick.current) onOpenApp(app); }} onAppContextMenu={onAppContextMenu} onAppPointerDown={(event, app) => { if (event.button !== 0 || sortCandidate.current) return; const rect = event.currentTarget.getBoundingClientRect(); appCandidate.current = { appId: app.id, startX: event.clientX, startY: event.clientY, grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top }; }} />)}</div>{sortPreview && previewGroup ? <GroupSortPreview group={previewGroup} count={apps.filter((app) => app.groupId === previewGroup.id).length} left={sortPreview.left} top={sortPreview.top} width={sortPreview.width} /> : null}{appDrag && draggedApp ? <div className="drag-preview no-drag" style={{ left: appDrag.x - app.grabOffsetX, top: appDrag.y - app.grabOffsetY }}>{draggedApp.iconDataUrl ? <img src={draggedApp.iconDataUrl} alt="" /> : <Icon name="grid" />}<span>{draggedApp.name}</span></div> : null}</section>;
+  return <section className="content settings-page no-drag"><SettingsCollapsibleSection title="常规设置" description="控制 Windows 启动、窗口关闭和快速唤出行为。" expanded={expandedSettings.has("general")} onToggle={() => toggleSettingsSection("general")}><div className="preference-grid"><div className="preference-row"><span><strong>开机启动</strong><small>登录 Windows 后自动打开 Start Engineer 主窗口。</small></span><button className={`setting-switch ${preferences.launchAtStartup ? "enabled" : ""}`} role="switch" aria-checked={preferences.launchAtStartup} disabled={savingPreference !== null} onClick={() => void savePreference("startup", { launchAtStartup: !preferences.launchAtStartup })}><i /></button></div><div className="preference-row close-preference"><span><strong>关闭主窗口时</strong><small>选择继续在托盘运行，或直接退出启动器。</small></span><div className="preference-options"><button className={preferences.closeBehavior === "tray" ? "selected" : ""} disabled={savingPreference !== null} onClick={() => void savePreference("close", { closeBehavior: "tray" })}>最小化到托盘</button><button className={preferences.closeBehavior === "quit" ? "selected" : ""} disabled={savingPreference !== null} onClick={() => void savePreference("close", { closeBehavior: "quit" })}>直接退出</button></div></div><div className="preference-row shortcut-preference"><span><strong>快速唤出</strong><small>在任意界面按快捷键显示或隐藏 Start Engineer。</small>{shortcutMessage || preferences.globalShortcutMessage ? <em>{shortcutMessage || preferences.globalShortcutMessage}</em> : null}</span><div className="shortcut-controls"><button className={`shortcut-recorder ${recordingShortcut ? "recording" : ""}`} disabled={savingPreference !== null} onClick={() => { setRecordingShortcut(true); setShortcutMessage("请按下新的快捷键，Esc 取消"); }} onKeyDown={recordShortcut}>{recordingShortcut ? "等待按键…" : preferences.globalShortcut}</button><button className={`setting-switch ${preferences.globalShortcutEnabled ? "enabled" : ""}`} role="switch" aria-checked={preferences.globalShortcutEnabled} disabled={savingPreference !== null} onClick={() => void savePreference("shortcut", { globalShortcutEnabled: !preferences.globalShortcutEnabled })}><i /></button><button className="shortcut-reset" disabled={savingPreference !== null || preferences.globalShortcut === "Ctrl+Shift+Space"} onClick={() => void savePreference("shortcut", { globalShortcut: "Ctrl+Shift+Space", globalShortcutEnabled: true })}>恢复默认</button></div></div><div className="preference-row search-preference"><span><strong>搜索范围</strong><small>默认调用 Everything 搜索文件；开启后只筛选 Start Engineer 内的应用和进程。</small><em>{preferences.searchProvider === "everything" ? "当前使用 Everything" : "当前仅搜索内部应用"}</em></span><div className="administrator-controls"><button className="shortcut-reset" disabled={savingPreference !== null || preferences.searchProvider !== "everything"} onClick={() => void api().pickEverythingCli().then(setPreferences).catch((reason) => setShortcutMessage(cleanErrorMessage(reason, "选择 ES.exe 失败")))}>选择 ES.exe</button><button className={`setting-switch ${preferences.searchProvider === "internal" ? "enabled" : ""}`} role="switch" aria-checked={preferences.searchProvider === "internal"} disabled={savingPreference !== null} onClick={() => void savePreference("search", { searchProvider: preferences.searchProvider === "internal" ? "everything" : "internal" })}><i /></button></div></div><div className="preference-row running-sort-preference"><span><strong>运行应用置顶</strong><small>分组内已启动应用自动显示在前面，关闭后恢复原有顺序。</small></span><button className={`setting-switch ${preferences.sortRunningAppsFirst ? "enabled" : ""}`} role="switch" aria-checked={preferences.sortRunningAppsFirst} disabled={savingPreference !== null} onClick={() => void savePreference("runningSort", { sortRunningAppsFirst: !preferences.sortRunningAppsFirst })}><i /></button></div><div className="preference-row app-name-preference"><span><strong>显示应用名称</strong><small>在主界面卡片下方显示应用名称，关闭后只保留图标和状态。</small></span><button className={`setting-switch ${preferences.showAppNames ? "enabled" : ""}`} role="switch" aria-checked={preferences.showAppNames} disabled={savingPreference !== null} onClick={() => void savePreference("appNames", { showAppNames: !preferences.showAppNames })}><i /></button></div><div className="preference-row administrator-preference"><span><strong>以管理员方式启动</strong><small>启动时请求 Windows 管理员权限，结束高权限应用时通常无需再次授权。</small><em className={preferences.administratorRestartRequired ? "pending" : "active"}>{administratorStatus}</em></span><div className="administrator-controls">{preferences.administratorRestartRequired ? <button className="shortcut-reset administrator-restart" onClick={() => void api().restartWithConfiguredPrivileges().catch((reason) => setShortcutMessage(cleanErrorMessage(reason, "重启失败")))}>{preferences.runAsAdministrator ? "立即以管理员身份重启" : "立即以普通权限重启"}</button> : null}<button className={`setting-switch ${preferences.runAsAdministrator ? "enabled" : ""}`} role="switch" aria-checked={preferences.runAsAdministrator} disabled={savingPreference !== null} onClick={() => void savePreference("administrator", { runAsAdministrator: !preferences.runAsAdministrator })}><i /></button></div></div></div></SettingsCollapsibleSection><SettingsCollapsibleSection title="界面主题" description="选择一套固定外观，或让界面跟随 Windows 明暗模式。" expanded={expandedSettings.has("theme")} onToggle={() => toggleSettingsSection("theme")}>{themePicker}</SettingsCollapsibleSection><div className="settings-heading group-settings-heading"><div><h2>分组管理</h2><p>点击分组查看应用，拖动手柄调整左侧导航顺序。</p></div><div className="settings-actions"><button className="ghost" onClick={onAdd}>添加应用</button><button className="launch" onClick={onCreate}>新建分组</button></div></div><div className="group-manager">{ordered.map((group) => <GroupManagerItem key={group.id} group={group} apps={apps.filter((app) => app.groupId === group.id)} expanded={expanded.has(group.id)} sorting={sortPreview?.id === group.id} appDrag={appDrag} register={(element) => { if (element) rows.current.set(group.id, element); else rows.current.delete(group.id); }} onToggle={() => toggle(group.id)} onSortStart={(event) => { if (appCandidate.current) return; event.preventDefault(); const rect = rows.current.get(group.id)?.getBoundingClientRect(); sortCandidate.current = { id: group.id, startX: event.clientX, startY: event.clientY, grabOffsetX: rect ? event.clientX - rect.left : 40, grabOffsetY: rect ? event.clientY - rect.top : 32, original: [...ordered], active: false, valid: true }; }} onEdit={() => onEdit(group)} onDelete={() => onDelete(group.id)} canDelete={groups.length > 1} onAdd={() => onAddToGroup(group.id)} onOpenApp={(app) => { if (!suppressAppClick.current) onOpenApp(app); }} onAppContextMenu={onAppContextMenu} onAppPointerDown={(event, app) => { if (event.button !== 0 || sortCandidate.current) return; const rect = event.currentTarget.getBoundingClientRect(); appCandidate.current = { appId: app.id, startX: event.clientX, startY: event.clientY, grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top }; }} />)}</div>{sortPreview && previewGroup ? <GroupSortPreview group={previewGroup} count={apps.filter((app) => app.groupId === previewGroup.id).length} left={sortPreview.left} top={sortPreview.top} width={sortPreview.width} /> : null}{appDrag && draggedApp ? <div className="drag-preview no-drag" style={{ left: appDrag.x - app.grabOffsetX, top: appDrag.y - app.grabOffsetY }}>{draggedApp.iconDataUrl ? <img src={draggedApp.iconDataUrl} alt="" /> : <Icon name="grid" />}<span>{draggedApp.name}</span></div> : null}</section>;
 }
 
 export function SettingsCollapsibleSection({ title, description, expanded, onToggle, children }: { title: string; description: string; expanded: boolean; onToggle: () => void; children: React.ReactNode }) {

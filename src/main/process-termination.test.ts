@@ -25,6 +25,15 @@ describe("process termination", () => {
     expect(runElevated).toHaveBeenCalledTimes(1);
   });
 
+  it("treats elevated taskkill failures as success when the follow-up snapshot is clear", async () => {
+    const runNormal = vi.fn(async () => { throw new Error("Access is denied"); });
+    const runElevated = vi.fn(async () => { throw new Error("taskkill exited with code 128"); });
+    const getRunningPids = vi.fn().mockResolvedValueOnce([10]).mockResolvedValueOnce([10]).mockResolvedValueOnce([]);
+
+    await expect(terminatePids([10], { runNormal, runElevated, getRunningPids })).resolves.toEqual({ elevated: true });
+    expect(runElevated).toHaveBeenCalledTimes(1);
+  });
+
   it("reports a cancelled UAC prompt", async () => {
     const error = Object.assign(new Error("cancelled"), { code: "ELEVATION_CANCELLED" });
     await expect(terminatePids([10], {
@@ -37,7 +46,7 @@ describe("process termination", () => {
   it("fails when a process remains or restarts after elevation", async () => {
     await expect(terminatePids([10], {
       runNormal: async () => undefined,
-      runElevated: async () => undefined,
+      runElevated: async () => { throw new Error("taskkill exited with code 128"); },
       getRunningPids: vi.fn().mockResolvedValueOnce([10]).mockResolvedValueOnce([10]).mockResolvedValueOnce([10])
     })).rejects.toThrow("进程仍在运行，可能已被应用服务重新启动");
   });

@@ -7,6 +7,19 @@ const app = (id: string, selected = true): AppEntry => ({
   processName: id, accent: "#000", launchSelected: selected
 });
 
+const makeMetrics = (appId: string, pids: number[]): AppMetrics => ({
+  appId,
+  isRunning: pids.length > 0,
+  cpuPercent: 0,
+  memoryBytes: 0,
+  diskBytesPerSecond: 0,
+  pids,
+  matchedPids: pids,
+  associatedPids: [],
+  matchedProcessNames: [],
+  matchedPaths: []
+});
+
 describe("batch app actions", () => {
   it("launches selected apps sequentially and continues after failures", async () => {
     const calls: string[] = [];
@@ -25,9 +38,9 @@ describe("batch app actions", () => {
 
   it("merges unique running PIDs for every app in the group", () => {
     const metrics: AppMetrics[] = [
-      { appId: "a", isRunning: true, cpuPercent: 0, memoryBytes: 0, diskBytesPerSecond: 0, pids: [12, 10] },
-      { appId: "b", isRunning: true, cpuPercent: 0, memoryBytes: 0, diskBytesPerSecond: 0, pids: [12, 14] },
-      { appId: "c", isRunning: false, cpuPercent: 0, memoryBytes: 0, diskBytesPerSecond: 0, pids: [] }
+      makeMetrics("a", [12, 10]),
+      makeMetrics("b", [12, 14]),
+      makeMetrics("c", [])
     ];
 
     expect(collectGroupTermination([app("a"), app("b"), app("c")], metrics)).toEqual({

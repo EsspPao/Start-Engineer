@@ -4,6 +4,19 @@ import { sortAppsForDisplay } from "./app-display";
 
 type RuntimeApp = AppEntry & { metrics: AppMetrics };
 
+const metrics = (appId: string, isRunning: boolean): AppMetrics => ({
+  appId,
+  isRunning,
+  cpuPercent: 0,
+  memoryBytes: 0,
+  diskBytesPerSecond: 0,
+  pids: isRunning ? [42] : [],
+  matchedPids: isRunning ? [42] : [],
+  associatedPids: [],
+  matchedProcessNames: [],
+  matchedPaths: []
+});
+
 const makeApp = (id: string, isRunning: boolean): RuntimeApp => ({
   id,
   name: id,
@@ -12,14 +25,7 @@ const makeApp = (id: string, isRunning: boolean): RuntimeApp => ({
   executablePath: `C:\\Apps\\${id}.exe`,
   processName: `${id}.exe`,
   accent: "#2563eb",
-  metrics: {
-    appId: id,
-    isRunning,
-    cpuPercent: 0,
-    memoryBytes: 0,
-    diskBytesPerSecond: 0,
-    pids: isRunning ? [42] : [],
-  },
+  metrics: metrics(id, isRunning),
 });
 
 describe("app display ordering", () => {
