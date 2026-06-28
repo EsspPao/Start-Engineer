@@ -37,7 +37,7 @@ import { administratorRestartRequired, buildRestartRequest, shouldDetectAdminist
 import { migrateLegacyUserData } from "./user-data-migration.js";
 import { searchEverything as runEverythingSearch } from "./everything-search.js";
 import { buildEverythingDownloadPlan, clearTempDependencyDir, downloadFile, expandZip, getManagedEverythingPaths, getSearchDependencyStatus as resolveSearchDependencyStatus } from "./search-dependencies.js";
-import { buildDiscoveredApps, filterNewShortcuts, type ShortcutInfo, type ShortcutSource } from "./app-discovery.js";
+import { buildDiscoveredApps, filterNewShortcuts, searchDiscoveredAppCandidates, type ShortcutInfo, type ShortcutSource } from "./app-discovery.js";
 import { mergeVisibleAppOrder } from "./app-order.js";
 import { splashHtmlDataUrl, splashWindowOptions, wireSplashToMainWindow } from "./splash-window.js";
 import { AppWindowManager } from "./window-manager.js";
@@ -87,6 +87,8 @@ let prepareDependenciesInFlight: Promise<SearchDependencyStatus> | null = null;
 let windowBoundsSaveTimer: NodeJS.Timeout | null = null;
 const runtimeAssociatedPids = new Map<string, Set<number>>();
 let importCandidatesCache: DiscoveredAppCandidate[] = [];
+let discoveryShortcutsCache: ShortcutInfo[] | null = null;
+let discoveryCandidatesCache: DiscoveredAppCandidate[] = [];
 
 function detectAdministratorPrivileges() {
   if (process.platform !== "win32") return false;
@@ -547,6 +549,7 @@ async function discoverShortcuts(): Promise<ShortcutInfo[]> {
   if (!roots.length) return [];
   const payload = Buffer.from(JSON.stringify(roots), "utf16le").toString("base64");
   const script = `
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
 $roots = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('${payload}')) | ConvertFrom-Json
 $shell = New-Object -ComObject WScript.Shell
 $rows = foreach ($root in $roots) {
@@ -558,6 +561,10 @@ $rows = foreach ($root in $roots) {
       [PSCustomObject]@{
         name = [IO.Path]::GetFileNameWithoutExtension($_.Name)
         targetPath = [string]$shortcut.TargetPath
+        shortcutPath = [string]$_.FullName
+        workingDirectory = [string]$shortcut.WorkingDirectory
+        launchArgs = [string]$shortcut.Arguments
+        iconPath = [string]$shortcut.IconLocation
         source = [string]$root.source
       }
     } catch {}
@@ -571,10 +578,104 @@ $rows | ConvertTo-Json -Compress
   return Array.isArray(parsed) ? parsed : [parsed];
 }
 
+async function discoveryShortcuts(force = false) {
+  if (!force && discoveryShortcutsCache) return discoveryShortcutsCache;
+  discoveryShortcutsCache = await discoverShortcuts();
+  return discoveryShortcutsCache;
+}
+
+async function resolveShortcutFiles(paths: string[], source: ShortcutSource): Promise<ShortcutInfo[]> {
+  const validPaths = [...new Set(paths.filter((item) => item.toLowerCase().endsWith(".lnk") && existsSync(item)))];
+  if (!validPaths.length) return [];
+  const payload = Buffer.from(JSON.stringify(validPaths), "utf16le").toString("base64");
+  const script = `
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
+$paths = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('${payload}')) | ConvertFrom-Json
+$shell = New-Object -ComObject WScript.Shell
+$rows = foreach ($path in $paths) {
+  try {
+    $shortcut = $shell.CreateShortcut([string]$path)
+    if ([string]::IsNullOrWhiteSpace($shortcut.TargetPath)) { continue }
+    [PSCustomObject]@{
+      name = [IO.Path]::GetFileNameWithoutExtension([string]$path)
+      targetPath = [string]$shortcut.TargetPath
+      shortcutPath = [string]$path
+      workingDirectory = [string]$shortcut.WorkingDirectory
+      launchArgs = [string]$shortcut.Arguments
+      iconPath = [string]$shortcut.IconLocation
+      source = '${source}'
+    }
+  } catch {}
+}
+$rows | ConvertTo-Json -Compress
+`;
+  const output = (await runPowerShell(script)).trim();
+  if (!output) return [];
+  const parsed = JSON.parse(output) as ShortcutInfo[] | ShortcutInfo;
+  return Array.isArray(parsed) ? parsed : [parsed];
+}
+
+async function everythingDiscoveryShortcuts(query: string): Promise<ShortcutInfo[]> {
+  const trimmed = query.trim();
+  if (trimmed.length < 2) return [];
+  try {
+    const results = await runEverythingSearch(trimmed, { cliPath: loadPreferences().everythingCliPath, limit: 50, timeoutMs: 1800 });
+    const files = results.filter((result) => result.kind === "file");
+    const linkInfos = await resolveShortcutFiles(files.filter((result) => result.path.toLowerCase().endsWith(".lnk")).map((result) => result.path), "everything");
+    const exeInfos: ShortcutInfo[] = files
+      .filter((result) => result.path.toLowerCase().endsWith(".exe"))
+      .map((result) => ({
+        name: basename(result.name, extname(result.name)),
+        targetPath: result.path,
+        source: "everything"
+      }));
+    return [...linkInfos, ...exeInfos];
+  } catch {
+    return [];
+  }
+}
+
+async function searchAppCandidates(query: string) {
+  const baseShortcuts = await discoveryShortcuts();
+  const everythingShortcuts = await everythingDiscoveryShortcuts(query);
+  discoveryCandidatesCache = buildDiscoveredApps([...baseShortcuts, ...everythingShortcuts], loadAppGroups(), randomUUID);
+  return searchDiscoveredAppCandidates(discoveryCandidatesCache, query, loadApps());
+}
+
+async function refreshDiscoveryIndex() {
+  discoveryShortcutsCache = await discoverShortcuts();
+  discoveryCandidatesCache = buildDiscoveredApps(discoveryShortcutsCache, loadAppGroups(), randomUUID);
+  return searchDiscoveredAppCandidates(discoveryCandidatesCache, "", loadApps());
+}
+
 async function discoverImportCandidates() {
-  const shortcuts = filterNewShortcuts(await discoverShortcuts(), loadApps().map((entry) => entry.executablePath));
+  const shortcuts = filterNewShortcuts(await discoveryShortcuts(true), loadApps().map((entry) => entry.executablePath));
   importCandidatesCache = buildDiscoveredApps(shortcuts, loadAppGroups(), randomUUID).slice(0, 80);
   return importCandidatesCache;
+}
+
+async function addDiscoveredCandidate(candidateId: string, groupId: AppEntry["groupId"]) {
+  const candidate = discoveryCandidatesCache.find((item) => item.id === candidateId);
+  if (!candidate) throw new Error("未找到该应用候选");
+  const existing = loadApps().find((entry) => normalizeFilesystemPath(entry.executablePath) === normalizeFilesystemPath(candidate.executablePath));
+  if (existing) return { apps: loadApps(), appId: existing.id, added: false, alreadyAdded: true };
+  if (!existsSync(candidate.executablePath)) throw new Error("无法解析快捷方式");
+  const validGroupId = validAppGroup(groupId);
+  const group = loadAppGroups().find((item) => item.id === validGroupId)!;
+  const appEntry = await cacheAppIcon({
+    id: randomUUID(),
+    name: candidate.name,
+    category: group.name,
+    groupId: group.id,
+    executablePath: candidate.executablePath,
+    processName: candidate.processName,
+    workingDirectory: candidate.workingDirectory || dirname(candidate.executablePath),
+    launchArgs: candidate.launchArgs,
+    accent: "#2f66e8"
+  });
+  const nextApps = [...loadApps(), appEntry];
+  saveApps(nextApps);
+  return { apps: nextApps, appId: appEntry.id, added: true };
 }
 
 async function importDiscoveredApps(candidateIds: string[]) {
@@ -1156,6 +1257,9 @@ function registerIpc() {
   ipcMain.handle("apps:list", () => loadApps());
   ipcMain.handle("apps:discoverImportCandidates", () => discoverImportCandidates());
   ipcMain.handle("apps:importDiscovered", (_event, candidateIds: string[]) => importDiscoveredApps(Array.isArray(candidateIds) ? candidateIds : []));
+  ipcMain.handle("apps:searchCandidates", (_event, query: string) => searchAppCandidates(String(query ?? "")));
+  ipcMain.handle("apps:addDiscoveredCandidate", (_event, candidateId: string, groupId: AppEntry["groupId"]) => addDiscoveredCandidate(String(candidateId ?? ""), groupId));
+  ipcMain.handle("apps:refreshDiscoveryIndex", () => refreshDiscoveryIndex());
   ipcMain.handle("apps:refreshIcons", () => refreshAppIcons());
 
   ipcMain.handle("apps:addFromDialog", async (_event, groupId?: AppEntry["groupId"]) => {

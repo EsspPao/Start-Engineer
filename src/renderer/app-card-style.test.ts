@@ -16,4 +16,15 @@ describe("app card styles", () => {
     expect(styles).toMatch(/\.nav-button:focus,\s*\.nav-button:focus-visible\s*\{[^}]*outline:\s*none;/i);
     expect(styles).not.toMatch(/\.nav-button:focus-visible\s*\{[^}]*orange/i);
   });
+
+  it("removes only app-card browser focus outlines so the blue selected state is the only card focus ring", () => {
+    expect(styles).toMatch(/\.app-card:focus,\s*\.app-card:focus-visible\s*\{[^}]*outline:\s*none;/i);
+    expect(styles).toMatch(/\.app-card\s+button:focus,\s*\.app-card\s+button:focus-visible,\s*\.app-card\s+\[tabindex\]:focus,\s*\.app-card\s+\[tabindex\]:focus-visible\s*\{[^}]*outline:\s*none;/i);
+    expect(styles).not.toMatch(/\*:focus[^{]*\{[^}]*outline:\s*none/i);
+  });
+
+  it("removes the app grid container browser focus outline without disabling focus globally", () => {
+    expect(styles).toMatch(/\.app-grid:focus,\s*\.app-grid:focus-visible\s*\{[^}]*outline:\s*none;/i);
+    expect(styles).not.toMatch(/\*:focus[^{]*\{[^}]*outline:\s*none/i);
+  });
 });

@@ -16,6 +16,7 @@ import { buildThemeAttributes } from "./theme-attributes";
 import { themeOptions } from "./theme-options";
 import { groupNavigationFromKey, keyboardBlockKeyFromEventLike, isTextInputTarget, navigationDirectionFromKey, pickDirectionalApp, pickRelativeGroup, shouldSuppressNavigationAfterGroupMove, type AppCardRect } from "./keyboard-navigation";
 import { KeyboardShortcutPanel } from "./keyboard-shortcuts";
+import { pageFocusSelector, resolveSearchEscapeAction } from "./search-focus";
 import { WallpaperGlassIntensityControl, WallpaperGlassVariantControl } from "./theme-settings";
 import "./styles.css";
 
@@ -55,6 +56,9 @@ const fallbackApi: StartEngineerApi = {
   listApps: async () => [],
   discoverImportCandidates: async () => [],
   importDiscoveredApps: async () => [],
+  searchAppCandidates: async () => [],
+  addDiscoveredCandidate: async () => ({ apps: [], added: false }),
+  refreshDiscoveryIndex: async () => [],
   refreshAppIcons: async () => [],
   addAppFromDialog: electronOnly,
   pickExecutable: electronOnly,
@@ -142,7 +146,7 @@ function App() {
   const [selectedAppId, setSelectedAppId] = useState("");
   const [query, setQuery] = useState("");
   const [preferences, setPreferences] = useState<AppPreferencesState>({ launchAtStartup: false, closeBehavior: "tray", globalShortcutEnabled: true, globalShortcut: "Ctrl+Shift+Space", uiTheme: "utility", wallpaperGlassIntensity: "medium", wallpaperGlassVariant: "dark", runAsAdministrator: false, searchProvider: "everything", sortRunningAppsFirst: true, showAppNames: false, firstRunImportCompleted: false, globalShortcutStatus: "registered", isRunningAsAdministrator: false, administratorStatusLoading: false, administratorRestartRequired: false });
-  const [everythingResults, setEverythingResults] = useState<EverythingSearchResult[]>([]);
+  const [discoveredResults, setDiscoveredResults] = useState<DiscoveredAppCandidate[]>([]);
   const [searchDependencyStatus, setSearchDependencyStatus] = useState<SearchDependencyStatus>({ state: "missing" });
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState("");
@@ -330,7 +334,7 @@ function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f" && activeSection !== "settings") {
+      if ((event.ctrlKey || event.metaKey) && (event.key.toLowerCase() === "f" || event.key.toLowerCase() === "k")) {
         event.preventDefault();
         searchInputRef.current?.focus();
         searchInputRef.current?.select();
@@ -529,7 +533,7 @@ function App() {
     };
   }, [activeSection, apps, closeMenu, drag, moveAppToGroup, reorderAppsInGroup]);
 
-  const pageQuery = preferences.searchProvider === "internal" ? query : "";
+  const pageQuery = "";
   const activeGroupApps = useMemo(() => runtimeApps.filter((item) => item.groupId === activeSection), [activeSection, runtimeApps]);
   const visibleApps = useMemo(() => sortAppsForDisplay(
     activeGroupApps.filter((item) => matchesAppSearch(item, pageQuery)),
@@ -572,17 +576,14 @@ function App() {
     });
     return [...ordered, ...byName.values()];
   }, [lockedProcessName, lockedProcessOrder, menu, processFilter, processes, pageQuery, sortDirection, sortKey]);
-  const internalSearchResults = useMemo(() => {
-    if (preferences.searchProvider !== "internal" || activeSection === "settings") return [];
-    return buildInternalSearchResults(query, runtimeApps, processes);
-  }, [activeSection, preferences.searchProvider, processes, query, runtimeApps]);
-  const searchResultCount = preferences.searchProvider === "everything" ? everythingResults.length : internalSearchResults.length;
+  const managedSearchResults = useMemo(() => buildInternalSearchResults(query, runtimeApps, processes).filter((result): result is Extract<InternalSearchResult, { kind: "app" }> => result.kind === "app"), [processes, query, runtimeApps]);
+  const searchResultCount = managedSearchResults.length + discoveredResults.length;
 
   useEffect(() => {
     const trimmed = query.trim();
     setSearchSelectedIndex(0);
-    if (!trimmed || preferences.searchProvider !== "everything") {
-      setEverythingResults([]);
+    if (!trimmed) {
+      setDiscoveredResults([]);
       setSearchLoading(false);
       setSearchError("");
       return;
@@ -592,19 +593,19 @@ function App() {
     setSearchError("");
     const requestId = ++searchRequest.current;
     const timer = window.setTimeout(() => {
-      void api().searchEverything(trimmed).then((results) => {
+      void api().searchAppCandidates(trimmed).then((results) => {
         if (searchRequest.current !== requestId) return;
-        setEverythingResults(results);
+        setDiscoveredResults(results);
         setSearchLoading(false);
       }).catch((reason) => {
         if (searchRequest.current !== requestId) return;
-        setEverythingResults([]);
+        setDiscoveredResults([]);
         setSearchLoading(false);
-        setSearchError(cleanErrorMessage(reason, "Everything 搜索失败"));
+        setSearchError(cleanErrorMessage(reason, "搜索本机应用失败"));
       });
-    }, 120);
+    }, 150);
     return () => window.clearTimeout(timer);
-  }, [preferences.searchProvider, query]);
+  }, [query]);
 
   useEffect(() => {
     if (query.trim()) setSearchPanelOpen(true);
@@ -618,23 +619,11 @@ function App() {
   const activeGroup = groups.find((group) => group.id === activeSection);
   const pageTitle = activeSection === "processes" ? "进程监控" : activeSection === "settings" ? "偏好设置" : activeGroup?.name ?? "应用";
   const pageSubtitle = activeSection === "processes" ? `${visibleProcesses.length} 个进程正在显示` : activeSection === "settings" ? "管理应用分组与启动配置" : `${visibleApps.length} 个应用`;
-  const openEverythingResult = useCallback((result: EverythingSearchResult) => {
+  const openInternalResult = useCallback((result: Extract<InternalSearchResult, { kind: "app" }>) => {
     setSearchPanelOpen(false);
-    void api().openSearchResult(result.path).catch((reason) => setError(cleanErrorMessage(reason, "打开搜索结果失败")));
-  }, []);
-  const openInternalResult = useCallback((result: InternalSearchResult) => {
-    setSearchPanelOpen(false);
-    if (result.kind === "app") {
-      setActiveSection(result.groupId);
-      setSelectedAppId(result.id);
-      setQuery("");
-      return;
-    }
-    setActiveSection("processes");
-    setProcessFilter("all");
-    setLockedProcessName(result.name.toLowerCase());
-    setLockedProcessOrder([result.name.toLowerCase()]);
-    setQuery(result.name);
+    setActiveSection(result.groupId);
+    setSelectedAppId(result.id);
+    setQuery("");
   }, []);
   const pickEverythingCli = useCallback(() => {
     void api().pickEverythingCli().then(setPreferences).catch((reason) => setError(cleanErrorMessage(reason, "选择 ES.exe 失败")));
@@ -646,16 +635,6 @@ function App() {
       return api().getPreferences();
     }).then(setPreferences).catch((reason) => setSearchDependencyStatus({ state: "failed", message: cleanErrorMessage(reason, "准备 Everything 搜索依赖失败") }));
   }, []);
-  const openSelectedSearchResult = useCallback(() => {
-    if (!query.trim()) return;
-    if (preferences.searchProvider === "everything") {
-      const result = everythingResults[searchSelectedIndex] ?? everythingResults[0];
-      if (result) openEverythingResult(result);
-      return;
-    }
-    const result = internalSearchResults[searchSelectedIndex] ?? internalSearchResults[0];
-    if (result) openInternalResult(result);
-  }, [everythingResults, internalSearchResults, openEverythingResult, openInternalResult, preferences.searchProvider, query, searchSelectedIndex]);
   const processMenuItem: DisplayProcess | undefined = menu?.kind === "process"
     ? processes.find((item) => item.name.toLowerCase() === menu.process.name.toLowerCase()) ?? {
       ...menu.process,
@@ -672,6 +651,17 @@ function App() {
     closeMenu();
     setSearchPanelOpen(false);
   }, [closeMenu]);
+  const restoreFocusAfterSearch = useCallback(() => {
+    let focusAppId = selectedAppId;
+    if (appGroups.some((group) => group.id === activeSection) && !focusAppId) {
+      focusAppId = displayedApps[0]?.id ?? "";
+      if (focusAppId) setSelectedAppId(focusAppId);
+    }
+    const selector = pageFocusSelector(activeSection, focusAppId);
+    window.requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>(selector)?.focus({ preventScroll: true });
+    });
+  }, [activeSection, appGroups, displayedApps, selectedAppId]);
 
   const switchSection = (id: SectionId) => {
     if (drag) return;
@@ -754,6 +744,34 @@ function App() {
       setLaunchingAppIds(new Set(launchingAppIdsRef.current));
     }
   };
+  const targetSearchGroupId = () => appGroups.some((group) => group.id === activeSection)
+    ? activeSection
+    : runtimeApps.find((app) => app.id === selectedAppId)?.groupId ?? appGroups[0]?.id ?? "";
+  const addDiscoveredApp = useCallback(async (candidate: DiscoveredAppCandidate, launchAfterAdd = false) => {
+    if (candidate.alreadyAdded && candidate.existingAppId) {
+      const existing = runtimeApps.find((app) => app.id === candidate.existingAppId);
+      if (existing) openInternalResult({ kind: "app", id: existing.id, name: existing.name, groupId: existing.groupId, processName: existing.processName, isRunning: existing.metrics.isRunning });
+      return;
+    }
+    const groupId = targetSearchGroupId();
+    if (!groupId) return;
+    try {
+      setError("");
+      const result = await api().addDiscoveredCandidate(candidate.id, groupId);
+      setApps(result.apps);
+      if (result.appId) {
+        setActiveSection(groupId);
+        setSelectedAppId(result.appId);
+      }
+      setDiscoveredResults((current) => current.map((item) => item.id === candidate.id ? { ...item, alreadyAdded: true, existingAppId: result.appId, existingGroupId: groupId } : item));
+      setNotice(result.alreadyAdded ? "已添加" : `已添加 ${candidate.name}`);
+      setSearchPanelOpen(false);
+      setQuery("");
+      if (launchAfterAdd && result.appId) await launchApp(result.appId);
+    } catch (reason) {
+      setError(cleanErrorMessage(reason, "添加失败"));
+    }
+  }, [activeSection, appGroups, openInternalResult, runtimeApps, selectedAppId]);
   const focusAppWindow = async (app: RuntimeApp) => {
     const requestId = ++focusRequestSeq.current;
     try {
@@ -766,6 +784,26 @@ function App() {
       if (requestId === focusRequestSeq.current) setError(cleanErrorMessage(reason, "唤起应用窗口失败"));
     }
   };
+  const runManagedSearchResult = useCallback((result: Extract<InternalSearchResult, { kind: "app" }>) => {
+    const app = runtimeApps.find((item) => item.id === result.id);
+    setSearchPanelOpen(false);
+    setQuery("");
+    setActiveSection(result.groupId);
+    setSelectedAppId(result.id);
+    if (!app) return;
+    if (app.metrics.isRunning) void focusAppWindow(app);
+    else void launchApp(app.id);
+  }, [runtimeApps]);
+  const openSelectedSearchResult = useCallback((launchAfterAdd = false) => {
+    if (!query.trim()) return;
+    const managed = managedSearchResults[searchSelectedIndex];
+    if (managed) {
+      runManagedSearchResult(managed);
+      return;
+    }
+    const discovered = discoveredResults[searchSelectedIndex - managedSearchResults.length] ?? discoveredResults[0];
+    if (discovered) void addDiscoveredApp(discovered, launchAfterAdd);
+  }, [addDiscoveredApp, discoveredResults, managedSearchResults, query, runManagedSearchResult, searchSelectedIndex]);
   const handleAppSelection = (app: RuntimeApp) => {
     setSelectedAppId(app.id);
   };
@@ -1032,7 +1070,7 @@ function App() {
       <section className="window">
         <header className="topbar">
           <div className="page-heading"><span>{pageSubtitle}</span><h1>{pageTitle}</h1></div>
-          <section className="searchbar no-drag" onPointerDown={(event) => event.stopPropagation()}><label><Icon name="search" /><input ref={searchInputRef} value={query} onFocus={() => { closeMenu(); if (query.trim()) setSearchPanelOpen(true); }} onKeyDown={(event) => { if (event.key === "ArrowDown") { event.preventDefault(); setSearchPanelOpen(Boolean(query.trim())); setSearchSelectedIndex((index) => Math.min(index + 1, Math.max(0, searchResultCount - 1))); } else if (event.key === "ArrowUp") { event.preventDefault(); setSearchPanelOpen(Boolean(query.trim())); setSearchSelectedIndex((index) => Math.max(0, index - 1)); } else if (event.key === "Enter") { event.preventDefault(); openSelectedSearchResult(); } else if (event.key === "Escape") { setSearchPanelOpen(false); } }} onChange={(event) => setQuery(event.target.value)} placeholder={SEARCH_INPUT_PLACEHOLDER} /></label><button className={`search-button ${query ? "clear" : ""}`} onClick={() => { closeMenu(); if (query) { setQuery(""); setSearchPanelOpen(false); } else searchInputRef.current?.focus(); }} aria-label={query ? "清除搜索" : "聚焦搜索框"}>{query ? "×" : <Icon name="search" />}</button>{searchPanelOpen && query.trim() ? <SearchResultsPanel provider={preferences.searchProvider} query={query} loading={searchLoading} error={searchError} selectedIndex={searchSelectedIndex} everythingResults={everythingResults} internalResults={internalSearchResults} onSelectIndex={setSearchSelectedIndex} onOpenEverything={openEverythingResult} onOpenInternal={openInternalResult} onPickEverythingCli={pickEverythingCli} onShowEverythingInFolder={(result) => void api().showSearchResultInFolder(result.path).catch((reason) => setError(cleanErrorMessage(reason, "打开所在位置失败")))} onCopyPath={(path) => void api().writeClipboardText(path).catch((reason) => setError(cleanErrorMessage(reason, "复制路径失败")))} /> : null}</section>
+          <section className="searchbar no-drag" onPointerDown={(event) => event.stopPropagation()}><label><Icon name="search" /><input ref={searchInputRef} value={query} onFocus={() => { closeMenu(); if (query.trim()) setSearchPanelOpen(true); }} onKeyDown={(event) => { if (event.key === "ArrowDown") { event.preventDefault(); setSearchPanelOpen(Boolean(query.trim())); setSearchSelectedIndex((index) => Math.min(index + 1, Math.max(0, searchResultCount - 1))); } else if (event.key === "ArrowUp") { event.preventDefault(); setSearchPanelOpen(Boolean(query.trim())); setSearchSelectedIndex((index) => Math.max(0, index - 1)); } else if (event.key === "Enter") { event.preventDefault(); openSelectedSearchResult(event.ctrlKey || event.metaKey); } else if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); const action = resolveSearchEscapeAction(true, query); if (action === "clear-query") { setQuery(""); setDiscoveredResults([]); setSearchSelectedIndex(0); setSearchPanelOpen(false); } else { event.currentTarget.blur(); setSearchPanelOpen(false); restoreFocusAfterSearch(); } } }} onChange={(event) => setQuery(event.target.value)} placeholder={SEARCH_INPUT_PLACEHOLDER} /></label><button className={`search-button ${query ? "clear" : ""}`} onClick={() => { closeMenu(); if (query) { setQuery(""); setSearchPanelOpen(false); } else searchInputRef.current?.focus(); }} aria-label={query ? "清除搜索" : "聚焦搜索框"}>{query ? "×" : <Icon name="search" />}</button>{searchPanelOpen && query.trim() ? <SearchResultsPanel query={query} loading={searchLoading} error={searchError} selectedIndex={searchSelectedIndex} managedResults={managedSearchResults} discoveredResults={discoveredResults} onSelectIndex={setSearchSelectedIndex} onOpenManaged={runManagedSearchResult} onAddDiscovered={(candidate) => void addDiscoveredApp(candidate)} /> : null}</section>
           <div className="window-controls no-drag">
             <button title="最小化" aria-label="最小化" onClick={() => void api().windowAction("minimize")}>−</button>
             <button title="最大化或还原" aria-label="最大化或还原" onClick={() => void api().windowAction("maximize")}>□</button>
@@ -1173,21 +1211,21 @@ function ConfirmDialog({ state, onClose, onError }: { state: NonNullable<Confirm
   const confirm = async () => { setBusy(true); try { await state.onConfirm(); onClose(); } catch (reason) { onError(reason instanceof Error ? reason.message : "操作失败"); setBusy(false); } };
   return <div className="modal-backdrop no-drag" onPointerDown={onClose}><div className="dialog" onPointerDown={(event) => event.stopPropagation()}><h2>{state.title}</h2><p>{state.message}</p><div className="dialog-actions"><button className="ghost" onClick={onClose} disabled={busy}>取消</button><button className="danger-button" onClick={() => void confirm()} disabled={busy}>{busy ? "处理中..." : state.confirmLabel}</button></div></div></div>;
 }
-const formatSearchSize = (bytes?: number) => bytes === undefined ? "文件夹" : bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-
-export function SearchResultsPanel({ provider, query, loading, error, selectedIndex, everythingResults, internalResults, onSelectIndex, onOpenEverything, onOpenInternal, onPickEverythingCli, onPrepareDependencies, onShowEverythingInFolder, onCopyPath }: { provider: SearchProvider; query: string; loading: boolean; error: string; selectedIndex: number; dependencyState?: SearchDependencyStatus["state"]; everythingResults: EverythingSearchResult[]; internalResults: InternalSearchResult[]; onSelectIndex: (index: number) => void; onOpenEverything: (result: EverythingSearchResult) => void; onOpenInternal: (result: InternalSearchResult) => void; onPickEverythingCli: () => void; onPrepareDependencies?: () => void; onShowEverythingInFolder: (result: EverythingSearchResult) => void; onCopyPath: (path: string) => void }) {
-  const resultCount = provider === "everything" ? everythingResults.length : internalResults.length;
-  const prepareDependencies = onPrepareDependencies ?? (() => { void api().prepareSearchDependencies(); });
+export function SearchResultsPanel({ query, loading, error, selectedIndex, managedResults, discoveredResults, onSelectIndex, onOpenManaged, onAddDiscovered }: { query: string; loading: boolean; error: string; selectedIndex: number; managedResults: Array<Extract<InternalSearchResult, { kind: "app" }>>; discoveredResults: DiscoveredAppCandidate[]; onSelectIndex: (index: number) => void; onOpenManaged: (result: Extract<InternalSearchResult, { kind: "app" }>) => void; onAddDiscovered: (candidate: DiscoveredAppCandidate) => void }) {
+  const resultCount = managedResults.length + discoveredResults.length;
   const panelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     scrollSelectedSearchResultIntoView(panelRef.current, selectedIndex);
   }, [selectedIndex, resultCount]);
   return <div ref={panelRef} className="search-results-panel" role="listbox" aria-label="搜索结果" onPointerDown={(event) => event.stopPropagation()}>
-    <div className="search-results-title"><span>{provider === "everything" ? "Everything 文件搜索" : "Start Engineer 内部搜索"}</span><small>{loading ? "搜索中…" : `${resultCount} 个结果`}</small></div>
-    {provider === "everything" && error ? <div className="search-results-error"><strong>{error}</strong><span>请确认 Everything 已安装并正在运行，或点击一键准备自动下载便携依赖。</span><button onClick={prepareDependencies}>一键准备</button><button onClick={onPickEverythingCli}>选择 ES.exe</button><a href="https://www.voidtools.com/zh-cn/" target="_blank" rel="noreferrer">打开 Everything 官网</a></div> : null}
+    <div className="search-results-title"><span>搜索应用</span><small>{loading ? "搜索中…" : `${resultCount} 个结果`}</small></div>
+    {error ? <div className="search-results-error"><strong>{error}</strong></div> : null}
     {!error && !loading && !resultCount ? <div className="search-results-empty">没有找到“{query}”的匹配结果。</div> : null}
-    {!error && provider === "everything" ? everythingResults.map((result, index) => <div key={result.path} className={`search-result-row ${index === selectedIndex ? "selected" : ""}`} role="option" aria-selected={index === selectedIndex} {...{ [SEARCH_RESULT_OPTION_ATTRIBUTE]: index }} onMouseEnter={() => onSelectIndex(index)} onClick={() => onOpenEverything(result)} onContextMenu={(event) => { event.preventDefault(); onShowEverythingInFolder(result); }}><Icon name={result.kind === "folder" ? "folder" : "grid"} /><span><strong>{result.name}</strong><small>{result.path}</small></span><em>{formatSearchSize(result.sizeBytes)}</em><button onClick={(event) => { event.stopPropagation(); onCopyPath(result.path); }}>复制路径</button></div>) : null}
-    {!error && provider === "internal" ? internalResults.map((result, index) => <button key={`${result.kind}-${result.kind === "app" ? result.id : result.name}`} className={`search-result-row internal ${index === selectedIndex ? "selected" : ""}`} role="option" aria-selected={index === selectedIndex} {...{ [SEARCH_RESULT_OPTION_ATTRIBUTE]: index }} onMouseEnter={() => onSelectIndex(index)} onClick={() => onOpenInternal(result)}><Icon name={result.kind === "app" ? "grid" : "activity"} /><span><strong>{result.name}</strong><small>{result.kind === "app" ? `${result.processName}${result.isRunning ? " · 运行中" : ""}` : `${result.processCount} 个进程${result.isManagedApp ? " · 已管理" : ""}`}</small></span><em>{result.kind === "app" ? "应用" : "进程"}</em></button>) : null}
+    {!error && managedResults.length ? <div className="search-results-section"><div className="search-results-title compact"><span>已添加应用</span><small>Enter 启动 / 唤起</small></div>{managedResults.map((result, index) => <button key={`managed-${result.id}`} className={`search-result-row internal ${index === selectedIndex ? "selected" : ""}`} role="option" aria-selected={index === selectedIndex} {...{ [SEARCH_RESULT_OPTION_ATTRIBUTE]: index }} onMouseEnter={() => onSelectIndex(index)} onClick={() => onOpenManaged(result)}><Icon name="grid" /><span><strong>{result.name}</strong><small>{result.processName}{result.isRunning ? " · 运行中" : ""}</small></span><em className="search-result-status added" title="已添加">✓</em></button>)}</div> : null}
+    {!error && discoveredResults.length ? <div className="search-results-section"><div className="search-results-title compact"><span>本机可添加应用</span><small>Enter 添加</small></div>{discoveredResults.map((result, offset) => {
+      const index = managedResults.length + offset;
+      return <button key={`discovered-${result.id}`} className={`search-result-row internal ${index === selectedIndex ? "selected" : ""}`} role="option" aria-selected={index === selectedIndex} {...{ [SEARCH_RESULT_OPTION_ATTRIBUTE]: index }} onMouseEnter={() => onSelectIndex(index)} onClick={() => onAddDiscovered(result)}><Icon name="grid" /><span><strong>{result.name}</strong><small>{result.source === "start-menu" ? "开始菜单" : result.source === "desktop" ? "桌面快捷方式" : "本机结果"}</small></span><em className={`search-result-status ${result.alreadyAdded ? "added" : "add"}`} title={result.alreadyAdded ? "已添加" : "添加到当前分组"}>{result.alreadyAdded ? "✓" : "+"}</em></button>;
+    })}</div> : null}
   </div>;
 }
 
@@ -1408,7 +1446,7 @@ function SettingsPage({ apps, groups, preferences, onPreferencesChange, onThemeC
 
   const administratorStatus = administratorActionMessage || (preferences.administratorRestartRequired ? shortcutMessage : "") || preferences.administratorMessage || (preferences.administratorStatusLoading ? "权限状态检测中" : preferences.administratorRestartRequired ? "下次启动生效" : preferences.isRunningAsAdministrator ? "当前以管理员权限运行" : "当前以普通权限运行");
 
-  return <section className="content settings-page no-drag"><SettingsCollapsibleSection title="常规设置" description="控制 Windows 启动、窗口关闭和快速唤出行为。" expanded={expandedSettings.has("general")} onToggle={() => toggleSettingsSection("general")}><div className="preference-grid"><div className="preference-row"><span><strong>开机启动</strong><small>登录 Windows 后自动打开 Start Engineer 主窗口。</small></span><button className={`setting-switch ${preferences.launchAtStartup ? "enabled" : ""}`} role="switch" aria-checked={preferences.launchAtStartup} disabled={savingPreference !== null} onClick={() => void savePreference("startup", { launchAtStartup: !preferences.launchAtStartup })}><i /></button></div><div className="preference-row close-preference"><span><strong>关闭主窗口时</strong><small>选择继续在托盘运行，或直接退出启动器。</small></span><div className="preference-options"><button className={preferences.closeBehavior === "tray" ? "selected" : ""} disabled={savingPreference !== null} onClick={() => void savePreference("close", { closeBehavior: "tray" })}>最小化到托盘</button><button className={preferences.closeBehavior === "quit" ? "selected" : ""} disabled={savingPreference !== null} onClick={() => void savePreference("close", { closeBehavior: "quit" })}>直接退出</button></div></div><div className="preference-row shortcut-preference"><span><strong>快速唤出</strong><small>在任意界面按快捷键显示或隐藏 Start Engineer。</small>{shortcutMessage || preferences.globalShortcutMessage ? <em>{shortcutMessage || preferences.globalShortcutMessage}</em> : null}</span><div className="shortcut-controls"><button className={`shortcut-recorder ${recordingShortcut ? "recording" : ""}`} disabled={savingPreference !== null} onClick={() => { setRecordingShortcut(true); setShortcutMessage("请按下新的快捷键，Esc 取消"); }} onKeyDown={recordShortcut}>{recordingShortcut ? "等待按键…" : preferences.globalShortcut}</button><button className={`setting-switch ${preferences.globalShortcutEnabled ? "enabled" : ""}`} role="switch" aria-checked={preferences.globalShortcutEnabled} disabled={savingPreference !== null} onClick={() => void savePreference("shortcut", { globalShortcutEnabled: !preferences.globalShortcutEnabled })}><i /></button><button className="shortcut-reset" disabled={savingPreference !== null || preferences.globalShortcut === "Ctrl+Shift+Space"} onClick={() => void savePreference("shortcut", { globalShortcut: "Ctrl+Shift+Space", globalShortcutEnabled: true })}>恢复默认</button></div></div><div className="preference-row search-preference"><span><strong>搜索范围</strong><small>默认调用 Everything 搜索文件；开启后只筛选 Start Engineer 内的应用和进程。</small><em>{preferences.searchProvider === "everything" ? "当前使用 Everything" : "当前仅搜索内部应用"}</em></span><div className="administrator-controls"><button className="shortcut-reset" disabled={savingPreference !== null || preferences.searchProvider !== "everything"} onClick={() => void api().pickEverythingCli().then(setPreferences).catch((reason) => setShortcutMessage(cleanErrorMessage(reason, "选择 ES.exe 失败")))}>选择 ES.exe</button><button className={`setting-switch ${preferences.searchProvider === "internal" ? "enabled" : ""}`} role="switch" aria-checked={preferences.searchProvider === "internal"} disabled={savingPreference !== null} onClick={() => void savePreference("search", { searchProvider: preferences.searchProvider === "internal" ? "everything" : "internal" })}><i /></button></div></div><div className="preference-row running-sort-preference"><span><strong>运行应用置顶</strong><small>分组内已启动应用自动显示在前面，关闭后恢复原有顺序。</small></span><button className={`setting-switch ${preferences.sortRunningAppsFirst ? "enabled" : ""}`} role="switch" aria-checked={preferences.sortRunningAppsFirst} disabled={savingPreference !== null} onClick={() => void savePreference("runningSort", { sortRunningAppsFirst: !preferences.sortRunningAppsFirst })}><i /></button></div><div className="preference-row app-name-preference"><span><strong>显示应用名称</strong><small>在主界面卡片下方显示应用名称，关闭后只保留图标和状态。</small></span><button className={`setting-switch ${preferences.showAppNames ? "enabled" : ""}`} role="switch" aria-checked={preferences.showAppNames} disabled={savingPreference !== null} onClick={() => void savePreference("appNames", { showAppNames: !preferences.showAppNames })}><i /></button></div><div className="preference-row administrator-preference"><span><strong>以管理员方式启动</strong><small>启动时请求 Windows 管理员权限，结束高权限应用时通常无需再次授权。</small><em className={preferences.administratorRestartRequired ? "pending" : "active"}>{administratorStatus}</em></span><div className="administrator-controls">{preferences.administratorRestartRequired ? <button className="shortcut-reset administrator-restart" onClick={() => void api().restartWithConfiguredPrivileges().catch((reason) => setShortcutMessage(cleanErrorMessage(reason, "重启失败")))}>{preferences.runAsAdministrator ? "立即以管理员身份重启" : "立即以普通权限重启"}</button> : null}<button className={`setting-switch ${preferences.runAsAdministrator ? "enabled" : ""}`} role="switch" aria-checked={preferences.runAsAdministrator} disabled={savingPreference !== null} onClick={() => void savePreference("administrator", { runAsAdministrator: !preferences.runAsAdministrator })}><i /></button></div></div></div></SettingsCollapsibleSection><SettingsCollapsibleSection title="界面主题" description="选择一套固定外观，或让界面跟随 Windows 明暗模式。" expanded={expandedSettings.has("theme")} onToggle={() => toggleSettingsSection("theme")}>{themePicker}</SettingsCollapsibleSection><div className="settings-heading group-settings-heading"><div><h2>分组管理</h2><p>点击分组查看应用，拖动手柄调整左侧导航顺序。</p></div><div className="settings-actions"><button className="ghost" onClick={onAdd}>添加应用</button><button className="launch" onClick={onCreate}>新建分组</button></div></div><div className="group-manager">{ordered.map((group) => <GroupManagerItem key={group.id} group={group} apps={apps.filter((app) => app.groupId === group.id)} expanded={expanded.has(group.id)} sorting={sortPreview?.id === group.id} appDrag={appDrag} register={(element) => { if (element) rows.current.set(group.id, element); else rows.current.delete(group.id); }} onToggle={() => toggle(group.id)} onSortStart={(event) => { if (appCandidate.current) return; event.preventDefault(); const rect = rows.current.get(group.id)?.getBoundingClientRect(); sortCandidate.current = { id: group.id, startX: event.clientX, startY: event.clientY, grabOffsetX: rect ? event.clientX - rect.left : 40, grabOffsetY: rect ? event.clientY - rect.top : 32, original: [...ordered], active: false, valid: true }; }} onEdit={() => onEdit(group)} onDelete={() => onDelete(group.id)} canDelete={groups.length > 1} onAdd={() => onAddToGroup(group.id)} onOpenApp={(app) => { if (!suppressAppClick.current) onOpenApp(app); }} onAppContextMenu={onAppContextMenu} onAppPointerDown={(event, app) => { if (event.button !== 0 || sortCandidate.current) return; const rect = event.currentTarget.getBoundingClientRect(); appCandidate.current = { appId: app.id, startX: event.clientX, startY: event.clientY, grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top }; }} />)}</div>{sortPreview && previewGroup ? <GroupSortPreview group={previewGroup} count={apps.filter((app) => app.groupId === previewGroup.id).length} left={sortPreview.left} top={sortPreview.top} width={sortPreview.width} /> : null}{appDrag && draggedApp ? <div className="drag-preview no-drag" style={{ left: appDrag.x - app.grabOffsetX, top: appDrag.y - app.grabOffsetY }}>{draggedApp.iconDataUrl ? <img src={draggedApp.iconDataUrl} alt="" /> : <Icon name="grid" />}<span>{draggedApp.name}</span></div> : null}</section>;
+  return <section className="content settings-page no-drag" tabIndex={-1}><SettingsCollapsibleSection title="常规设置" description="控制 Windows 启动、窗口关闭和快速唤出行为。" expanded={expandedSettings.has("general")} onToggle={() => toggleSettingsSection("general")}><div className="preference-grid"><div className="preference-row"><span><strong>开机启动</strong><small>登录 Windows 后自动打开 Start Engineer 主窗口。</small></span><button className={`setting-switch ${preferences.launchAtStartup ? "enabled" : ""}`} role="switch" aria-checked={preferences.launchAtStartup} disabled={savingPreference !== null} onClick={() => void savePreference("startup", { launchAtStartup: !preferences.launchAtStartup })}><i /></button></div><div className="preference-row close-preference"><span><strong>关闭主窗口时</strong><small>选择继续在托盘运行，或直接退出启动器。</small></span><div className="preference-options"><button className={preferences.closeBehavior === "tray" ? "selected" : ""} disabled={savingPreference !== null} onClick={() => void savePreference("close", { closeBehavior: "tray" })}>最小化到托盘</button><button className={preferences.closeBehavior === "quit" ? "selected" : ""} disabled={savingPreference !== null} onClick={() => void savePreference("close", { closeBehavior: "quit" })}>直接退出</button></div></div><div className="preference-row shortcut-preference"><span><strong>快速唤出</strong><small>在任意界面按快捷键显示或隐藏 Start Engineer。</small>{shortcutMessage || preferences.globalShortcutMessage ? <em>{shortcutMessage || preferences.globalShortcutMessage}</em> : null}</span><div className="shortcut-controls"><button className={`shortcut-recorder ${recordingShortcut ? "recording" : ""}`} disabled={savingPreference !== null} onClick={() => { setRecordingShortcut(true); setShortcutMessage("请按下新的快捷键，Esc 取消"); }} onKeyDown={recordShortcut}>{recordingShortcut ? "等待按键…" : preferences.globalShortcut}</button><button className={`setting-switch ${preferences.globalShortcutEnabled ? "enabled" : ""}`} role="switch" aria-checked={preferences.globalShortcutEnabled} disabled={savingPreference !== null} onClick={() => void savePreference("shortcut", { globalShortcutEnabled: !preferences.globalShortcutEnabled })}><i /></button><button className="shortcut-reset" disabled={savingPreference !== null || preferences.globalShortcut === "Ctrl+Shift+Space"} onClick={() => void savePreference("shortcut", { globalShortcut: "Ctrl+Shift+Space", globalShortcutEnabled: true })}>恢复默认</button></div></div><div className="preference-row search-preference"><span><strong>搜索范围</strong><small>默认调用 Everything 搜索文件；开启后只筛选 Start Engineer 内的应用和进程。</small><em>{preferences.searchProvider === "everything" ? "当前使用 Everything" : "当前仅搜索内部应用"}</em></span><div className="administrator-controls"><button className="shortcut-reset" disabled={savingPreference !== null || preferences.searchProvider !== "everything"} onClick={() => void api().pickEverythingCli().then(setPreferences).catch((reason) => setShortcutMessage(cleanErrorMessage(reason, "选择 ES.exe 失败")))}>选择 ES.exe</button><button className={`setting-switch ${preferences.searchProvider === "internal" ? "enabled" : ""}`} role="switch" aria-checked={preferences.searchProvider === "internal"} disabled={savingPreference !== null} onClick={() => void savePreference("search", { searchProvider: preferences.searchProvider === "internal" ? "everything" : "internal" })}><i /></button></div></div><div className="preference-row running-sort-preference"><span><strong>运行应用置顶</strong><small>分组内已启动应用自动显示在前面，关闭后恢复原有顺序。</small></span><button className={`setting-switch ${preferences.sortRunningAppsFirst ? "enabled" : ""}`} role="switch" aria-checked={preferences.sortRunningAppsFirst} disabled={savingPreference !== null} onClick={() => void savePreference("runningSort", { sortRunningAppsFirst: !preferences.sortRunningAppsFirst })}><i /></button></div><div className="preference-row app-name-preference"><span><strong>显示应用名称</strong><small>在主界面卡片下方显示应用名称，关闭后只保留图标和状态。</small></span><button className={`setting-switch ${preferences.showAppNames ? "enabled" : ""}`} role="switch" aria-checked={preferences.showAppNames} disabled={savingPreference !== null} onClick={() => void savePreference("appNames", { showAppNames: !preferences.showAppNames })}><i /></button></div><div className="preference-row administrator-preference"><span><strong>以管理员方式启动</strong><small>启动时请求 Windows 管理员权限，结束高权限应用时通常无需再次授权。</small><em className={preferences.administratorRestartRequired ? "pending" : "active"}>{administratorStatus}</em></span><div className="administrator-controls">{preferences.administratorRestartRequired ? <button className="shortcut-reset administrator-restart" onClick={() => void api().restartWithConfiguredPrivileges().catch((reason) => setShortcutMessage(cleanErrorMessage(reason, "重启失败")))}>{preferences.runAsAdministrator ? "立即以管理员身份重启" : "立即以普通权限重启"}</button> : null}<button className={`setting-switch ${preferences.runAsAdministrator ? "enabled" : ""}`} role="switch" aria-checked={preferences.runAsAdministrator} disabled={savingPreference !== null} onClick={() => void savePreference("administrator", { runAsAdministrator: !preferences.runAsAdministrator })}><i /></button></div></div></div></SettingsCollapsibleSection><SettingsCollapsibleSection title="界面主题" description="选择一套固定外观，或让界面跟随 Windows 明暗模式。" expanded={expandedSettings.has("theme")} onToggle={() => toggleSettingsSection("theme")}>{themePicker}</SettingsCollapsibleSection><div className="settings-heading group-settings-heading"><div><h2>分组管理</h2><p>点击分组查看应用，拖动手柄调整左侧导航顺序。</p></div><div className="settings-actions"><button className="ghost" onClick={onAdd}>添加应用</button><button className="launch" onClick={onCreate}>新建分组</button></div></div><div className="group-manager">{ordered.map((group) => <GroupManagerItem key={group.id} group={group} apps={apps.filter((app) => app.groupId === group.id)} expanded={expanded.has(group.id)} sorting={sortPreview?.id === group.id} appDrag={appDrag} register={(element) => { if (element) rows.current.set(group.id, element); else rows.current.delete(group.id); }} onToggle={() => toggle(group.id)} onSortStart={(event) => { if (appCandidate.current) return; event.preventDefault(); const rect = rows.current.get(group.id)?.getBoundingClientRect(); sortCandidate.current = { id: group.id, startX: event.clientX, startY: event.clientY, grabOffsetX: rect ? event.clientX - rect.left : 40, grabOffsetY: rect ? event.clientY - rect.top : 32, original: [...ordered], active: false, valid: true }; }} onEdit={() => onEdit(group)} onDelete={() => onDelete(group.id)} canDelete={groups.length > 1} onAdd={() => onAddToGroup(group.id)} onOpenApp={(app) => { if (!suppressAppClick.current) onOpenApp(app); }} onAppContextMenu={onAppContextMenu} onAppPointerDown={(event, app) => { if (event.button !== 0 || sortCandidate.current) return; const rect = event.currentTarget.getBoundingClientRect(); appCandidate.current = { appId: app.id, startX: event.clientX, startY: event.clientY, grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top }; }} />)}</div>{sortPreview && previewGroup ? <GroupSortPreview group={previewGroup} count={apps.filter((app) => app.groupId === previewGroup.id).length} left={sortPreview.left} top={sortPreview.top} width={sortPreview.width} /> : null}{appDrag && draggedApp ? <div className="drag-preview no-drag" style={{ left: appDrag.x - app.grabOffsetX, top: appDrag.y - app.grabOffsetY }}>{draggedApp.iconDataUrl ? <img src={draggedApp.iconDataUrl} alt="" /> : <Icon name="grid" />}<span>{draggedApp.name}</span></div> : null}</section>;
 }
 
 export function SettingsCollapsibleSection({ title, description, expanded, onToggle, children }: { title: string; description: string; expanded: boolean; onToggle: () => void; children: React.ReactNode }) {

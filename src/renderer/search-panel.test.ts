@@ -4,49 +4,42 @@ import { describe, expect, it, vi } from "vitest";
 import { SearchResultsPanel } from "./main";
 
 describe("SearchResultsPanel", () => {
-  it("renders Everything results and setup actions", () => {
+  it("renders managed apps and local addable apps without a file results group", () => {
     const html = renderToStaticMarkup(createElement(SearchResultsPanel, {
-      provider: "everything",
       query: "demo",
       loading: false,
       error: "",
       selectedIndex: 0,
-      everythingResults: [{ name: "demo.txt", path: "C:\\Users\\Xbfe\\Desktop\\demo.txt", kind: "file", sizeBytes: 12, modifiedAt: "2026-06-16" }],
-      internalResults: [],
+      managedResults: [{ kind: "app", id: "managed", name: "Demo App", groupId: "office", processName: "Demo", isRunning: true }],
+      discoveredResults: [{ id: "candidate", name: "Demo Tool", executablePath: "C:\\Program Files\\Demo\\Demo.exe", processName: "Demo", groupId: "office", category: "办公", source: "start-menu" }],
       onSelectIndex: vi.fn(),
-      onOpenEverything: vi.fn(),
-      onOpenInternal: vi.fn(),
-      onPickEverythingCli: vi.fn(),
-      onPrepareDependencies: vi.fn(),
-      onShowEverythingInFolder: vi.fn(),
-      onCopyPath: vi.fn()
+      onOpenManaged: vi.fn(),
+      onAddDiscovered: vi.fn()
     }));
 
-    expect(html).toContain("demo.txt");
-    expect(html).toContain("C:\\Users\\Xbfe\\Desktop\\demo.txt");
-    expect(html).toContain("Everything");
+    expect(html).toContain("已添加应用");
+    expect(html).toContain("本机可添加应用");
+    expect(html).toContain("Demo App");
+    expect(html).toContain("Demo Tool");
+    expect(html).toContain("✓");
+    expect(html).toContain("+");
+    expect(html).not.toContain("文件结果");
   });
 
-  it("offers one-click dependency preparation when Everything is missing", () => {
+  it("shows already-added state for discovered duplicates", () => {
     const html = renderToStaticMarkup(createElement(SearchResultsPanel, {
-      provider: "everything",
       query: "demo",
       loading: false,
-      error: "未找到 Everything 命令行工具 ES.exe",
+      error: "",
       selectedIndex: 0,
-      dependencyState: "missing",
-      everythingResults: [],
-      internalResults: [],
+      managedResults: [],
+      discoveredResults: [{ id: "candidate", name: "Demo Tool", executablePath: "C:\\Program Files\\Demo\\Demo.exe", processName: "Demo", groupId: "office", category: "办公", source: "desktop", alreadyAdded: true, existingGroupId: "office" }],
       onSelectIndex: vi.fn(),
-      onOpenEverything: vi.fn(),
-      onOpenInternal: vi.fn(),
-      onPickEverythingCli: vi.fn(),
-      onPrepareDependencies: vi.fn(),
-      onShowEverythingInFolder: vi.fn(),
-      onCopyPath: vi.fn()
+      onOpenManaged: vi.fn(),
+      onAddDiscovered: vi.fn()
     }));
 
-    expect(html).toContain("一键准备");
-    expect(html).toContain("选择 ES.exe");
+    expect(html).toContain("已添加");
+    expect(html).toContain("✓");
   });
 });

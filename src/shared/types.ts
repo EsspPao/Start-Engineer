@@ -203,7 +203,23 @@ export type DiscoveredAppCandidate = {
   processName: string;
   groupId: string;
   category: string;
-  source: "start-menu" | "desktop";
+  source: "start-menu" | "desktop" | "everything";
+  shortcutPath?: string;
+  workingDirectory?: string;
+  launchArgs?: string;
+  iconPath?: string;
+  alreadyAdded?: boolean;
+  existingAppId?: string;
+  existingGroupId?: string;
+  score?: number;
+  rank?: number;
+};
+
+export type AddDiscoveredAppResult = {
+  apps: AppEntry[];
+  appId?: string;
+  added: boolean;
+  alreadyAdded?: boolean;
 };
 
 export type StartEngineerApi = {
@@ -215,6 +231,9 @@ export type StartEngineerApi = {
   listApps: () => Promise<AppEntry[]>;
   discoverImportCandidates: () => Promise<DiscoveredAppCandidate[]>;
   importDiscoveredApps: (candidateIds: string[]) => Promise<AppEntry[]>;
+  searchAppCandidates: (query: string) => Promise<DiscoveredAppCandidate[]>;
+  addDiscoveredCandidate: (candidateId: string, groupId: AppEntry["groupId"]) => Promise<AddDiscoveredAppResult>;
+  refreshDiscoveryIndex: () => Promise<DiscoveredAppCandidate[]>;
   refreshAppIcons: () => Promise<AppEntry[]>;
   addAppFromDialog: (groupId?: AppEntry["groupId"]) => Promise<AppEntry[]>;
   pickExecutable: (id: string) => Promise<AppEntry[]>;

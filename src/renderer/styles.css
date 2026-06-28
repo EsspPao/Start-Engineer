@@ -284,6 +284,7 @@ button { border: 0; }
 
 .group-content { display: grid; grid-template-rows: minmax(0,1fr) 64px; }
 .app-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(180px,220px)); gap: 14px; align-content: start; justify-content: start; overflow: auto; padding: 3px; }
+.app-grid:focus, .app-grid:focus-visible { outline: none; }
 .search-empty { display: grid; justify-items: center; align-content: center; gap: 7px; min-width: min(360px,100%); min-height: 180px; border: 1px dashed rgba(108,123,163,.22); border-radius: var(--radius-panel); color: var(--ink-muted); background: rgba(255,255,255,.24); }
 .search-empty svg { width: 30px; height: 30px; color: #7280dd; }
 .search-empty strong { color: var(--ink-soft); font-size: 13px; }
@@ -293,6 +294,8 @@ button { border: 0; }
 .app-card { position: relative; display: grid; grid-template-rows: 82px auto; place-items: center; width: 100%; min-width: 0; height: 100%; border: 1px solid rgba(255,255,255,.68); border-radius: var(--radius-panel); color: var(--ink); background: linear-gradient(145deg,rgba(255,255,255,.72),rgba(243,246,255,.48)); box-shadow: 0 10px 25px rgba(62,72,120,.1), inset 0 1px 0 rgba(255,255,255,.9); cursor: pointer; touch-action: none; user-select: none; overflow: hidden; transition: transform 180ms var(--ease), border-color 180ms ease, box-shadow 180ms ease, background 180ms ease; }
 .app-card.names-hidden { grid-template-rows: 1fr; }
 .app-card:hover { transform: translateY(-3px); border-color: rgba(255,255,255,.92); background: linear-gradient(145deg,rgba(255,255,255,.9),rgba(238,242,255,.65)); box-shadow: 0 16px 30px rgba(62,72,120,.15), inset 0 1px 0 white; }
+.app-card:focus, .app-card:focus-visible { outline: none; }
+.app-card button:focus, .app-card button:focus-visible, .app-card [tabindex]:focus, .app-card [tabindex]:focus-visible { outline: none; }
 .app-card.current { border-color: #2563eb; background: linear-gradient(145deg,#f8fbff,#dbeafe); box-shadow: 0 0 0 3px rgba(37,99,235,.2), 0 15px 32px rgba(37,99,235,.2), inset 0 1px 0 white; }
 .app-card.dragging { opacity: .35; transform: scale(.97); }
 .app-card-wrap.drag-placeholder .app-card { border-style: dashed; border-color: rgba(37,99,235,.72); background: rgba(224,235,255,.52); box-shadow: 0 0 0 3px rgba(37,99,235,.12), inset 0 0 0 1px rgba(37,99,235,.24); }
