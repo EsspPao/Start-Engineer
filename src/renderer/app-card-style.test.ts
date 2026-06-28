@@ -11,4 +11,9 @@ describe("app card styles", () => {
     expect(styles).toMatch(/\.running-status-button\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;/i);
     expect(styles).toMatch(/\.running-status-button:hover[^}]*background:\s*#dc354f;/i);
   });
+
+  it("keeps sidebar group selection to the active blue state without a second focus outline", () => {
+    expect(styles).toMatch(/\.nav-button:focus,\s*\.nav-button:focus-visible\s*\{[^}]*outline:\s*none;/i);
+    expect(styles).not.toMatch(/\.nav-button:focus-visible\s*\{[^}]*orange/i);
+  });
 });

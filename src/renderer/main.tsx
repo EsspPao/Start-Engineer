@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { createRoot } from "react-dom/client";
 import type { AppEntry, AppGroup, AppMetrics, AppPreferencesState, AppWindowInfo, DiscoveredAppCandidate, EverythingSearchResult, FocusAppWindowResult, FocusWindowHints, GroupInput, InternalSearchResult, ProcessInfo, SearchDependencyStatus, SearchProvider, SectionId, StartEngineerApi, UiTheme, UpdateAppInput, UpdatePreferencesInput } from "../shared/types";
 import { GroupPage, ProcessPage } from "./pages";
+import { resolveAppKeyboardAction } from "./app-card-interaction";
 import { sortAppsForDisplay } from "./app-display";
 import { hitTestAppOrder, type AppDragRect } from "./app-drag-order";
 import { buildInternalSearchResults, matchesAppSearch, matchesProcessSearch } from "./search";
@@ -13,6 +14,8 @@ import { shortcutFromKeyboardEvent, validateShortcut } from "../shared/global-sh
 import { cleanErrorMessage } from "./error-message";
 import { buildThemeAttributes } from "./theme-attributes";
 import { themeOptions } from "./theme-options";
+import { groupNavigationFromKey, keyboardBlockKeyFromEventLike, isTextInputTarget, navigationDirectionFromKey, pickDirectionalApp, pickRelativeGroup, shouldSuppressNavigationAfterGroupMove, type AppCardRect } from "./keyboard-navigation";
+import { KeyboardShortcutPanel } from "./keyboard-shortcuts";
 import { WallpaperGlassIntensityControl, WallpaperGlassVariantControl } from "./theme-settings";
 import "./styles.css";
 
@@ -90,6 +93,13 @@ const fallbackApi: StartEngineerApi = {
 
 const api = () => window.startEngineer ?? window.commandDeck ?? fallbackApi;
 
+function isAppKeyboardScope(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return true;
+  if (target.closest(".app-card")) return true;
+  if (target.closest("button, input, textarea, select, [contenteditable='true']")) return false;
+  return Boolean(target.closest(".app-grid, .group-content")) || target === document.body || target.classList.contains("window") || target.classList.contains("app-shell");
+}
+
 function focusHintsForApp(app: RuntimeApp): FocusWindowHints {
   return {
     pids: app.metrics.pids,
@@ -165,6 +175,7 @@ function App() {
   const searchRequest = useRef(0);
   const focusRequestSeq = useRef(0);
   const launchingAppIdsRef = useRef(new Set<string>());
+  const groupNavigationBlockKeyRef = useRef<string | null>(null);
   const metricsByApp = useMemo(() => new Map(metrics.map((metric) => [metric.appId, metric])), [metrics]);
   const runtimeApps = useMemo<RuntimeApp[]>(() => apps.map((item) => ({ ...item, metrics: metricsByApp.get(item.id) ?? emptyMetrics(item.id) })), [apps, metricsByApp]);
   const appGroups = useMemo(() => groups.filter((group) => !group.isSystem).sort((a, b) => a.order - b.order), [groups]);
@@ -668,7 +679,11 @@ function App() {
     setActiveSection(id);
     setQuery("");
     closeFloatingUi();
-    if (appGroups.some((group) => group.id === id)) setSelectedAppId(runtimeApps.find((item) => item.groupId === id)?.id ?? "");
+    if (appGroups.some((group) => group.id === id)) {
+      setSelectedAppId(sortAppsForDisplay(runtimeApps.filter((item) => item.groupId === id), preferences.sortRunningAppsFirst)[0]?.id ?? "");
+    } else {
+      setSelectedAppId("");
+    }
   };
   const changeSort = (key: SortKey) => {
     closeMenu();
@@ -822,6 +837,37 @@ function App() {
     }
   };
   const editApp = (app: AppEntry) => setEdit({ id: app.id, name: app.name, launchArgs: app.launchArgs ?? "", workingDirectory: app.workingDirectory ?? "" });
+  const pickExecutableForApp = useCallback(async (app: RuntimeApp) => {
+    await runAppAction(() => api().pickExecutable(app.id));
+    setInvalidAppIds((current) => {
+      if (!current.has(app.id)) return current;
+      const next = new Set(current);
+      next.delete(app.id);
+      return next;
+    });
+  }, [runAppAction]);
+  const runKeyboardAppAction = useCallback((app: RuntimeApp, key: string, shiftKey = false, menuPosition?: { x: number; y: number }) => {
+    const action = resolveAppKeyboardAction({
+      isRunning: app.metrics.isRunning,
+      isLaunching: launchingAppIdsRef.current.has(app.id),
+      isInvalid: invalidAppIds.has(app.id)
+    }, key, shiftKey);
+    if (action === "launching-feedback") {
+      handleLaunchingFeedback(app);
+    } else if (action === "pick-executable") {
+      void pickExecutableForApp(app);
+    } else if (action === "focus") {
+      void focusAppWindow(app);
+    } else if (action === "launch") {
+      void launchApp(app.id);
+    } else if (action === "toggle-launch-selected") {
+      void toggleAppLaunchSelected(app);
+    } else if (action === "context-menu") {
+      openMenu({ kind: "app", x: menuPosition?.x ?? window.innerWidth / 2, y: menuPosition?.y ?? window.innerHeight / 2, appId: app.id });
+    } else if (action === "edit") {
+      editApp(app);
+    }
+  }, [focusAppWindow, invalidAppIds, pickExecutableForApp, toggleAppLaunchSelected]);
   const saveGroup = async (input: GroupInput & { id?: string }) => {
     try {
       setError("");
@@ -859,6 +905,109 @@ function App() {
     closeMenu();
     setGroupDelete({ groupId, targetGroupId: target.id });
   };
+
+  useEffect(() => {
+    const selectedApp = displayedApps.find((app) => app.id === selectedAppId) ?? displayedApps[0];
+    const hasModal = Boolean(confirm || edit || groupEdit || groupDelete || importCandidates.length);
+    const selectedCardRect = () => {
+      const element = selectedApp ? document.querySelector<HTMLElement>(`[data-app-card-id="${CSS.escape(selectedApp.id)}"]`) : null;
+      return element?.getBoundingClientRect();
+    };
+    const closeTopLayer = () => {
+      if (searchPanelOpen) { setSearchPanelOpen(false); return true; }
+      if (menu) { closeMenu(); return true; }
+      if (confirm) { setConfirm(null); return true; }
+      if (edit) { setEdit(null); return true; }
+      if (groupEdit) { setGroupEdit(null); return true; }
+      if (groupDelete) { setGroupDelete(null); return true; }
+      return false;
+    };
+    const appCardRects = () => [...document.querySelectorAll<HTMLElement>("[data-app-card-id]")].map((element): AppCardRect => {
+      const bounds = element.getBoundingClientRect();
+      return {
+        id: element.dataset.appCardId ?? "",
+        left: bounds.left,
+        top: bounds.top,
+        right: bounds.right,
+        bottom: bounds.bottom,
+        width: bounds.width,
+        height: bounds.height
+      };
+    }).filter((item) => item.id);
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        if (closeTopLayer()) {
+          event.preventDefault();
+          return;
+        }
+        if (query) {
+          event.preventDefault();
+          setQuery("");
+          setSearchPanelOpen(false);
+          return;
+        }
+        if (activeSection !== "processes" && activeSection !== "settings" && selectedAppId) {
+          event.preventDefault();
+          setSelectedAppId("");
+        }
+        return;
+      }
+      const groupDirection = groupNavigationFromKey(event.key, event.ctrlKey || event.metaKey);
+      if (groupDirection && !hasModal && !menu && !isTextInputTarget(event.target)) {
+        event.preventDefault();
+        groupNavigationBlockKeyRef.current = keyboardBlockKeyFromEventLike(event);
+        const groupIds = ["processes", ...appGroups.map((group) => group.id), "settings"];
+        const nextGroup = pickRelativeGroup(groupIds, activeSection, groupDirection);
+        if (nextGroup && nextGroup !== activeSection) {
+          switchSection(nextGroup);
+        }
+        return;
+      }
+      if (shouldSuppressNavigationAfterGroupMove(groupNavigationBlockKeyRef.current, event)) {
+        event.preventDefault();
+        return;
+      }
+      if (activeSection === "processes" || activeSection === "settings" || hasModal || menu || isTextInputTarget(event.target) || !isAppKeyboardScope(event.target)) return;
+
+      const direction = navigationDirectionFromKey(event.key);
+      if (direction) {
+        event.preventDefault();
+        const cards = appCardRects();
+        const nextId = selectedApp ? pickDirectionalApp(cards, selectedApp.id, direction) : cards[0]?.id ?? "";
+        if (nextId) {
+          setSelectedAppId(nextId);
+          document.querySelector<HTMLElement>(`[data-app-card-id="${CSS.escape(nextId)}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+        }
+        return;
+      }
+
+      if (!selectedApp) return;
+      if (event.key === "Enter") {
+        event.preventDefault();
+        runKeyboardAppAction(selectedApp, event.key, event.shiftKey);
+      } else if (event.key === " ") {
+        event.preventDefault();
+        runKeyboardAppAction(selectedApp, event.key, event.shiftKey);
+      } else if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+        event.preventDefault();
+        const rect = selectedCardRect();
+        runKeyboardAppAction(selectedApp, event.key, event.shiftKey, { x: rect ? rect.left + rect.width / 2 : window.innerWidth / 2, y: rect ? rect.top + rect.height / 2 : window.innerHeight / 2 });
+      } else if (event.key === "F2") {
+        event.preventDefault();
+        runKeyboardAppAction(selectedApp, event.key, event.shiftKey);
+      }
+    };
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (groupNavigationBlockKeyRef.current === keyboardBlockKeyFromEventLike(event)) groupNavigationBlockKeyRef.current = null;
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+    };
+  }, [activeSection, appGroups, closeMenu, confirm, displayedApps, edit, groupDelete, groupEdit, importCandidates.length, menu, query, runKeyboardAppAction, searchPanelOpen, selectedAppId]);
 
   return (
     <main className="app-shell drag-region" data-theme={themeAttributes.theme} data-wallpaper-intensity={themeAttributes.wallpaperIntensity} data-wallpaper-variant={themeAttributes.wallpaperVariant} onPointerDown={closeFloatingUi}>
@@ -1263,7 +1412,12 @@ function SettingsPage({ apps, groups, preferences, onPreferencesChange, onThemeC
 }
 
 export function SettingsCollapsibleSection({ title, description, expanded, onToggle, children }: { title: string; description: string; expanded: boolean; onToggle: () => void; children: React.ReactNode }) {
-  return <><section className={`settings-collapsible ${expanded ? "expanded" : ""}`}><button className="settings-collapse-toggle" aria-expanded={expanded} onClick={onToggle}><span><strong>{title}</strong><small>{description}</small></span><GroupActionIcon kind="expand" /></button>{expanded ? <div className="settings-collapse-content">{children}</div> : null}</section>{title === "界面主题" ? <SearchDependencySettingsSection /> : null}</>;
+  return <><section className={`settings-collapsible ${expanded ? "expanded" : ""}`}><button className="settings-collapse-toggle" aria-expanded={expanded} onClick={onToggle}><span><strong>{title}</strong><small>{description}</small></span><GroupActionIcon kind="expand" /></button>{expanded ? <div className="settings-collapse-content">{children}</div> : null}</section>{title === "常规设置" ? <KeyboardShortcutSettingsSection /> : null}{title === "界面主题" ? <SearchDependencySettingsSection /> : null}</>;
+}
+
+function KeyboardShortcutSettingsSection() {
+  const [expanded, setExpanded] = useState(false);
+  return <section className={`settings-collapsible ${expanded ? "expanded" : ""}`}><button className="settings-collapse-toggle" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}><span><strong>快捷键</strong><small>查看键盘优先操作的常用按键。</small></span><GroupActionIcon kind="expand" /></button>{expanded ? <div className="settings-collapse-content"><KeyboardShortcutPanel /></div> : null}</section>;
 }
 
 function SearchDependencySettingsSection() {

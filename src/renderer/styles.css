@@ -140,6 +140,7 @@ button { border: 0; }
 }
 .nav-button svg { width: 21px; height: 21px; flex: 0 0 auto; stroke-width: 1.7; }
 .nav-button:hover { color: #35415a; background: rgba(255,255,255,.4); transform: translateX(2px); }
+.nav-button:focus, .nav-button:focus-visible { outline: none; }
 .nav-button.active {
   border-color: rgba(255,255,255,.68);
   color: #4655d9;
@@ -248,6 +249,10 @@ button { border: 0; }
 .search-results-error, .search-results-empty { display: grid; gap: 6px; padding: 14px; border: 1px dashed var(--line); border-radius: var(--radius-control); color: var(--ink-muted); font-size: 12px; }
 .search-results-error strong { color: var(--danger); }
 .search-results-error button, .search-results-error a { justify-self: start; color: var(--accent); }
+.shortcut-help-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(260px,1fr)); gap: 9px; }
+.shortcut-help-row { display: grid; grid-template-columns: 128px minmax(0,1fr); align-items: center; gap: 10px; min-height: 42px; border: 1px solid var(--line); border-radius: var(--radius-control); background: var(--glass-soft); padding: 8px 10px; }
+.shortcut-help-row kbd { display: inline-flex; align-items: center; justify-content: center; min-height: 24px; border: 1px solid color-mix(in srgb,var(--accent) 24%,var(--line)); border-radius: 7px; color: var(--ink); background: color-mix(in srgb,var(--glass-strong) 78%,transparent); box-shadow: inset 0 1px 0 rgba(255,255,255,.55); padding: 0 8px; font-family: inherit; font-size: 11px; font-weight: 750; white-space: nowrap; }
+.shortcut-help-row span { min-width: 0; overflow: hidden; color: var(--ink-soft); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .window-controls { display: flex; align-items: center; gap: 5px; }
 .window-controls button { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; color: #546078; background: rgba(255,255,255,.28); cursor: pointer; font-size: 15px; transition: background 150ms ease, color 150ms ease, transform 150ms ease; }
 .window-controls button:hover { color: #27334b; background: rgba(255,255,255,.7); transform: translateY(-1px); }
