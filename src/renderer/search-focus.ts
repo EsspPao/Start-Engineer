@@ -12,6 +12,10 @@ export function pageFocusSelector(activeSection: string, selectedAppId: string) 
   return ".app-grid";
 }
 
+export function shouldFocusAddedApp(result: { appId?: string; added?: boolean; alreadyAdded?: boolean }) {
+  return Boolean(result.appId && (result.added || result.alreadyAdded));
+}
+
 function cssEscapeForSelector(value: string) {
   if (typeof CSS !== "undefined" && typeof CSS.escape === "function") return CSS.escape(value);
   return value.replace(/["\\]/g, "\\$&");

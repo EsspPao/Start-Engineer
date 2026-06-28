@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pageFocusSelector, resolveSearchEscapeAction } from "./search-focus";
+import { pageFocusSelector, resolveSearchEscapeAction, shouldFocusAddedApp } from "./search-focus";
 
 describe("search focus behavior", () => {
   it("uses two-step Escape while the search input is focused", () => {
@@ -13,5 +13,11 @@ describe("search focus behavior", () => {
     expect(pageFocusSelector("office", "")).toBe(".app-grid");
     expect(pageFocusSelector("processes", "")).toBe(".process-table");
     expect(pageFocusSelector("settings", "")).toBe(".settings-page");
+  });
+
+  it("focuses the newly added app after search add succeeds", () => {
+    expect(shouldFocusAddedApp({ appId: "app-1", added: true })).toBe(true);
+    expect(shouldFocusAddedApp({ appId: "app-1", added: false, alreadyAdded: true })).toBe(true);
+    expect(shouldFocusAddedApp({ added: true })).toBe(false);
   });
 });

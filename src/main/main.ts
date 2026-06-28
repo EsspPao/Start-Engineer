@@ -41,6 +41,7 @@ import { buildDiscoveredApps, filterNewShortcuts, searchDiscoveredAppCandidates,
 import { mergeVisibleAppOrder } from "./app-order.js";
 import { splashHtmlDataUrl, splashWindowOptions, wireSplashToMainWindow } from "./splash-window.js";
 import { AppWindowManager } from "./window-manager.js";
+import { startEngineerGroupShortcutDirection } from "./window-shortcuts.js";
 
 const isDev = process.env.VITE_DEV_SERVER_URL !== undefined;
 const appRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -477,6 +478,12 @@ function createWindow() {
   mainWindow.on("move", scheduleSaveMainWindowBounds);
   mainWindow.on("resize", scheduleSaveMainWindowBounds);
   mainWindow.on("closed", () => { mainWindow = null; });
+  mainWindow.webContents.on("before-input-event", (event, input) => {
+    const direction = startEngineerGroupShortcutDirection(input);
+    if (!direction) return;
+    event.preventDefault();
+    mainWindow?.webContents.send("keyboard:groupNavigation", direction);
+  });
   wireSplashToMainWindow(mainWindow, splashWindow, () => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     mainWindow.show();

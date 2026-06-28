@@ -51,3 +51,7 @@ const api: StartEngineerApi = {
 
 contextBridge.exposeInMainWorld("startEngineer", api);
 contextBridge.exposeInMainWorld("commandDeck", api);
+
+ipcRenderer.on("keyboard:groupNavigation", (_event, direction: "previous" | "next") => {
+  window.dispatchEvent(new CustomEvent("start-engineer:group-navigation", { detail: direction }));
+});

@@ -16,7 +16,8 @@ import { buildThemeAttributes } from "./theme-attributes";
 import { themeOptions } from "./theme-options";
 import { groupNavigationFromKey, keyboardBlockKeyFromEventLike, isTextInputTarget, navigationDirectionFromKey, pickDirectionalApp, pickRelativeGroup, shouldSuppressNavigationAfterGroupMove, type AppCardRect } from "./keyboard-navigation";
 import { KeyboardShortcutPanel } from "./keyboard-shortcuts";
-import { pageFocusSelector, resolveSearchEscapeAction } from "./search-focus";
+import { pageFocusSelector, resolveSearchEscapeAction, shouldFocusAddedApp } from "./search-focus";
+import { resolveSearchResultAction } from "./search-results-selection";
 import { WallpaperGlassIntensityControl, WallpaperGlassVariantControl } from "./theme-settings";
 import "./styles.css";
 
@@ -147,6 +148,7 @@ function App() {
   const [query, setQuery] = useState("");
   const [preferences, setPreferences] = useState<AppPreferencesState>({ launchAtStartup: false, closeBehavior: "tray", globalShortcutEnabled: true, globalShortcut: "Ctrl+Shift+Space", uiTheme: "utility", wallpaperGlassIntensity: "medium", wallpaperGlassVariant: "dark", runAsAdministrator: false, searchProvider: "everything", sortRunningAppsFirst: true, showAppNames: false, firstRunImportCompleted: false, globalShortcutStatus: "registered", isRunningAsAdministrator: false, administratorStatusLoading: false, administratorRestartRequired: false });
   const [discoveredResults, setDiscoveredResults] = useState<DiscoveredAppCandidate[]>([]);
+  const [fileResults, setFileResults] = useState<EverythingSearchResult[]>([]);
   const [searchDependencyStatus, setSearchDependencyStatus] = useState<SearchDependencyStatus>({ state: "missing" });
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState("");
@@ -577,13 +579,15 @@ function App() {
     return [...ordered, ...byName.values()];
   }, [lockedProcessName, lockedProcessOrder, menu, processFilter, processes, pageQuery, sortDirection, sortKey]);
   const managedSearchResults = useMemo(() => buildInternalSearchResults(query, runtimeApps, processes).filter((result): result is Extract<InternalSearchResult, { kind: "app" }> => result.kind === "app"), [processes, query, runtimeApps]);
-  const searchResultCount = managedSearchResults.length + discoveredResults.length;
+  const appSearchResultCount = managedSearchResults.length + discoveredResults.length;
+  const searchResultCount = appSearchResultCount || searchLoading ? appSearchResultCount : fileResults.length;
 
   useEffect(() => {
     const trimmed = query.trim();
     setSearchSelectedIndex(0);
     if (!trimmed) {
       setDiscoveredResults([]);
+      setFileResults([]);
       setSearchLoading(false);
       setSearchError("");
       return;
@@ -596,16 +600,32 @@ function App() {
       void api().searchAppCandidates(trimmed).then((results) => {
         if (searchRequest.current !== requestId) return;
         setDiscoveredResults(results);
-        setSearchLoading(false);
+        const hasManagedResults = buildInternalSearchResults(trimmed, runtimeApps, processes).some((result) => result.kind === "app");
+        if (results.length || hasManagedResults) {
+          setFileResults([]);
+          setSearchLoading(false);
+          return;
+        }
+        void api().searchEverything(trimmed).then((files) => {
+          if (searchRequest.current !== requestId) return;
+          setFileResults(files.slice(0, 20));
+          setSearchLoading(false);
+        }).catch((reason) => {
+          if (searchRequest.current !== requestId) return;
+          setFileResults([]);
+          setSearchLoading(false);
+          setSearchError(cleanErrorMessage(reason, "Everything 搜索失败"));
+        });
       }).catch((reason) => {
         if (searchRequest.current !== requestId) return;
         setDiscoveredResults([]);
+        setFileResults([]);
         setSearchLoading(false);
         setSearchError(cleanErrorMessage(reason, "搜索本机应用失败"));
       });
     }, 150);
     return () => window.clearTimeout(timer);
-  }, [query]);
+  }, [processes, query, runtimeApps]);
 
   useEffect(() => {
     if (query.trim()) setSearchPanelOpen(true);
@@ -662,6 +682,13 @@ function App() {
       document.querySelector<HTMLElement>(selector)?.focus({ preventScroll: true });
     });
   }, [activeSection, appGroups, displayedApps, selectedAppId]);
+  const focusAppCardById = useCallback((sectionId: string, appId: string) => {
+    searchInputRef.current?.blur();
+    const selector = pageFocusSelector(sectionId, appId);
+    window.requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>(selector)?.focus({ preventScroll: true });
+    });
+  }, []);
 
   const switchSection = (id: SectionId) => {
     if (drag) return;
@@ -767,11 +794,12 @@ function App() {
       setNotice(result.alreadyAdded ? "已添加" : `已添加 ${candidate.name}`);
       setSearchPanelOpen(false);
       setQuery("");
+      if (shouldFocusAddedApp(result) && result.appId) focusAppCardById(groupId, result.appId);
       if (launchAfterAdd && result.appId) await launchApp(result.appId);
     } catch (reason) {
       setError(cleanErrorMessage(reason, "添加失败"));
     }
-  }, [activeSection, appGroups, openInternalResult, runtimeApps, selectedAppId]);
+  }, [activeSection, appGroups, focusAppCardById, openInternalResult, runtimeApps, selectedAppId]);
   const focusAppWindow = async (app: RuntimeApp) => {
     const requestId = ++focusRequestSeq.current;
     try {
@@ -794,16 +822,23 @@ function App() {
     if (app.metrics.isRunning) void focusAppWindow(app);
     else void launchApp(app.id);
   }, [runtimeApps]);
+  const openFileSearchResult = useCallback((result: EverythingSearchResult) => {
+    setSearchPanelOpen(false);
+    void api().openSearchResult(result.path).catch((reason) => setError(cleanErrorMessage(reason, "打开搜索结果失败")));
+  }, []);
   const openSelectedSearchResult = useCallback((launchAfterAdd = false) => {
     if (!query.trim()) return;
-    const managed = managedSearchResults[searchSelectedIndex];
-    if (managed) {
-      runManagedSearchResult(managed);
-      return;
+    const action = resolveSearchResultAction({ managedCount: managedSearchResults.length, discoveredCount: discoveredResults.length, fileCount: fileResults.length, selectedIndex: searchSelectedIndex });
+    if (action.kind === "managed") {
+      runManagedSearchResult(managedSearchResults[action.index]);
+    } else if (action.kind === "discovered") {
+      const discovered = discoveredResults[action.index];
+      if (discovered) void addDiscoveredApp(discovered, launchAfterAdd);
+    } else if (action.kind === "open-file") {
+      const file = fileResults[action.index];
+      if (file) openFileSearchResult(file);
     }
-    const discovered = discoveredResults[searchSelectedIndex - managedSearchResults.length] ?? discoveredResults[0];
-    if (discovered) void addDiscoveredApp(discovered, launchAfterAdd);
-  }, [addDiscoveredApp, discoveredResults, managedSearchResults, query, runManagedSearchResult, searchSelectedIndex]);
+  }, [addDiscoveredApp, discoveredResults, fileResults, managedSearchResults, openFileSearchResult, query, runManagedSearchResult, searchSelectedIndex]);
   const handleAppSelection = (app: RuntimeApp) => {
     setSelectedAppId(app.id);
   };
@@ -972,6 +1007,11 @@ function App() {
         height: bounds.height
       };
     }).filter((item) => item.id);
+    const switchRelativeGroup = (direction: "previous" | "next") => {
+      const groupIds = ["processes", ...appGroups.map((group) => group.id), "settings"];
+      const nextGroup = pickRelativeGroup(groupIds, activeSection, direction);
+      if (nextGroup && nextGroup !== activeSection) switchSection(nextGroup);
+    };
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -995,11 +1035,7 @@ function App() {
       if (groupDirection && !hasModal && !menu && !isTextInputTarget(event.target)) {
         event.preventDefault();
         groupNavigationBlockKeyRef.current = keyboardBlockKeyFromEventLike(event);
-        const groupIds = ["processes", ...appGroups.map((group) => group.id), "settings"];
-        const nextGroup = pickRelativeGroup(groupIds, activeSection, groupDirection);
-        if (nextGroup && nextGroup !== activeSection) {
-          switchSection(nextGroup);
-        }
+        switchRelativeGroup(groupDirection);
         return;
       }
       if (shouldSuppressNavigationAfterGroupMove(groupNavigationBlockKeyRef.current, event)) {
@@ -1039,11 +1075,18 @@ function App() {
     const onKeyUp = (event: KeyboardEvent) => {
       if (groupNavigationBlockKeyRef.current === keyboardBlockKeyFromEventLike(event)) groupNavigationBlockKeyRef.current = null;
     };
+    const onNativeGroupNavigation = (event: Event) => {
+      if (hasModal || menu) return;
+      const direction = (event as CustomEvent<"previous" | "next">).detail;
+      if (direction === "previous" || direction === "next") switchRelativeGroup(direction);
+    };
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("start-engineer:group-navigation", onNativeGroupNavigation);
     return () => {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("start-engineer:group-navigation", onNativeGroupNavigation);
     };
   }, [activeSection, appGroups, closeMenu, confirm, displayedApps, edit, groupDelete, groupEdit, importCandidates.length, menu, query, runKeyboardAppAction, searchPanelOpen, selectedAppId]);
 
@@ -1070,7 +1113,7 @@ function App() {
       <section className="window">
         <header className="topbar">
           <div className="page-heading"><span>{pageSubtitle}</span><h1>{pageTitle}</h1></div>
-          <section className="searchbar no-drag" onPointerDown={(event) => event.stopPropagation()}><label><Icon name="search" /><input ref={searchInputRef} value={query} onFocus={() => { closeMenu(); if (query.trim()) setSearchPanelOpen(true); }} onKeyDown={(event) => { if (event.key === "ArrowDown") { event.preventDefault(); setSearchPanelOpen(Boolean(query.trim())); setSearchSelectedIndex((index) => Math.min(index + 1, Math.max(0, searchResultCount - 1))); } else if (event.key === "ArrowUp") { event.preventDefault(); setSearchPanelOpen(Boolean(query.trim())); setSearchSelectedIndex((index) => Math.max(0, index - 1)); } else if (event.key === "Enter") { event.preventDefault(); openSelectedSearchResult(event.ctrlKey || event.metaKey); } else if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); const action = resolveSearchEscapeAction(true, query); if (action === "clear-query") { setQuery(""); setDiscoveredResults([]); setSearchSelectedIndex(0); setSearchPanelOpen(false); } else { event.currentTarget.blur(); setSearchPanelOpen(false); restoreFocusAfterSearch(); } } }} onChange={(event) => setQuery(event.target.value)} placeholder={SEARCH_INPUT_PLACEHOLDER} /></label><button className={`search-button ${query ? "clear" : ""}`} onClick={() => { closeMenu(); if (query) { setQuery(""); setSearchPanelOpen(false); } else searchInputRef.current?.focus(); }} aria-label={query ? "清除搜索" : "聚焦搜索框"}>{query ? "×" : <Icon name="search" />}</button>{searchPanelOpen && query.trim() ? <SearchResultsPanel query={query} loading={searchLoading} error={searchError} selectedIndex={searchSelectedIndex} managedResults={managedSearchResults} discoveredResults={discoveredResults} onSelectIndex={setSearchSelectedIndex} onOpenManaged={runManagedSearchResult} onAddDiscovered={(candidate) => void addDiscoveredApp(candidate)} /> : null}</section>
+          <section className="searchbar no-drag" onPointerDown={(event) => event.stopPropagation()}><label><Icon name="search" /><input ref={searchInputRef} value={query} onFocus={() => { closeMenu(); if (query.trim()) setSearchPanelOpen(true); }} onKeyDown={(event) => { if (event.key === "ArrowDown") { event.preventDefault(); setSearchPanelOpen(Boolean(query.trim())); setSearchSelectedIndex((index) => Math.min(index + 1, Math.max(0, searchResultCount - 1))); } else if (event.key === "ArrowUp") { event.preventDefault(); setSearchPanelOpen(Boolean(query.trim())); setSearchSelectedIndex((index) => Math.max(0, index - 1)); } else if (event.key === "Enter") { event.preventDefault(); openSelectedSearchResult(event.ctrlKey || event.metaKey); } else if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); const action = resolveSearchEscapeAction(true, query); if (action === "clear-query") { setQuery(""); setDiscoveredResults([]); setFileResults([]); setSearchSelectedIndex(0); setSearchPanelOpen(false); } else { event.currentTarget.blur(); setSearchPanelOpen(false); restoreFocusAfterSearch(); } } }} onChange={(event) => setQuery(event.target.value)} placeholder={SEARCH_INPUT_PLACEHOLDER} /></label><button className={`search-button ${query ? "clear" : ""}`} onClick={() => { closeMenu(); if (query) { setQuery(""); setFileResults([]); setSearchPanelOpen(false); } else searchInputRef.current?.focus(); }} aria-label={query ? "清除搜索" : "聚焦搜索框"}>{query ? "×" : <Icon name="search" />}</button>{searchPanelOpen && query.trim() ? <SearchResultsPanel query={query} loading={searchLoading} error={searchError} selectedIndex={searchSelectedIndex} managedResults={managedSearchResults} discoveredResults={discoveredResults} fileResults={fileResults} onSelectIndex={setSearchSelectedIndex} onOpenManaged={runManagedSearchResult} onAddDiscovered={(candidate) => void addDiscoveredApp(candidate)} onOpenFile={openFileSearchResult} /> : null}</section>
           <div className="window-controls no-drag">
             <button title="最小化" aria-label="最小化" onClick={() => void api().windowAction("minimize")}>−</button>
             <button title="最大化或还原" aria-label="最大化或还原" onClick={() => void api().windowAction("maximize")}>□</button>
@@ -1211,8 +1254,10 @@ function ConfirmDialog({ state, onClose, onError }: { state: NonNullable<Confirm
   const confirm = async () => { setBusy(true); try { await state.onConfirm(); onClose(); } catch (reason) { onError(reason instanceof Error ? reason.message : "操作失败"); setBusy(false); } };
   return <div className="modal-backdrop no-drag" onPointerDown={onClose}><div className="dialog" onPointerDown={(event) => event.stopPropagation()}><h2>{state.title}</h2><p>{state.message}</p><div className="dialog-actions"><button className="ghost" onClick={onClose} disabled={busy}>取消</button><button className="danger-button" onClick={() => void confirm()} disabled={busy}>{busy ? "处理中..." : state.confirmLabel}</button></div></div></div>;
 }
-export function SearchResultsPanel({ query, loading, error, selectedIndex, managedResults, discoveredResults, onSelectIndex, onOpenManaged, onAddDiscovered }: { query: string; loading: boolean; error: string; selectedIndex: number; managedResults: Array<Extract<InternalSearchResult, { kind: "app" }>>; discoveredResults: DiscoveredAppCandidate[]; onSelectIndex: (index: number) => void; onOpenManaged: (result: Extract<InternalSearchResult, { kind: "app" }>) => void; onAddDiscovered: (candidate: DiscoveredAppCandidate) => void }) {
-  const resultCount = managedResults.length + discoveredResults.length;
+export function SearchResultsPanel({ query, loading, error, selectedIndex, managedResults, discoveredResults, fileResults, onSelectIndex, onOpenManaged, onAddDiscovered, onOpenFile }: { query: string; loading: boolean; error: string; selectedIndex: number; managedResults: Array<Extract<InternalSearchResult, { kind: "app" }>>; discoveredResults: DiscoveredAppCandidate[]; fileResults: EverythingSearchResult[]; onSelectIndex: (index: number) => void; onOpenManaged: (result: Extract<InternalSearchResult, { kind: "app" }>) => void; onAddDiscovered: (candidate: DiscoveredAppCandidate) => void; onOpenFile: (result: EverythingSearchResult) => void }) {
+  const appResultCount = managedResults.length + discoveredResults.length;
+  const showFileFallback = !appResultCount && Boolean(fileResults.length);
+  const resultCount = appResultCount || fileResults.length;
   const panelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     scrollSelectedSearchResultIntoView(panelRef.current, selectedIndex);
@@ -1226,6 +1271,7 @@ export function SearchResultsPanel({ query, loading, error, selectedIndex, manag
       const index = managedResults.length + offset;
       return <button key={`discovered-${result.id}`} className={`search-result-row internal ${index === selectedIndex ? "selected" : ""}`} role="option" aria-selected={index === selectedIndex} {...{ [SEARCH_RESULT_OPTION_ATTRIBUTE]: index }} onMouseEnter={() => onSelectIndex(index)} onClick={() => onAddDiscovered(result)}><Icon name="grid" /><span><strong>{result.name}</strong><small>{result.source === "start-menu" ? "开始菜单" : result.source === "desktop" ? "桌面快捷方式" : "本机结果"}</small></span><em className={`search-result-status ${result.alreadyAdded ? "added" : "add"}`} title={result.alreadyAdded ? "已添加" : "添加到当前分组"}>{result.alreadyAdded ? "✓" : "+"}</em></button>;
     })}</div> : null}
+    {!error && showFileFallback ? <div className="search-results-section"><div className="search-results-title compact"><span>Everything 搜索结果</span><small>Enter 打开</small></div>{fileResults.map((result, index) => <button key={`file-${result.path}`} className={`search-result-row file ${index === selectedIndex ? "selected" : ""}`} role="option" aria-selected={index === selectedIndex} {...{ [SEARCH_RESULT_OPTION_ATTRIBUTE]: index }} onMouseEnter={() => onSelectIndex(index)} onClick={() => onOpenFile(result)}><Icon name="search" /><span><strong>{result.name}</strong><small>{result.path}</small></span><em className="search-result-status open" title="打开">打开</em></button>)}</div> : null}
   </div>;
 }
 
