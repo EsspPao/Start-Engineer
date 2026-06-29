@@ -23,4 +23,10 @@ describe("Wallpaper Glass styles", () => {
     expect(css).toContain('--wallpaper-card: rgba(255,255,255,.18)');
     expect(css).toContain('linear-gradient(135deg,var(--wallpaper-shell),rgba(236,244,255,.24))');
   });
+
+  it("keeps wallpaper process table headers readable", () => {
+    expect(css).toMatch(/:root\[data-theme="wallpaper"\]\s+\.process-row\.header\s*\{[^}]*background:\s*rgba\(255,255,255,\.22\)/i);
+    expect(css).toMatch(/:root\[data-theme="wallpaper"\]\s+\.process-row\.header button\s*\{[^}]*color:\s*#eef6ff;/i);
+    expect(css).toMatch(/:root\[data-theme="wallpaper"\]\[data-wallpaper-variant="light"\]\s+\.process-row\.header button\s*\{[^}]*color:\s*#1c2b42;/i);
+  });
 });

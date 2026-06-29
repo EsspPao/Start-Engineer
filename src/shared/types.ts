@@ -222,6 +222,12 @@ export type AddDiscoveredAppResult = {
   alreadyAdded?: boolean;
 };
 
+export type AddDroppedExecutablesResult = {
+  apps: AppEntry[];
+  addedAppIds: string[];
+  skippedPaths: string[];
+};
+
 export type StartEngineerApi = {
   listGroups: () => Promise<AppGroup[]>;
   createGroup: (input: GroupInput) => Promise<AppGroup[]>;
@@ -236,6 +242,8 @@ export type StartEngineerApi = {
   refreshDiscoveryIndex: () => Promise<DiscoveredAppCandidate[]>;
   refreshAppIcons: () => Promise<AppEntry[]>;
   addAppFromDialog: (groupId?: AppEntry["groupId"]) => Promise<AppEntry[]>;
+  addDroppedExecutables: (filePaths: string[], groupId?: AppEntry["groupId"]) => Promise<AddDroppedExecutablesResult>;
+  getPathForFile: (file: File) => string;
   pickExecutable: (id: string) => Promise<AppEntry[]>;
   updateApp: (input: UpdateAppInput) => Promise<AppEntry[]>;
   setAppGroup: (id: string, groupId: AppEntry["groupId"]) => Promise<AppEntry[]>;

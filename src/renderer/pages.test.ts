@@ -162,6 +162,23 @@ describe("GroupPage", () => {
 });
 
 describe("ProcessPage", () => {
+  it("can render managed apps as the selected process filter", () => {
+    const html = renderToStaticMarkup(createElement(ProcessPage, {
+      processes: [],
+      loading: false,
+      lockedProcessName: "",
+      sortKey: "cpuPercent",
+      sortDirection: "desc",
+      changeSort: vi.fn(),
+      filter: "managed",
+      setFilter: vi.fn(),
+      onContextMenu: vi.fn(),
+    }));
+
+    expect(html).toContain('<button class="selected">已管理应用</button>');
+    expect(html).not.toContain('<button class="selected">全部进程</button>');
+  });
+
   it("shows a lightweight loading state before the first full process snapshot arrives", () => {
     const html = renderToStaticMarkup(createElement(ProcessPage, {
       processes: [],

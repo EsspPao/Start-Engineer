@@ -12,6 +12,14 @@ export function pageFocusSelector(activeSection: string, selectedAppId: string) 
   return ".app-grid";
 }
 
+export function resolveSectionAppFocusTarget(sectionId: string, visibleAppIds: string[]) {
+  const selectedAppId = visibleAppIds[0] ?? "";
+  return {
+    selectedAppId,
+    selector: pageFocusSelector(sectionId, selectedAppId)
+  };
+}
+
 export function shouldFocusAddedApp(result: { appId?: string; added?: boolean; alreadyAdded?: boolean }) {
   return Boolean(result.appId && (result.added || result.alreadyAdded));
 }

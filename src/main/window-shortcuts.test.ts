@@ -14,4 +14,13 @@ describe("window shortcuts", () => {
     expect(startEngineerGroupShortcutDirection({ key: "a", control: true })).toBeNull();
     expect(startEngineerGroupShortcutDirection({ key: "Enter", control: true })).toBeNull();
   });
+
+  it("does not capture Windows key window-management shortcuts", () => {
+    expect(startEngineerGroupShortcutDirection({ key: "ArrowUp", meta: true })).toBeNull();
+    expect(startEngineerGroupShortcutDirection({ key: "ArrowDown", meta: true })).toBeNull();
+    expect(startEngineerGroupShortcutDirection({ key: "w", meta: true })).toBeNull();
+    expect(startEngineerGroupShortcutDirection({ key: "s", meta: true })).toBeNull();
+    expect(startEngineerGroupShortcutDirection({ key: "ArrowUp", control: true, meta: true })).toBeNull();
+    expect(startEngineerGroupShortcutDirection({ key: "ArrowDown", control: true, meta: true })).toBeNull();
+  });
 });

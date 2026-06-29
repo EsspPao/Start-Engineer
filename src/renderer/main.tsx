@@ -16,8 +16,9 @@ import { buildThemeAttributes } from "./theme-attributes";
 import { themeOptions } from "./theme-options";
 import { groupNavigationFromKey, keyboardBlockKeyFromEventLike, isTextInputTarget, navigationDirectionFromKey, pickDirectionalApp, pickRelativeGroup, shouldSuppressNavigationAfterGroupMove, type AppCardRect } from "./keyboard-navigation";
 import { KeyboardShortcutPanel } from "./keyboard-shortcuts";
-import { pageFocusSelector, resolveSearchEscapeAction, shouldFocusAddedApp } from "./search-focus";
+import { pageFocusSelector, resolveSearchEscapeAction, resolveSectionAppFocusTarget, shouldFocusAddedApp } from "./search-focus";
 import { resolveSearchResultAction } from "./search-results-selection";
+import { droppedExePaths, dropNoticeForResult, targetDropGroupId } from "./dropped-files";
 import { WallpaperGlassIntensityControl, WallpaperGlassVariantControl } from "./theme-settings";
 import "./styles.css";
 
@@ -62,6 +63,8 @@ const fallbackApi: StartEngineerApi = {
   refreshDiscoveryIndex: async () => [],
   refreshAppIcons: async () => [],
   addAppFromDialog: electronOnly,
+  addDroppedExecutables: async () => ({ apps: [], addedAppIds: [], skippedPaths: [] }),
+  getPathForFile: (file) => (file as File & { path?: string }).path ?? "",
   pickExecutable: electronOnly,
   updateApp: async () => [],
   setAppGroup: async () => [],
@@ -154,10 +157,11 @@ function App() {
   const [searchError, setSearchError] = useState("");
   const [searchPanelOpen, setSearchPanelOpen] = useState(false);
   const [searchSelectedIndex, setSearchSelectedIndex] = useState(0);
+  const [fileDropActive, setFileDropActive] = useState(false);
   const [systemIsDark, setSystemIsDark] = useState(() => window.matchMedia("(prefers-color-scheme: dark)").matches);
   const [sortKey, setSortKey] = useState<SortKey>("cpuPercent");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
-  const [processFilter, setProcessFilter] = useState<ProcessFilter>("all");
+  const [processFilter, setProcessFilter] = useState<ProcessFilter>("managed");
   const [menu, setMenu] = useState<MenuState>(null);
   const [lockedProcessName, setLockedProcessName] = useState("");
   const [lockedProcessOrder, setLockedProcessOrder] = useState<string[]>([]);
@@ -180,6 +184,7 @@ function App() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchRequest = useRef(0);
   const focusRequestSeq = useRef(0);
+  const fileDropDepth = useRef(0);
   const launchingAppIdsRef = useRef(new Set<string>());
   const groupNavigationBlockKeyRef = useRef<string | null>(null);
   const metricsByApp = useMemo(() => new Map(metrics.map((metric) => [metric.appId, metric])), [metrics]);
@@ -682,13 +687,16 @@ function App() {
       document.querySelector<HTMLElement>(selector)?.focus({ preventScroll: true });
     });
   }, [activeSection, appGroups, displayedApps, selectedAppId]);
-  const focusAppCardById = useCallback((sectionId: string, appId: string) => {
-    searchInputRef.current?.blur();
-    const selector = pageFocusSelector(sectionId, appId);
+  const focusSelectorAfterRender = useCallback((selector: string) => {
     window.requestAnimationFrame(() => {
       document.querySelector<HTMLElement>(selector)?.focus({ preventScroll: true });
     });
   }, []);
+  const focusAppCardById = useCallback((sectionId: string, appId: string) => {
+    searchInputRef.current?.blur();
+    const selector = pageFocusSelector(sectionId, appId);
+    focusSelectorAfterRender(selector);
+  }, [focusSelectorAfterRender]);
 
   const switchSection = (id: SectionId) => {
     if (drag) return;
@@ -697,7 +705,10 @@ function App() {
     setQuery("");
     closeFloatingUi();
     if (appGroups.some((group) => group.id === id)) {
-      setSelectedAppId(sortAppsForDisplay(runtimeApps.filter((item) => item.groupId === id), preferences.sortRunningAppsFirst)[0]?.id ?? "");
+      const visibleAppIds = sortAppsForDisplay(runtimeApps.filter((item) => item.groupId === id), preferences.sortRunningAppsFirst).map((app) => app.id);
+      const focusTarget = resolveSectionAppFocusTarget(id, visibleAppIds);
+      setSelectedAppId(focusTarget.selectedAppId);
+      focusSelectorAfterRender(focusTarget.selector);
     } else {
       setSelectedAppId("");
     }
@@ -725,6 +736,55 @@ function App() {
     const groupId = appGroups.some((group) => group.id === activeSection) ? activeSection : appGroups[0]?.id;
     if (!groupId) return;
     void runAppAction(() => api().addAppFromDialog(groupId));
+  };
+  const addDroppedApps = useCallback(async (filePaths: string[]) => {
+    const groupId = targetDropGroupId(activeSection, appGroups.map((group) => group.id));
+    if (!groupId) return;
+    try {
+      setError("");
+      const result = await api().addDroppedExecutables(filePaths, groupId);
+      setApps(result.apps);
+      setNotice(dropNoticeForResult(result));
+      setSearchPanelOpen(false);
+      setQuery("");
+      if (result.addedAppIds.length) {
+        setActiveSection(groupId);
+        setSelectedAppId(result.addedAppIds[0]);
+        focusAppCardById(groupId, result.addedAppIds[0]);
+      }
+      await refreshRuntimeData(activeSection === "processes" ? "full" : "managed", true);
+    } catch (reason) {
+      setError(cleanErrorMessage(reason, "添加应用失败"));
+    }
+  }, [activeSection, appGroups, focusAppCardById, refreshRuntimeData]);
+  const hasDraggedFiles = (event: React.DragEvent<HTMLElement>) => Array.from(event.dataTransfer.types).includes("Files");
+  const handleFileDragEnter = (event: React.DragEvent<HTMLElement>) => {
+    if (!hasDraggedFiles(event)) return;
+    event.preventDefault();
+    fileDropDepth.current += 1;
+    setFileDropActive(true);
+  };
+  const handleFileDragOver = (event: React.DragEvent<HTMLElement>) => {
+    if (!hasDraggedFiles(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  };
+  const handleFileDragLeave = (event: React.DragEvent<HTMLElement>) => {
+    if (!hasDraggedFiles(event)) return;
+    fileDropDepth.current = Math.max(0, fileDropDepth.current - 1);
+    if (!fileDropDepth.current) setFileDropActive(false);
+  };
+  const handleFileDrop = (event: React.DragEvent<HTMLElement>) => {
+    if (!hasDraggedFiles(event)) return;
+    event.preventDefault();
+    fileDropDepth.current = 0;
+    setFileDropActive(false);
+    const exePaths = droppedExePaths(Array.from(event.dataTransfer.files), (file) => api().getPathForFile(file));
+    if (!exePaths.length) {
+      setError("请拖入 exe 程序文件");
+      return;
+    }
+    void addDroppedApps(exePaths);
   };
   const launchApp = async (id: string) => {
     if (launchingAppIdsRef.current.has(id)) return;
@@ -1031,7 +1091,7 @@ function App() {
         }
         return;
       }
-      const groupDirection = groupNavigationFromKey(event.key, event.ctrlKey || event.metaKey);
+      const groupDirection = groupNavigationFromKey(event.key, event.ctrlKey);
       if (groupDirection && !hasModal && !menu && !isTextInputTarget(event.target)) {
         event.preventDefault();
         groupNavigationBlockKeyRef.current = keyboardBlockKeyFromEventLike(event);
@@ -1091,7 +1151,7 @@ function App() {
   }, [activeSection, appGroups, closeMenu, confirm, displayedApps, edit, groupDelete, groupEdit, importCandidates.length, menu, query, runKeyboardAppAction, searchPanelOpen, selectedAppId]);
 
   return (
-    <main className="app-shell drag-region" data-theme={themeAttributes.theme} data-wallpaper-intensity={themeAttributes.wallpaperIntensity} data-wallpaper-variant={themeAttributes.wallpaperVariant} onPointerDown={closeFloatingUi}>
+    <main className={`app-shell drag-region ${fileDropActive ? "file-drop-active" : ""}`} data-theme={themeAttributes.theme} data-wallpaper-intensity={themeAttributes.wallpaperIntensity} data-wallpaper-variant={themeAttributes.wallpaperVariant} onPointerDown={closeFloatingUi} onDragEnter={handleFileDragEnter} onDragOver={handleFileDragOver} onDragLeave={handleFileDragLeave} onDrop={handleFileDrop}>
       <aside className="sidebar no-drag">
         <div className="brand"><div className="brand-mark"><BrandLogo /></div><span><strong>Start Engineer</strong><small>Command Center</small></span></div>
         <nav className="nav">
@@ -1136,6 +1196,7 @@ function App() {
       {groupEdit ? <GroupEditDialog state={groupEdit} onClose={() => setGroupEdit(null)} onSave={saveGroup} /> : null}
       {groupDelete ? <GroupDeleteDialog state={groupDelete} groups={appGroups} appCount={apps.filter((item) => item.groupId === groupDelete.groupId).length} onChangeTarget={(targetGroupId) => setGroupDelete({ ...groupDelete, targetGroupId })} onClose={() => setGroupDelete(null)} onConfirm={removeGroup} /> : null}
       {drag && draggedApp ? <div className="drag-preview app-card-drag-preview no-drag" style={{ left: drag.x - drag.grabOffsetX, top: drag.y - drag.grabOffsetY, width: drag.width, height: drag.height }}>{draggedApp.iconDataUrl ? <img src={draggedApp.iconDataUrl} alt="" /> : <Icon name="grid" />}<span>{draggedApp.name}</span></div> : null}
+      {fileDropActive ? <div className="file-drop-overlay no-drag"><span>松开添加到当前分组</span></div> : null}
     </main>
   );
 }

@@ -42,6 +42,7 @@ import { mergeVisibleAppOrder } from "./app-order.js";
 import { splashHtmlDataUrl, splashWindowOptions, wireSplashToMainWindow } from "./splash-window.js";
 import { AppWindowManager } from "./window-manager.js";
 import { startEngineerGroupShortcutDirection } from "./window-shortcuts.js";
+import { addDroppedExecutablesToApps } from "./dropped-apps.js";
 
 const isDev = process.env.VITE_DEV_SERVER_URL !== undefined;
 const appRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -1033,21 +1034,22 @@ async function processSnapshot(): Promise<ProcessInfo[]> {
 }
 
 async function addExecutable(filePath: string, groupId: AppEntry["groupId"]) {
-  const name = basename(filePath, extname(filePath));
-  const group = loadAppGroups().find((item) => item.id === groupId) ?? loadAppGroups()[0];
-  const appEntry = await cacheAppIcon({
-    id: randomUUID(),
-    name,
-    category: group.name,
-    groupId: group.id,
-    executablePath: filePath,
-    processName: name,
-    workingDirectory: dirname(filePath),
-    accent: "#2f66e8"
+  const result = await addDroppedExecutables([filePath], groupId);
+  return result.apps;
+}
+
+async function addDroppedExecutables(filePaths: string[], groupId?: AppEntry["groupId"]) {
+  const result = await addDroppedExecutablesToApps({
+    filePaths,
+    groupId,
+    groups: loadAppGroups(),
+    apps: loadApps(),
+    exists: existsSync,
+    createId: randomUUID,
+    cacheAppIcon
   });
-  const nextApps = [...loadApps(), appEntry];
-  saveApps(nextApps);
-  return nextApps;
+  if (result.addedAppIds.length) saveApps(result.apps);
+  return result;
 }
 
 async function showExeDialog(title: string) {
@@ -1272,6 +1274,9 @@ function registerIpc() {
   ipcMain.handle("apps:addFromDialog", async (_event, groupId?: AppEntry["groupId"]) => {
     const filePath = await showExeDialog("选择要加入 Start Engineer 的程序");
     return filePath ? addExecutable(filePath, validAppGroup(groupId)) : loadApps();
+  });
+  ipcMain.handle("apps:addDroppedExecutables", (_event, filePaths: string[], groupId?: AppEntry["groupId"]) => {
+    return addDroppedExecutables(Array.isArray(filePaths) ? filePaths.map((item) => String(item ?? "")) : [], validAppGroup(groupId));
   });
 
   ipcMain.handle("apps:pickExecutable", async (_event, id: string) => {

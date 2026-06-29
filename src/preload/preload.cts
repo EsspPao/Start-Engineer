@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type { AppEntry, FocusWindowHints, GroupInput, GroupUpdateInput, SnapshotMode, StartEngineerApi, UpdateAppInput, UpdatePreferencesInput, WindowAction } from "../shared/types.js";
 
 const api: StartEngineerApi = {
@@ -15,6 +15,8 @@ const api: StartEngineerApi = {
   refreshDiscoveryIndex: () => ipcRenderer.invoke("apps:refreshDiscoveryIndex"),
   refreshAppIcons: () => ipcRenderer.invoke("apps:refreshIcons"),
   addAppFromDialog: (groupId?: AppEntry["groupId"]) => ipcRenderer.invoke("apps:addFromDialog", groupId),
+  addDroppedExecutables: (filePaths: string[], groupId?: AppEntry["groupId"]) => ipcRenderer.invoke("apps:addDroppedExecutables", filePaths, groupId),
+  getPathForFile: (file: File) => webUtils.getPathForFile(file),
   pickExecutable: (id: string) => ipcRenderer.invoke("apps:pickExecutable", id),
   updateApp: (input: UpdateAppInput) => ipcRenderer.invoke("apps:update", input),
   setAppGroup: (id: string, groupId: AppEntry["groupId"]) => ipcRenderer.invoke("apps:setGroup", id, groupId),

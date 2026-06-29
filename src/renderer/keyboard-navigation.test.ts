@@ -54,6 +54,13 @@ describe("keyboard navigation", () => {
     expect(groupNavigationFromKey("a", true)).toBeNull();
   });
 
+  it("does not treat Meta as a group navigation modifier", () => {
+    expect(groupNavigationFromKey("ArrowUp", false)).toBeNull();
+    expect(groupNavigationFromKey("ArrowDown", false)).toBeNull();
+    expect(groupNavigationFromKey("w", false)).toBeNull();
+    expect(groupNavigationFromKey("s", false)).toBeNull();
+  });
+
   it("suppresses the same physical key after group navigation until keyup", () => {
     const blockedKey = keyboardBlockKeyFromEventLike({ key: "s", code: "KeyS" });
 
