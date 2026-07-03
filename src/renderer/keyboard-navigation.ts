@@ -36,6 +36,15 @@ export function groupNavigationFromKey(key: string, controlKey: boolean): GroupN
   return null;
 }
 
+export function groupIndexNavigationFromKey(event: KeyboardEventLike) {
+  if (!event.ctrlKey || event.metaKey || event.altKey) return null;
+  const key = event.key.length === 1 ? event.key : event.code?.replace("Digit", "");
+  if (key === "1") return 0;
+  if (key === "2") return 1;
+  if (key === "3") return 2;
+  return null;
+}
+
 export function keyboardBlockKeyFromEventLike(event: KeyboardEventLike) {
   return event.code || event.key.toLowerCase();
 }
@@ -92,6 +101,10 @@ export function pickRelativeGroup(groupIds: string[], currentId: string, directi
   const offset = direction === "previous" ? -1 : 1;
   const nextIndex = Math.min(groupIds.length - 1, Math.max(0, currentIndex + offset));
   return groupIds[nextIndex] ?? groupIds[0] ?? "";
+}
+
+export function pickIndexedGroup(groupIds: string[], index: number) {
+  return groupIds[index] ?? "";
 }
 
 const centerX = (rect: AppCardRect) => rect.left + rect.width / 2;

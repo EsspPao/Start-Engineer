@@ -109,6 +109,12 @@ export type AppPreferencesState = AppPreferences & {
 export type SnapshotMode = "full" | "managed";
 export type RuntimeSnapshot = { apps: AppEntry[]; metrics: AppMetrics[]; processes: ProcessInfo[] };
 
+export type AppRunningStatus = {
+  appId: string;
+  isRunning: boolean;
+  pids: number[];
+};
+
 export type EverythingSearchResult = {
   name: string;
   path: string;
@@ -161,6 +167,11 @@ export type BatchKillItemResult = {
 export type BatchKillResult = {
   apps: AppEntry[];
   results: BatchKillItemResult[];
+};
+
+export type KillAppResult = {
+  apps: AppEntry[];
+  metrics: AppMetrics[];
 };
 
 export type FocusAppWindowResult = {
@@ -256,7 +267,7 @@ export type StartEngineerApi = {
   listAppWindows: (id: string, hints?: FocusWindowHints) => Promise<AppWindowInfo[]>;
   getAppWindowDiagnostics: (id: string, hints?: FocusWindowHints) => Promise<string>;
   launchSelectedApps: (groupId: string) => Promise<BatchLaunchResult>;
-  killApp: (id: string) => Promise<AppEntry[]>;
+  killApp: (id: string) => Promise<KillAppResult | AppEntry[]>;
   killGroupApps: (groupId: string) => Promise<BatchKillResult>;
   removeApp: (id: string) => Promise<AppEntry[]>;
   killProcessGroup: (input: { name: string; pids: number[] }) => Promise<void>;
@@ -272,6 +283,7 @@ export type StartEngineerApi = {
   getMetricsSnapshot: () => Promise<AppMetrics[]>;
   getProcessSnapshot: () => Promise<ProcessInfo[]>;
   getRuntimeSnapshot: (mode?: SnapshotMode, force?: boolean) => Promise<RuntimeSnapshot>;
+  getManagedRunningStatus: () => Promise<AppRunningStatus[]>;
   getPreferences: () => Promise<AppPreferencesState>;
   updatePreferences: (input: UpdatePreferencesInput) => Promise<AppPreferencesState>;
   restartWithConfiguredPrivileges: () => Promise<void>;

@@ -15,12 +15,15 @@ import { shortcutFromKeyboardEvent, validateShortcut } from "../shared/global-sh
 import { cleanErrorMessage } from "./error-message";
 import { buildThemeAttributes } from "./theme-attributes";
 import { themeOptions } from "./theme-options";
-import { groupNavigationFromKey, keyboardBlockKeyFromEventLike, isTextInputTarget, navigationDirectionFromKey, pickDirectionalApp, pickRelativeGroup, shouldSuppressNavigationAfterGroupMove, type AppCardRect } from "./keyboard-navigation";
+import { groupIndexNavigationFromKey, groupNavigationFromKey, keyboardBlockKeyFromEventLike, isTextInputTarget, navigationDirectionFromKey, pickDirectionalApp, pickIndexedGroup, pickRelativeGroup, shouldSuppressNavigationAfterGroupMove, type AppCardRect } from "./keyboard-navigation";
 import { KeyboardShortcutPanel } from "./keyboard-shortcuts";
 import { pageFocusSelector, resolveSearchEscapeAction, resolveSectionAppFocusTarget, shouldFocusAddedApp } from "./search-focus";
 import { resolveSearchResultAction } from "./search-results-selection";
 import { droppedExePaths, dropNoticeForResult, targetDropGroupId } from "./dropped-files";
 import { groupSortPreviewPosition } from "./drag-preview-position";
+import { applyKillAppResult, killAppResultHasMetrics } from "./kill-app-result";
+import { applyRunningStatusToMetrics } from "./running-status";
+import { FAST_RUNNING_STATUS_INTERVAL_MS } from "./fast-running-status";
 import { WallpaperGlassIntensityControl, WallpaperGlassVariantControl } from "./theme-settings";
 import "./styles.css";
 
@@ -79,7 +82,7 @@ const fallbackApi: StartEngineerApi = {
   listAppWindows: async () => [],
   getAppWindowDiagnostics: async () => "",
   launchSelectedApps: electronOnly,
-  killApp: async () => [],
+  killApp: async () => ({ apps: [], metrics: [] }),
   killGroupApps: electronOnly,
   removeApp: async () => [],
   killProcessGroup: async () => electronOnly(),
@@ -88,6 +91,7 @@ const fallbackApi: StartEngineerApi = {
   getMetricsSnapshot: async () => [],
   getProcessSnapshot: async () => [],
   getRuntimeSnapshot: async () => ({ apps: [], metrics: [], processes: [] }),
+  getManagedRunningStatus: async () => [],
   searchEverything: electronOnly,
   pickEverythingCli: electronOnly,
   getSearchDependencyStatus: async () => ({ state: "missing", message: "Electron 环境中才可准备搜索依赖" }),
@@ -325,6 +329,34 @@ function App() {
   }, [activeSection, refreshRuntimeData]);
 
   useEffect(() => {
+    if (activeSection === "processes") return;
+    let cancelled = false;
+    let timer = 0;
+    let running = false;
+    const schedule = () => {
+      timer = window.setTimeout(async () => {
+        if (!cancelled && !document.hidden && !running) {
+          running = true;
+          try {
+            const statuses = await api().getManagedRunningStatus();
+            if (!cancelled) setMetrics((current) => applyRunningStatusToMetrics(current, statuses));
+          } catch {
+            // Full runtime snapshots continue to refresh detailed state if the fast probe is unavailable.
+          } finally {
+            running = false;
+          }
+        }
+        if (!cancelled) schedule();
+      }, FAST_RUNNING_STATUS_INTERVAL_MS);
+    };
+    schedule();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [activeSection]);
+
+  useEffect(() => {
     window.addEventListener("blur", closeMenu);
     return () => window.removeEventListener("blur", closeMenu);
   }, [closeMenu]);
@@ -368,11 +400,21 @@ function App() {
 
   const closeApp = useCallback(async (appId: string) => {
     setError("");
+    let refreshedByKill = false;
     try {
-      const nextApps = await api().killApp(appId);
-      setApps(nextApps);
+      const result = await api().killApp(appId);
+      const next = applyKillAppResult(result);
+      setApps(next.apps);
+      if (next.metrics) {
+        setMetrics(next.metrics);
+        refreshedByKill = killAppResultHasMetrics(result);
+      }
+    } catch (reason) {
+      setError(cleanErrorMessage(reason, "结束应用失败"));
     } finally {
-      await refreshRuntimeData(activeSection === "processes" ? "full" : "managed", true);
+      if (!refreshedByKill) {
+        await refreshRuntimeData(activeSection === "processes" ? "full" : "managed", true);
+      }
     }
   }, [activeSection, refreshRuntimeData]);
 
@@ -1074,6 +1116,10 @@ function App() {
       const nextGroup = pickRelativeGroup(groupIds, activeSection, direction);
       if (nextGroup && nextGroup !== activeSection) switchSection(nextGroup);
     };
+    const switchIndexedAppGroup = (index: number) => {
+      const nextGroup = pickIndexedGroup(appGroups.map((group) => group.id), index);
+      if (nextGroup && nextGroup !== activeSection) switchSection(nextGroup);
+    };
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -1091,6 +1137,12 @@ function App() {
           event.preventDefault();
           setSelectedAppId("");
         }
+        return;
+      }
+      const groupIndex = groupIndexNavigationFromKey(event);
+      if (groupIndex !== null && !hasModal && !menu && !isTextInputTarget(event.target)) {
+        event.preventDefault();
+        switchIndexedAppGroup(groupIndex);
         return;
       }
       const groupDirection = groupNavigationFromKey(event.key, event.ctrlKey);

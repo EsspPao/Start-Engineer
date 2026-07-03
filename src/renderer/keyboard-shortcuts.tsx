@@ -11,6 +11,7 @@ export const keyboardShortcutHelpItems: KeyboardShortcutHelpItem[] = [
   { keys: "Menu / Shift+F10", label: "打开当前应用更多菜单" },
   { keys: "F2", label: "重命名当前应用" },
   { keys: "Ctrl+↑/↓ / Ctrl+W/S", label: "切换上一个或下一个分组" },
+  { keys: "Ctrl+1/2/3", label: "直接切换到第 1/2/3 个应用分组" },
   { keys: "Ctrl+F", label: "聚焦搜索框" }
 ];
 

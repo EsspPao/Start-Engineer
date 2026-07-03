@@ -16,6 +16,10 @@ export function shouldDetectAdministratorSynchronously(configured: boolean, args
   return configured || args.includes(ADMINISTRATOR_RELAUNCH_ARG) || args.includes(STANDARD_RELAUNCH_ARG);
 }
 
+export function shouldContinueAfterAdministratorRelaunchAttempt(_result: "launched" | "cancelled") {
+  return false;
+}
+
 export function buildRestartRequest(execPath: string, portableExecutable: string | undefined, elevated: boolean) {
   return {
     executablePath: resolveLoginExecutable(execPath, portableExecutable),

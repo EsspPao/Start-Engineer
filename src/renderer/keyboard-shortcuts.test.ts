@@ -12,6 +12,7 @@ describe("keyboard shortcut help", () => {
     expect(labels).toContain("Space");
     expect(labels).toContain("Esc");
     expect(labels).toContain("Ctrl+↑/↓ / Ctrl+W/S");
+    expect(labels).toContain("Ctrl+1/2/3");
     expect(labels).toContain("Ctrl+F");
   });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { groupNavigationFromKey, keyboardBlockKeyFromEventLike, isTextInputTarget, navigationDirectionFromKey, pickDirectionalApp, pickRelativeGroup, shouldSuppressNavigationAfterGroupMove } from "./keyboard-navigation";
+import { groupIndexNavigationFromKey, groupNavigationFromKey, keyboardBlockKeyFromEventLike, isTextInputTarget, navigationDirectionFromKey, pickDirectionalApp, pickIndexedGroup, pickRelativeGroup, shouldSuppressNavigationAfterGroupMove } from "./keyboard-navigation";
 
 const rect = (id: string, left: number, top: number, width = 100, height = 80) => ({
   id,
@@ -61,6 +61,16 @@ describe("keyboard navigation", () => {
     expect(groupNavigationFromKey("s", false)).toBeNull();
   });
 
+  it("maps Ctrl+number keys to direct app group indexes", () => {
+    expect(groupIndexNavigationFromKey({ key: "1", code: "Digit1", ctrlKey: true })).toBe(0);
+    expect(groupIndexNavigationFromKey({ key: "2", code: "Digit2", ctrlKey: true })).toBe(1);
+    expect(groupIndexNavigationFromKey({ key: "3", code: "Digit3", ctrlKey: true })).toBe(2);
+    expect(groupIndexNavigationFromKey({ key: "1", code: "Digit1" })).toBeNull();
+    expect(groupIndexNavigationFromKey({ key: "1", code: "Digit1", ctrlKey: true, altKey: true })).toBeNull();
+    expect(groupIndexNavigationFromKey({ key: "1", code: "Digit1", ctrlKey: true, metaKey: true })).toBeNull();
+    expect(groupIndexNavigationFromKey({ key: "4", code: "Digit4", ctrlKey: true })).toBeNull();
+  });
+
   it("suppresses the same physical key after group navigation until keyup", () => {
     const blockedKey = keyboardBlockKeyFromEventLike({ key: "s", code: "KeyS" });
 
@@ -78,5 +88,14 @@ describe("keyboard navigation", () => {
     expect(pickRelativeGroup(groups, "office", "previous")).toBe("processes");
     expect(pickRelativeGroup(groups, "settings", "next")).toBe("settings");
     expect(pickRelativeGroup(groups, "missing", "next")).toBe("processes");
+  });
+
+  it("picks app groups by zero-based shortcut index", () => {
+    const groups = ["games", "office", "tools"];
+
+    expect(pickIndexedGroup(groups, 0)).toBe("games");
+    expect(pickIndexedGroup(groups, 1)).toBe("office");
+    expect(pickIndexedGroup(groups, 2)).toBe("tools");
+    expect(pickIndexedGroup(groups, 3)).toBe("");
   });
 });

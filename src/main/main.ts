@@ -12,6 +12,7 @@ import type {
   AppPreferences,
   AppPreferencesState,
   BatchKillResult,
+  KillAppResult,
   BatchLaunchResult,
   DiscoveredAppCandidate,
   FocusWindowHints,
@@ -33,7 +34,7 @@ import { validateShortcut } from "../shared/global-shortcut.js";
 import { terminatePids } from "./process-termination.js";
 import { resolveUiTheme, themeUsesMica } from "../shared/theme.js";
 import { collectGroupTermination, launchAppsSequentially } from "./batch-app-actions.js";
-import { administratorRestartRequired, buildRestartRequest, shouldDetectAdministratorSynchronously, shouldRequestAdministratorRelaunch } from "./administrator-launch.js";
+import { administratorRestartRequired, buildRestartRequest, shouldContinueAfterAdministratorRelaunchAttempt, shouldDetectAdministratorSynchronously, shouldRequestAdministratorRelaunch } from "./administrator-launch.js";
 import { migrateLegacyUserData } from "./user-data-migration.js";
 import { searchEverything as runEverythingSearch } from "./everything-search.js";
 import { buildEverythingDownloadPlan, clearTempDependencyDir, downloadFile, expandZip, getManagedEverythingPaths, getSearchDependencyStatus as resolveSearchDependencyStatus } from "./search-dependencies.js";
@@ -43,6 +44,7 @@ import { splashHtmlDataUrl, splashWindowOptions, wireSplashToMainWindow } from "
 import { AppWindowManager } from "./window-manager.js";
 import { startEngineerGroupShortcutDirection } from "./window-shortcuts.js";
 import { addDroppedExecutablesToApps } from "./dropped-apps.js";
+import { buildManagedRunningStatus, parseTasklistCsv } from "./managed-running-status.js";
 
 const isDev = process.env.VITE_DEV_SERVER_URL !== undefined;
 const appRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -866,6 +868,22 @@ $rows | ConvertTo-Json -Compress
   return Array.isArray(parsed) ? parsed : [parsed];
 }
 
+function getTasklistOutput(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile("tasklist.exe", ["/FO", "CSV", "/NH"], { windowsHide: true, maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
+      if (error) {
+        reject(new Error(String(stderr || error.message).trim()));
+        return;
+      }
+      resolve(stdout);
+    });
+  });
+}
+
+async function getManagedRunningStatus() {
+  return buildManagedRunningStatus(loadAppsWithRuntimeAssociations(), parseTasklistCsv(await getTasklistOutput()));
+}
+
 function fallbackIconDataUrl(seed: string) {
   const label = [...seed].slice(0, 2).join("").toUpperCase() || "APP";
   const safeLabel = label.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&apos;" })[character] ?? character);
@@ -1420,13 +1438,14 @@ function registerIpc() {
     }
     await terminatePids(pids, { runNormal: runTaskkill, runElevated: runElevatedTaskkill, getRunningPids });
 
-    const refreshedMetrics = (await buildRuntimeSnapshot("managed", true)).metrics.find((item) => item.appId === id);
+    const refreshed = await buildRuntimeSnapshot("managed", true);
+    const refreshedMetrics = refreshed.metrics.find((item) => item.appId === id);
     if (refreshedMetrics?.isRunning) throw new Error("应用进程仍在运行，可能已被后台服务重新启动");
 
     runtimeAssociatedPids.delete(id);
     const nextApps = loadApps().map((item) => (item.id === id ? { ...item, launchedPid: undefined } : item));
     saveApps(nextApps);
-    return nextApps;
+    return { apps: nextApps, metrics: refreshed.metrics } satisfies KillAppResult;
   });
 
   ipcMain.handle("groups:killApps", async (_event, groupId: string) => {
@@ -1563,6 +1582,7 @@ function registerIpc() {
     const safeMode: SnapshotMode = mode === "managed" ? "managed" : "full";
     return buildRuntimeSnapshot(safeMode, Boolean(force));
   });
+  ipcMain.handle("runtime:managedRunningStatus", () => getManagedRunningStatus());
   ipcMain.handle("preferences:get", () => preferencesSnapshot());
   ipcMain.handle("preferences:update", (_event, input: UpdatePreferencesInput) => updatePreferences(input));
   ipcMain.handle("preferences:restartWithConfiguredPrivileges", () => restartWithConfiguredPrivileges());
@@ -1586,9 +1606,9 @@ let handedOffToAdministrator = false;
 if (process.platform === "win32" && shouldRequestAdministratorRelaunch(startupPreferences.runAsAdministrator, isRunningAsAdministrator, process.argv)) {
   try {
     launchElevatedSynchronously(buildRestartRequest(process.execPath, process.env.PORTABLE_EXECUTABLE_FILE, true));
-    handedOffToAdministrator = true;
+    handedOffToAdministrator = !shouldContinueAfterAdministratorRelaunchAttempt("launched");
   } catch {
-    administratorMessage = "管理员授权已取消，当前仍以普通权限运行";
+    handedOffToAdministrator = !shouldContinueAfterAdministratorRelaunchAttempt("cancelled");
   }
 }
 

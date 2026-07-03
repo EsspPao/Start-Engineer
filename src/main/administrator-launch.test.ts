@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { administratorRestartRequired, buildRestartRequest, shouldDetectAdministratorSynchronously, shouldRequestAdministratorRelaunch } from "./administrator-launch.js";
+import { administratorRestartRequired, buildRestartRequest, shouldContinueAfterAdministratorRelaunchAttempt, shouldDetectAdministratorSynchronously, shouldRequestAdministratorRelaunch } from "./administrator-launch.js";
 
 describe("administrator launch", () => {
   it("requires a restart when configured and current privileges differ", () => {
@@ -30,6 +30,11 @@ describe("administrator launch", () => {
     expect(shouldRequestAdministratorRelaunch(true, true, [])).toBe(false);
     expect(shouldRequestAdministratorRelaunch(true, false, ["--administrator-relaunch"])).toBe(false);
     expect(shouldRequestAdministratorRelaunch(true, false, ["--standard-relaunch"])).toBe(false);
+  });
+
+  it("does not continue the ordinary process after a cold-start administrator relaunch attempt", () => {
+    expect(shouldContinueAfterAdministratorRelaunchAttempt("launched")).toBe(false);
+    expect(shouldContinueAfterAdministratorRelaunchAttempt("cancelled")).toBe(false);
   });
 
   it("only needs synchronous administrator detection when administrator mode is configured", () => {

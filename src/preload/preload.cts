@@ -45,6 +45,7 @@ const api: StartEngineerApi = {
   getMetricsSnapshot: () => ipcRenderer.invoke("metrics:snapshot"),
   getProcessSnapshot: () => ipcRenderer.invoke("processes:snapshot"),
   getRuntimeSnapshot: (mode?: SnapshotMode, force?: boolean) => ipcRenderer.invoke("runtime:snapshot", mode, force),
+  getManagedRunningStatus: () => ipcRenderer.invoke("runtime:managedRunningStatus"),
   getPreferences: () => ipcRenderer.invoke("preferences:get"),
   updatePreferences: (input: UpdatePreferencesInput) => ipcRenderer.invoke("preferences:update", input),
   restartWithConfiguredPrivileges: () => ipcRenderer.invoke("preferences:restartWithConfiguredPrivileges"),
