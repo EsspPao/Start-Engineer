@@ -1207,7 +1207,7 @@ function App() {
   return (
     <main className={`app-shell drag-region ${fileDropActive ? "file-drop-active" : ""}`} data-theme={themeAttributes.theme} data-wallpaper-intensity={themeAttributes.wallpaperIntensity} data-wallpaper-variant={themeAttributes.wallpaperVariant} onPointerDown={closeFloatingUi} onDragEnter={handleFileDragEnter} onDragOver={handleFileDragOver} onDragLeave={handleFileDragLeave} onDrop={handleFileDrop}>
       <aside className="sidebar no-drag">
-        <div className="brand"><div className="brand-mark"><BrandLogo /></div><span><strong>Start Engineer</strong><small>Command Center</small></span></div>
+        <div className="brand-icon" aria-hidden="true"><BrandLogo /></div>
         <nav className="nav">
           {groups.filter((group) => group.id === "processes").map((group) => <button key={group.id} className={`nav-button ${activeSection === group.id ? "active" : ""}`} onClick={() => switchSection(group.id)}>
             <Icon name={group.icon} /><span>{group.name}</span>
@@ -1718,7 +1718,7 @@ function Icon({ name }: { name: string }) {
 }
 
 function BrandLogo() {
-  return <svg viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="brand-gradient" x1="7" y1="4" x2="56" y2="61" gradientUnits="userSpaceOnUse"><stop stopColor="#50d5ef" /><stop offset=".52" stopColor="#5c6df4" /><stop offset="1" stopColor="#a258eb" /></linearGradient></defs><rect x="3" y="3" width="58" height="58" rx="17" fill="url(#brand-gradient)" /><rect x="5" y="5" width="54" height="27" rx="14" fill="white" opacity=".18" /><path d="M32 13.5 36.3 27.7 50.5 32l-14.2 4.3L32 50.5l-4.3-14.2L13.5 32l14.2-4.3L32 13.5Z" fill="white" /></svg>;
+  return <svg viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="brand-gradient" x1="4" y1="0" x2="60" y2="64" gradientUnits="userSpaceOnUse"><stop stopColor="#50d5ef" /><stop offset=".52" stopColor="#5c6df4" /><stop offset="1" stopColor="#a258eb" /></linearGradient></defs><rect width="64" height="64" rx="18" fill="url(#brand-gradient)" /><rect x="3" y="3" width="58" height="30" rx="15" fill="white" opacity=".16" /><path d="M32 13.5 36.3 27.7 50.5 32l-14.2 4.3L32 50.5l-4.3-14.2L13.5 32l14.2-4.3L32 13.5Z" fill="white" /></svg>;
 }
 
 if (typeof document !== "undefined") {
