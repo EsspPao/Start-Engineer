@@ -11,6 +11,8 @@ const api: StartEngineerApi = {
   discoverImportCandidates: () => ipcRenderer.invoke("apps:discoverImportCandidates"),
   importDiscoveredApps: (candidateIds: string[]) => ipcRenderer.invoke("apps:importDiscovered", candidateIds),
   searchAppCandidates: (query: string) => ipcRenderer.invoke("apps:searchCandidates", query),
+  searchInstallableApps: (query: string) => ipcRenderer.invoke("apps:searchInstallable", query),
+  openInstallableAppDownload: (candidateId: string) => ipcRenderer.invoke("apps:openInstallableDownload", candidateId),
   addDiscoveredCandidate: (candidateId: string, groupId: AppEntry["groupId"]) => ipcRenderer.invoke("apps:addDiscoveredCandidate", candidateId, groupId),
   refreshDiscoveryIndex: () => ipcRenderer.invoke("apps:refreshDiscoveryIndex"),
   refreshAppIcons: () => ipcRenderer.invoke("apps:refreshIcons"),
@@ -48,6 +50,8 @@ const api: StartEngineerApi = {
   getManagedRunningStatus: () => ipcRenderer.invoke("runtime:managedRunningStatus"),
   getPreferences: () => ipcRenderer.invoke("preferences:get"),
   updatePreferences: (input: UpdatePreferencesInput) => ipcRenderer.invoke("preferences:update", input),
+  exportUiLayoutShareCode: () => ipcRenderer.invoke("preferences:exportUiLayoutShareCode"),
+  importUiLayoutShareCode: (code: string) => ipcRenderer.invoke("preferences:importUiLayoutShareCode", code),
   restartWithConfiguredPrivileges: () => ipcRenderer.invoke("preferences:restartWithConfiguredPrivileges"),
   windowAction: (action: WindowAction) => ipcRenderer.invoke("window:action", action)
 };

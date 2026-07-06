@@ -27,4 +27,16 @@ describe("app card styles", () => {
     expect(styles).toMatch(/\.app-grid:focus,\s*\.app-grid:focus-visible\s*\{[^}]*outline:\s*none;/i);
     expect(styles).not.toMatch(/\*:focus[^{]*\{[^}]*outline:\s*none/i);
   });
+
+  it("centers the app grid tracks inside the group content area", () => {
+    expect(styles).toMatch(/\.app-grid\s*\{[^}]*justify-content:\s*center;/i);
+  });
+
+  it("applies a constrained liquid glass material to buttons without changing global focus behavior", () => {
+    expect(styles).toContain("--liquid-button-highlight");
+    expect(styles).toMatch(/\.search-button::before,\s*[\s\S]*?\.toast button::before\s*\{[\s\S]*?background:\s*linear-gradient\(180deg,var\(--liquid-button-highlight\),transparent\)/i);
+    expect(styles).toMatch(/:root\[data-theme\]\s+\.search-button,\s*:root\[data-theme\]\s+\.launch\s*\{[\s\S]*?box-shadow:\s*var\(--liquid-primary-shadow\)/i);
+    expect(styles).toMatch(/\.ghost,\s*[\s\S]*?\.group-app-empty button\s*\{[\s\S]*?backdrop-filter:\s*blur\(12px\)\s*saturate\(1\.12\)/i);
+    expect(styles).not.toMatch(/\*:focus[^{]*\{[^}]*outline:\s*none/i);
+  });
 });

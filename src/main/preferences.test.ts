@@ -2,24 +2,64 @@ import { describe, expect, it } from "vitest";
 import { defaultPreferences, normalizePreferences, resolveLoginExecutable } from "./preferences.js";
 
 describe("preferences", () => {
+  it("normalizes constrained UI layout preferences", () => {
+    expect(normalizePreferences({
+      uiLayout: {
+        cardSize: "large",
+        gridDensity: "relaxed",
+        sidebarWidth: "narrow",
+        brandIconSize: "large",
+        backgroundTone: "graphite",
+        showRunningStatus: false,
+        showAppNames: true,
+        showBatchActions: false,
+        showSearchBar: true
+      }
+    }).uiLayout).toEqual({
+      cardSize: "large",
+      gridDensity: "relaxed",
+      sidebarWidth: "narrow",
+      brandIconSize: "large",
+      backgroundTone: "graphite",
+      showRunningStatus: false,
+      showAppNames: true,
+      showBatchActions: false,
+      showSearchBar: true
+    });
+  });
+
+  it("normalizes independent all apps view preferences", () => {
+    expect(normalizePreferences({
+      allAppsView: {
+        orderedAppIds: ["wechat", "steam", "wechat", ""],
+        launchSelectedAppIds: ["steam", "notion", "steam", 42 as unknown as string]
+      }
+    }).allAppsView).toEqual({
+      orderedAppIds: ["wechat", "steam"],
+      launchSelectedAppIds: ["steam", "notion"]
+    });
+  });
+
   it("uses stable defaults for missing or invalid values", () => {
     expect(normalizePreferences(undefined)).toEqual(defaultPreferences);
     expect(normalizePreferences({ launchAtStartup: false, closeBehavior: "unknown" as "tray" })).toEqual(defaultPreferences);
   });
 
   it("preserves supported preferences", () => {
-    expect(normalizePreferences({ launchAtStartup: true, closeBehavior: "quit", globalShortcutEnabled: false, globalShortcut: "Alt+Shift+S", uiTheme: "system", wallpaperGlassIntensity: "strong", wallpaperGlassVariant: "light", searchProvider: "internal", sortRunningAppsFirst: false, showAppNames: true, everythingCliPath: "C:\\Tools\\ES.exe" })).toEqual({
+    expect(normalizePreferences({ launchAtStartup: true, closeBehavior: "quit", globalShortcutEnabled: false, globalShortcut: "Alt+Shift+S", uiTheme: "system", wallpaperGlassIntensity: 82, wallpaperGlassVariant: "light", searchProvider: "internal", sortRunningAppsFirst: false, showAppNames: true, everythingCliPath: "C:\\Tools\\ES.exe" })).toEqual({
       launchAtStartup: true,
       closeBehavior: "quit",
       globalShortcutEnabled: false,
       globalShortcut: "Alt+Shift+S",
       uiTheme: "system",
-      wallpaperGlassIntensity: "strong",
+      wallpaperGlassIntensity: 82,
       wallpaperGlassVariant: "light",
       runAsAdministrator: false,
       searchProvider: "internal",
       sortRunningAppsFirst: false,
       showAppNames: true,
+      uiLayout: defaultPreferences.uiLayout,
+      allAppsView: defaultPreferences.allAppsView,
       firstRunImportCompleted: false,
       everythingCliPath: "C:\\Tools\\ES.exe"
     });
@@ -53,12 +93,17 @@ describe("preferences", () => {
     expect(normalizePreferences({ uiTheme: "unknown" as "utility" }).uiTheme).toBe("utility");
   });
 
-  it("supports Wallpaper Glass intensity with a stable medium default", () => {
-    expect(normalizePreferences(undefined).wallpaperGlassIntensity).toBe("medium");
-    expect(normalizePreferences({ wallpaperGlassIntensity: "weak" }).wallpaperGlassIntensity).toBe("weak");
-    expect(normalizePreferences({ wallpaperGlassIntensity: "medium" }).wallpaperGlassIntensity).toBe("medium");
-    expect(normalizePreferences({ wallpaperGlassIntensity: "strong" }).wallpaperGlassIntensity).toBe("strong");
-    expect(normalizePreferences({ wallpaperGlassIntensity: "clear" as "medium" }).wallpaperGlassIntensity).toBe("medium");
+  it("supports Wallpaper Glass intensity as a 0-100 value with legacy migration", () => {
+    expect(normalizePreferences(undefined).wallpaperGlassIntensity).toBe(55);
+    expect(normalizePreferences({ wallpaperGlassIntensity: 0 }).wallpaperGlassIntensity).toBe(0);
+    expect(normalizePreferences({ wallpaperGlassIntensity: 100 }).wallpaperGlassIntensity).toBe(100);
+    expect(normalizePreferences({ wallpaperGlassIntensity: 72.6 }).wallpaperGlassIntensity).toBe(73);
+    expect(normalizePreferences({ wallpaperGlassIntensity: -10 }).wallpaperGlassIntensity).toBe(0);
+    expect(normalizePreferences({ wallpaperGlassIntensity: 130 }).wallpaperGlassIntensity).toBe(100);
+    expect(normalizePreferences({ wallpaperGlassIntensity: "weak" as unknown as number }).wallpaperGlassIntensity).toBe(25);
+    expect(normalizePreferences({ wallpaperGlassIntensity: "medium" as unknown as number }).wallpaperGlassIntensity).toBe(55);
+    expect(normalizePreferences({ wallpaperGlassIntensity: "strong" as unknown as number }).wallpaperGlassIntensity).toBe(85);
+    expect(normalizePreferences({ wallpaperGlassIntensity: Number.NaN }).wallpaperGlassIntensity).toBe(55);
   });
 
   it("supports Wallpaper Glass variants with a stable dark default", () => {

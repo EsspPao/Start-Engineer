@@ -24,6 +24,16 @@ describe("navigation", () => {
     expect(resolveLoadedSection("processes", groups)).toBe("processes");
   });
 
+  it("keeps the all apps aggregate page when it is the active section", () => {
+    const groups: AppGroup[] = [
+      { id: "processes", name: "进程", icon: "activity", isSystem: true, order: -1 },
+      { id: "games", name: "游戏", icon: "gamepad", isSystem: false, order: 0 },
+      { id: "settings", name: "设置", icon: "settings", isSystem: true, order: 999 },
+    ];
+
+    expect(resolveLoadedSection("all-apps", groups)).toBe("all-apps");
+  });
+
   it("falls back to the first app group when the active section no longer exists", () => {
     const groups: AppGroup[] = [
       { id: "processes", name: "进程", icon: "activity", isSystem: true, order: -1 },

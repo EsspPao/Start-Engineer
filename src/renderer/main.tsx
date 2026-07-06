@@ -1,15 +1,16 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { createRoot } from "react-dom/client";
-import type { AppEntry, AppGroup, AppMetrics, AppPreferencesState, AppWindowInfo, DiscoveredAppCandidate, EverythingSearchResult, FocusAppWindowResult, FocusWindowHints, GroupInput, InternalSearchResult, ProcessInfo, SearchDependencyStatus, SearchProvider, SectionId, StartEngineerApi, UiTheme, UpdateAppInput, UpdatePreferencesInput } from "../shared/types";
+import type { AppEntry, AppGroup, AppMetrics, AppPreferencesState, AppWindowInfo, DiscoveredAppCandidate, EverythingSearchResult, FocusAppWindowResult, FocusWindowHints, GroupInput, InstallableAppCandidate, InternalSearchResult, ProcessInfo, SearchDependencyStatus, SearchProvider, SectionId, StartEngineerApi, UiLayoutPreferences, UiTheme, UpdateAppInput, UpdatePreferencesInput, WallpaperGlassIntensity } from "../shared/types";
+import { defaultUiLayoutPreferences } from "../shared/ui-layout-share";
 import { GroupPage, ProcessPage } from "./pages";
 import { resolveAppKeyboardAction } from "./app-card-interaction";
 import { sortAppsForDisplay } from "./app-display";
 import { hitTestAppOrder, type AppDragRect } from "./app-drag-order";
 import { buildInternalSearchResults, matchesAppSearch, matchesProcessSearch } from "./search";
-import { SEARCH_RESULT_OPTION_ATTRIBUTE, scrollSelectedSearchResultIntoView } from "./search-panel-behavior";
+import { SEARCH_RESULT_OPTION_ATTRIBUTE, buildSearchableAppIdentityKey, scrollSelectedSearchResultIntoView } from "./search-panel-behavior";
 import { buildLaunchFeedbackMessage } from "./launch-feedback";
-import { firstAppGroupId, resolveLoadedSection } from "./navigation";
+import { ALL_APPS_SECTION_ID, firstAppGroupId, resolveLoadedSection } from "./navigation";
 import { shouldStartProcessPrewarm, STARTUP_DEFERRED_IMPORT_MS, STARTUP_DEFERRED_RUNTIME_MS, STARTUP_PROCESS_PREWARM_MS } from "./startup-schedule";
 import { shortcutFromKeyboardEvent, validateShortcut } from "../shared/global-shortcut";
 import { cleanErrorMessage } from "./error-message";
@@ -20,6 +21,7 @@ import { KeyboardShortcutPanel } from "./keyboard-shortcuts";
 import { pageFocusSelector, resolveSearchEscapeAction, resolveSectionAppFocusTarget, shouldFocusAddedApp } from "./search-focus";
 import { resolveSearchResultAction } from "./search-results-selection";
 import { droppedExePaths, dropNoticeForResult, targetDropGroupId } from "./dropped-files";
+import { allAppsSelection, appSectionApps, decorateAllAppsLaunchSelection, mergeAllAppsOrder, navigationSectionIds } from "./section-apps";
 import { groupSortPreviewPosition } from "./drag-preview-position";
 import { applyKillAppResult, killAppResultHasMetrics } from "./kill-app-result";
 import { applyRunningStatusToMetrics } from "./running-status";
@@ -64,6 +66,8 @@ const fallbackApi: StartEngineerApi = {
   discoverImportCandidates: async () => [],
   importDiscoveredApps: async () => [],
   searchAppCandidates: async () => [],
+  searchInstallableApps: async () => [],
+  openInstallableAppDownload: electronOnly,
   addDiscoveredCandidate: async () => ({ apps: [], added: false }),
   refreshDiscoveryIndex: async () => [],
   refreshAppIcons: async () => [],
@@ -99,8 +103,10 @@ const fallbackApi: StartEngineerApi = {
   openSearchDependencyFolder: electronOnly,
   openSearchResult: async () => electronOnly(),
   showSearchResultInFolder: async () => electronOnly(),
-  getPreferences: async () => ({ launchAtStartup: false, closeBehavior: "tray", globalShortcutEnabled: true, globalShortcut: "Ctrl+Shift+Space", uiTheme: "utility", wallpaperGlassIntensity: "medium", wallpaperGlassVariant: "dark", runAsAdministrator: false, searchProvider: "everything", sortRunningAppsFirst: true, showAppNames: false, firstRunImportCompleted: false, globalShortcutStatus: "registered", isRunningAsAdministrator: false, administratorStatusLoading: false, administratorRestartRequired: false }),
-  updatePreferences: async (input) => ({ launchAtStartup: input.launchAtStartup ?? false, closeBehavior: input.closeBehavior ?? "tray", globalShortcutEnabled: input.globalShortcutEnabled ?? true, globalShortcut: input.globalShortcut ?? "Ctrl+Shift+Space", uiTheme: input.uiTheme ?? "utility", wallpaperGlassIntensity: input.wallpaperGlassIntensity ?? "medium", wallpaperGlassVariant: input.wallpaperGlassVariant ?? "dark", runAsAdministrator: input.runAsAdministrator ?? false, searchProvider: input.searchProvider ?? "everything", sortRunningAppsFirst: input.sortRunningAppsFirst ?? true, showAppNames: input.showAppNames ?? false, firstRunImportCompleted: input.firstRunImportCompleted ?? false, everythingCliPath: input.everythingCliPath, globalShortcutStatus: "registered", isRunningAsAdministrator: false, administratorStatusLoading: false, administratorRestartRequired: Boolean(input.runAsAdministrator) }),
+  getPreferences: async () => ({ launchAtStartup: false, closeBehavior: "tray", globalShortcutEnabled: true, globalShortcut: "Ctrl+Shift+Space", uiTheme: "utility", wallpaperGlassIntensity: 55, wallpaperGlassVariant: "dark", runAsAdministrator: false, searchProvider: "everything", sortRunningAppsFirst: true, showAppNames: false, uiLayout: defaultUiLayoutPreferences, allAppsView: { orderedAppIds: [], launchSelectedAppIds: [] }, firstRunImportCompleted: false, globalShortcutStatus: "registered", isRunningAsAdministrator: false, administratorStatusLoading: false, administratorRestartRequired: false }),
+  updatePreferences: async (input) => ({ launchAtStartup: input.launchAtStartup ?? false, closeBehavior: input.closeBehavior ?? "tray", globalShortcutEnabled: input.globalShortcutEnabled ?? true, globalShortcut: input.globalShortcut ?? "Ctrl+Shift+Space", uiTheme: input.uiTheme ?? "utility", wallpaperGlassIntensity: input.wallpaperGlassIntensity ?? 55, wallpaperGlassVariant: input.wallpaperGlassVariant ?? "dark", runAsAdministrator: input.runAsAdministrator ?? false, searchProvider: input.searchProvider ?? "everything", sortRunningAppsFirst: input.sortRunningAppsFirst ?? true, showAppNames: input.showAppNames ?? false, uiLayout: input.uiLayout ?? defaultUiLayoutPreferences, allAppsView: input.allAppsView ?? { orderedAppIds: [], launchSelectedAppIds: [] }, firstRunImportCompleted: input.firstRunImportCompleted ?? false, everythingCliPath: input.everythingCliPath, globalShortcutStatus: "registered", isRunningAsAdministrator: false, administratorStatusLoading: false, administratorRestartRequired: Boolean(input.runAsAdministrator) }),
+  exportUiLayoutShareCode: async () => "",
+  importUiLayoutShareCode: electronOnly,
   restartWithConfiguredPrivileges: electronOnly,
   windowAction: async () => electronOnly()
 };
@@ -155,8 +161,9 @@ function App() {
   const [activeSection, setActiveSection] = useState<SectionId>(() => firstAppGroupId(fallbackGroups));
   const [selectedAppId, setSelectedAppId] = useState("");
   const [query, setQuery] = useState("");
-  const [preferences, setPreferences] = useState<AppPreferencesState>({ launchAtStartup: false, closeBehavior: "tray", globalShortcutEnabled: true, globalShortcut: "Ctrl+Shift+Space", uiTheme: "utility", wallpaperGlassIntensity: "medium", wallpaperGlassVariant: "dark", runAsAdministrator: false, searchProvider: "everything", sortRunningAppsFirst: true, showAppNames: false, firstRunImportCompleted: false, globalShortcutStatus: "registered", isRunningAsAdministrator: false, administratorStatusLoading: false, administratorRestartRequired: false });
+  const [preferences, setPreferences] = useState<AppPreferencesState>({ launchAtStartup: false, closeBehavior: "tray", globalShortcutEnabled: true, globalShortcut: "Ctrl+Shift+Space", uiTheme: "utility", wallpaperGlassIntensity: 55, wallpaperGlassVariant: "dark", runAsAdministrator: false, searchProvider: "everything", sortRunningAppsFirst: true, showAppNames: false, uiLayout: defaultUiLayoutPreferences, allAppsView: { orderedAppIds: [], launchSelectedAppIds: [] }, firstRunImportCompleted: false, globalShortcutStatus: "registered", isRunningAsAdministrator: false, administratorStatusLoading: false, administratorRestartRequired: false });
   const [discoveredResults, setDiscoveredResults] = useState<DiscoveredAppCandidate[]>([]);
+  const [installableResults, setInstallableResults] = useState<InstallableAppCandidate[]>([]);
   const [fileResults, setFileResults] = useState<EverythingSearchResult[]>([]);
   const [searchDependencyStatus, setSearchDependencyStatus] = useState<SearchDependencyStatus>({ state: "missing" });
   const [searchLoading, setSearchLoading] = useState(false);
@@ -214,7 +221,7 @@ function App() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = themeAttributes.theme;
-    document.documentElement.dataset.wallpaperIntensity = themeAttributes.wallpaperIntensity;
+    document.documentElement.dataset.wallpaperIntensity = String(themeAttributes.wallpaperIntensity);
     document.documentElement.dataset.wallpaperVariant = themeAttributes.wallpaperVariant;
     document.documentElement.style.colorScheme = themeAttributes.colorScheme;
     window.localStorage.setItem("start-engineer-ui-theme", preferences.uiTheme);
@@ -429,8 +436,12 @@ function App() {
     try {
       setError("");
       const next = await api().updatePreferences(input);
-      setPreferences(next);
-      return next;
+      if (input.wallpaperGlassIntensity === undefined) {
+        setPreferences(next);
+        return next;
+      }
+      setPreferences((current) => ({ ...next, wallpaperGlassIntensity: current.wallpaperGlassIntensity }));
+      return { ...next, wallpaperGlassIntensity: input.wallpaperGlassIntensity };
     } catch (reason) {
       setError(cleanErrorMessage(reason, "偏好设置保存失败"));
       throw reason;
@@ -496,12 +507,22 @@ function App() {
   const reorderAppsInGroup = useCallback(async (groupId: AppGroupId, orderedVisibleIds: string[]) => {
     if (orderedVisibleIds.length < 2) return;
     try {
+      if (groupId === ALL_APPS_SECTION_ID) {
+        const allAppsView = {
+          ...preferences.allAppsView,
+          orderedAppIds: mergeAllAppsOrder(preferences.allAppsView.orderedAppIds, orderedVisibleIds, apps.map((app) => app.id))
+        };
+        const next = await api().updatePreferences({ allAppsView });
+        setPreferences(next);
+        closeMenu();
+        return;
+      }
       setApps(await api().reorderAppsInGroup(groupId, orderedVisibleIds));
       closeMenu();
     } catch (reason) {
       setError(cleanErrorMessage(reason, "应用排序失败"));
     }
-  }, [closeMenu]);
+  }, [apps, closeMenu, preferences.allAppsView]);
   const moveAppWithinSettings = useCallback(async (appId: string, targetGroup: AppGroupId) => {
     const current = apps.find((item) => item.id === appId);
     if (!current || current.groupId === targetGroup) return;
@@ -531,7 +552,7 @@ function App() {
         const rect = card.getBoundingClientRect();
         return { id: card.dataset.appCardId ?? "", left: rect.left, top: rect.top, width: rect.width, height: rect.height };
       }).filter((rect) => Boolean(rect.id));
-      const canSortInCurrentGroup = !targetGroup && app?.groupId === activeSection && cardIds.includes(candidate.appId);
+      const canSortInCurrentGroup = !targetGroup && (activeSection === ALL_APPS_SECTION_ID || app?.groupId === activeSection) && cardIds.includes(candidate.appId);
       const previewOrder = canSortInCurrentGroup ? hitTestAppOrder(cardIds, cardRects, candidate.appId, event.clientX, event.clientY) : undefined;
       setDrag({
         appId: candidate.appId,
@@ -542,7 +563,7 @@ function App() {
         width: candidate.width,
         height: candidate.height,
         targetGroup: targetGroup && app?.groupId !== targetGroup ? targetGroup : undefined,
-        reorderGroupId: previewOrder ? candidate.sourceGroupId : undefined,
+        reorderGroupId: previewOrder ? activeSection : undefined,
         previewOrder
       });
     };
@@ -585,7 +606,12 @@ function App() {
   }, [activeSection, apps, closeMenu, drag, moveAppToGroup, reorderAppsInGroup]);
 
   const pageQuery = "";
-  const activeGroupApps = useMemo(() => runtimeApps.filter((item) => item.groupId === activeSection), [activeSection, runtimeApps]);
+  const isAllAppsSection = activeSection === ALL_APPS_SECTION_ID;
+  const isAppSection = isAllAppsSection || appGroups.some((group) => group.id === activeSection);
+  const activeGroupApps = useMemo(() => {
+    const sectionApps = appSectionApps(activeSection, runtimeApps, preferences.allAppsView.orderedAppIds);
+    return isAllAppsSection ? decorateAllAppsLaunchSelection(sectionApps, preferences.allAppsView.launchSelectedAppIds) : sectionApps;
+  }, [activeSection, isAllAppsSection, preferences.allAppsView.launchSelectedAppIds, preferences.allAppsView.orderedAppIds, runtimeApps]);
   const visibleApps = useMemo(() => sortAppsForDisplay(
     activeGroupApps.filter((item) => matchesAppSearch(item, pageQuery)),
     preferences.sortRunningAppsFirst
@@ -628,7 +654,8 @@ function App() {
     return [...ordered, ...byName.values()];
   }, [lockedProcessName, lockedProcessOrder, menu, processFilter, processes, pageQuery, sortDirection, sortKey]);
   const managedSearchResults = useMemo(() => buildInternalSearchResults(query, runtimeApps, processes).filter((result): result is Extract<InternalSearchResult, { kind: "app" }> => result.kind === "app"), [processes, query, runtimeApps]);
-  const appSearchResultCount = managedSearchResults.length + discoveredResults.length;
+  const searchableAppIdentityKey = useMemo(() => buildSearchableAppIdentityKey(runtimeApps), [runtimeApps]);
+  const appSearchResultCount = managedSearchResults.length + discoveredResults.length + installableResults.length;
   const searchResultCount = appSearchResultCount || searchLoading ? appSearchResultCount : fileResults.length;
 
   useEffect(() => {
@@ -636,6 +663,7 @@ function App() {
     setSearchSelectedIndex(0);
     if (!trimmed) {
       setDiscoveredResults([]);
+      setInstallableResults([]);
       setFileResults([]);
       setSearchLoading(false);
       setSearchError("");
@@ -646,11 +674,12 @@ function App() {
     setSearchError("");
     const requestId = ++searchRequest.current;
     const timer = window.setTimeout(() => {
-      void api().searchAppCandidates(trimmed).then((results) => {
+      void Promise.all([api().searchAppCandidates(trimmed), api().searchInstallableApps(trimmed)]).then(([results, installable]) => {
         if (searchRequest.current !== requestId) return;
         setDiscoveredResults(results);
-        const hasManagedResults = buildInternalSearchResults(trimmed, runtimeApps, processes).some((result) => result.kind === "app");
-        if (results.length || hasManagedResults) {
+        setInstallableResults(installable);
+        const hasManagedResults = buildInternalSearchResults(trimmed, runtimeApps, []).some((result) => result.kind === "app");
+        if (results.length || installable.length || hasManagedResults) {
           setFileResults([]);
           setSearchLoading(false);
           return;
@@ -668,31 +697,42 @@ function App() {
       }).catch((reason) => {
         if (searchRequest.current !== requestId) return;
         setDiscoveredResults([]);
+        setInstallableResults([]);
         setFileResults([]);
         setSearchLoading(false);
         setSearchError(cleanErrorMessage(reason, "搜索本机应用失败"));
       });
     }, 150);
     return () => window.clearTimeout(timer);
-  }, [processes, query, runtimeApps]);
+  }, [query, searchableAppIdentityKey]);
 
   useEffect(() => {
     if (query.trim()) setSearchPanelOpen(true);
   }, [query]);
 
   useEffect(() => {
-    if (!appGroups.some((group) => group.id === activeSection)) return;
+    if (!isAppSection) return;
     if (!visibleApps.some((app) => app.id === selectedAppId)) setSelectedAppId(visibleApps[0]?.id ?? "");
-  }, [activeSection, appGroups, selectedAppId, visibleApps]);
+  }, [isAppSection, selectedAppId, visibleApps]);
   const draggedApp = runtimeApps.find((item) => item.id === drag?.appId);
   const activeGroup = groups.find((group) => group.id === activeSection);
-  const pageTitle = activeSection === "processes" ? "进程监控" : activeSection === "settings" ? "偏好设置" : activeGroup?.name ?? "应用";
-  const pageSubtitle = activeSection === "processes" ? `${visibleProcesses.length} 个进程正在显示` : activeSection === "settings" ? "管理应用分组与启动配置" : `${visibleApps.length} 个应用`;
+  const pageTitle = activeSection === "processes" ? "进程监控" : isAllAppsSection ? "已添加应用" : activeSection === "settings" ? "偏好设置" : activeGroup?.name ?? "应用";
+  const pageSubtitle = activeSection === "processes"
+    ? `${visibleProcesses.length} 个进程正在显示`
+    : isAllAppsSection
+      ? `${visibleApps.length} 个应用 / ${activeGroupApps.filter((app) => app.metrics.isRunning).length} 个运行中`
+      : activeSection === "settings"
+        ? "管理应用分组与启动配置"
+        : `${visibleApps.length} 个应用`;
   const openInternalResult = useCallback((result: Extract<InternalSearchResult, { kind: "app" }>) => {
     setSearchPanelOpen(false);
     setActiveSection(result.groupId);
     setSelectedAppId(result.id);
     setQuery("");
+  }, []);
+
+  const previewWallpaperGlassIntensity = useCallback((wallpaperGlassIntensity: WallpaperGlassIntensity) => {
+    setPreferences((current) => ({ ...current, wallpaperGlassIntensity }));
   }, []);
   const pickEverythingCli = useCallback(() => {
     void api().pickEverythingCli().then(setPreferences).catch((reason) => setError(cleanErrorMessage(reason, "选择 ES.exe 失败")));
@@ -722,7 +762,7 @@ function App() {
   }, [closeMenu]);
   const restoreFocusAfterSearch = useCallback(() => {
     let focusAppId = selectedAppId;
-    if (appGroups.some((group) => group.id === activeSection) && !focusAppId) {
+    if (isAppSection && !focusAppId) {
       focusAppId = displayedApps[0]?.id ?? "";
       if (focusAppId) setSelectedAppId(focusAppId);
     }
@@ -730,7 +770,7 @@ function App() {
     window.requestAnimationFrame(() => {
       document.querySelector<HTMLElement>(selector)?.focus({ preventScroll: true });
     });
-  }, [activeSection, appGroups, displayedApps, selectedAppId]);
+  }, [activeSection, displayedApps, isAppSection, selectedAppId]);
   const focusSelectorAfterRender = useCallback((selector: string) => {
     window.requestAnimationFrame(() => {
       document.querySelector<HTMLElement>(selector)?.focus({ preventScroll: true });
@@ -748,8 +788,9 @@ function App() {
     setActiveSection(id);
     setQuery("");
     closeFloatingUi();
-    if (appGroups.some((group) => group.id === id)) {
-      const visibleAppIds = sortAppsForDisplay(runtimeApps.filter((item) => item.groupId === id), preferences.sortRunningAppsFirst).map((app) => app.id);
+    if (id === ALL_APPS_SECTION_ID || appGroups.some((group) => group.id === id)) {
+      const sectionApps = appSectionApps(id, runtimeApps, preferences.allAppsView.orderedAppIds);
+      const visibleAppIds = sortAppsForDisplay(sectionApps, preferences.sortRunningAppsFirst).map((app) => app.id);
       const focusTarget = resolveSectionAppFocusTarget(id, visibleAppIds);
       setSelectedAppId(focusTarget.selectedAppId);
       focusSelectorAfterRender(focusTarget.selector);
@@ -877,7 +918,9 @@ function App() {
   };
   const targetSearchGroupId = () => appGroups.some((group) => group.id === activeSection)
     ? activeSection
-    : runtimeApps.find((app) => app.id === selectedAppId)?.groupId ?? appGroups[0]?.id ?? "";
+    : activeSection === ALL_APPS_SECTION_ID
+      ? appGroups[0]?.id ?? ""
+      : runtimeApps.find((app) => app.id === selectedAppId)?.groupId ?? appGroups[0]?.id ?? "";
   const addDiscoveredApp = useCallback(async (candidate: DiscoveredAppCandidate, launchAfterAdd = false) => {
     if (candidate.alreadyAdded && candidate.existingAppId) {
       const existing = runtimeApps.find((app) => app.id === candidate.existingAppId);
@@ -930,19 +973,36 @@ function App() {
     setSearchPanelOpen(false);
     void api().openSearchResult(result.path).catch((reason) => setError(cleanErrorMessage(reason, "打开搜索结果失败")));
   }, []);
+  const openInstallableSearchResult = useCallback((result: InstallableAppCandidate) => {
+    setSearchPanelOpen(false);
+    setQuery("");
+    setNotice(`已打开 ${result.name} 下载页`);
+    void api().openInstallableAppDownload(result.id).catch((reason) => setError(cleanErrorMessage(reason, "打开下载页失败")));
+  }, []);
   const openSelectedSearchResult = useCallback((launchAfterAdd = false) => {
     if (!query.trim()) return;
-    const action = resolveSearchResultAction({ managedCount: managedSearchResults.length, discoveredCount: discoveredResults.length, fileCount: fileResults.length, selectedIndex: searchSelectedIndex });
-    if (action.kind === "managed") {
-      runManagedSearchResult(managedSearchResults[action.index]);
-    } else if (action.kind === "discovered") {
-      const discovered = discoveredResults[action.index];
+    if (searchSelectedIndex < managedSearchResults.length) {
+      runManagedSearchResult(managedSearchResults[searchSelectedIndex]);
+      return;
+    }
+    const discoveredIndex = searchSelectedIndex - managedSearchResults.length;
+    if (discoveredIndex >= 0 && discoveredIndex < discoveredResults.length) {
+      const discovered = discoveredResults[discoveredIndex];
       if (discovered) void addDiscoveredApp(discovered, launchAfterAdd);
-    } else if (action.kind === "open-file") {
+      return;
+    }
+    const installableIndex = discoveredIndex - discoveredResults.length;
+    if (installableIndex >= 0 && installableIndex < installableResults.length) {
+      const installable = installableResults[installableIndex];
+      if (installable) openInstallableSearchResult(installable);
+      return;
+    }
+    const action = resolveSearchResultAction({ managedCount: 0, discoveredCount: 0, fileCount: fileResults.length, selectedIndex: searchSelectedIndex });
+    if (action.kind === "open-file") {
       const file = fileResults[action.index];
       if (file) openFileSearchResult(file);
     }
-  }, [addDiscoveredApp, discoveredResults, fileResults, managedSearchResults, openFileSearchResult, query, runManagedSearchResult, searchSelectedIndex]);
+  }, [addDiscoveredApp, discoveredResults, fileResults, installableResults, managedSearchResults, openFileSearchResult, openInstallableSearchResult, query, runManagedSearchResult, searchSelectedIndex]);
   const handleAppSelection = (app: RuntimeApp) => {
     setSelectedAppId(app.id);
   };
@@ -952,12 +1012,27 @@ function App() {
   const toggleAppLaunchSelected = async (app: RuntimeApp) => {
     try {
       setError("");
+      if (isAllAppsSection) {
+        const allAppsView = {
+          ...preferences.allAppsView,
+          launchSelectedAppIds: allAppsSelection(preferences.allAppsView.launchSelectedAppIds, app.id, !app.launchSelected)
+        };
+        setPreferences(await api().updatePreferences({ allAppsView }));
+        return;
+      }
       setApps(await api().setAppLaunchSelected(app.id, !app.launchSelected));
     } catch (reason) {
       setError(cleanErrorMessage(reason, "勾选状态保存失败"));
     }
   };
   const launchSelectedApps = async () => {
+    if (isAllAppsSection) {
+      const selectedIds = new Set(preferences.allAppsView.launchSelectedAppIds);
+      const selected = activeGroupApps.filter((app) => selectedIds.has(app.id));
+      if (!selected.length) return;
+      for (const app of selected) await launchApp(app.id);
+      return;
+    }
     if (!activeGroup || activeGroup.isSystem) return;
     try {
       setError("");
@@ -983,6 +1058,33 @@ function App() {
     }
   };
   const requestCloseGroupApps = async () => {
+    if (isAllAppsSection) {
+      try {
+        setError("");
+        const snapshot = await api().getRuntimeSnapshot("managed", true);
+        setApps(snapshot.apps);
+        setMetrics(snapshot.metrics);
+        const runningIds = new Set(snapshot.metrics.filter((metric) => metric.isRunning).map((metric) => metric.appId));
+        const runningApps = snapshot.apps.filter((app) => runningIds.has(app.id));
+        if (!runningApps.length) {
+          setNotice("没有运行中的已添加应用");
+          return;
+        }
+        setConfirm({
+          title: "关闭全部已添加应用",
+          message: `将结束 ${runningApps.length} 个应用：${runningApps.map((app) => app.name).join("、")}。是否继续？`,
+          confirmLabel: "关闭全部",
+          onConfirm: async () => {
+            for (const app of runningApps) await api().killApp(app.id);
+            await refreshRuntimeData("managed", true);
+            setNotice(`已关闭 ${runningApps.length} 个应用`);
+          }
+        });
+      } catch (reason) {
+        setError(cleanErrorMessage(reason, "读取运行状态失败"));
+      }
+      return;
+    }
     if (!activeGroup || activeGroup.isSystem) return;
     try {
       setError("");
@@ -1112,7 +1214,7 @@ function App() {
       };
     }).filter((item) => item.id);
     const switchRelativeGroup = (direction: "previous" | "next") => {
-      const groupIds = ["processes", ...appGroups.map((group) => group.id), "settings"];
+      const groupIds = navigationSectionIds(appGroups);
       const nextGroup = pickRelativeGroup(groupIds, activeSection, direction);
       if (nextGroup && nextGroup !== activeSection) switchSection(nextGroup);
     };
@@ -1133,7 +1235,7 @@ function App() {
           setSearchPanelOpen(false);
           return;
         }
-        if (activeSection !== "processes" && activeSection !== "settings" && selectedAppId) {
+        if (isAppSection && selectedAppId) {
           event.preventDefault();
           setSelectedAppId("");
         }
@@ -1156,7 +1258,7 @@ function App() {
         event.preventDefault();
         return;
       }
-      if (activeSection === "processes" || activeSection === "settings" || hasModal || menu || isTextInputTarget(event.target) || !isAppKeyboardScope(event.target)) return;
+      if (!isAppSection || hasModal || menu || isTextInputTarget(event.target) || !isAppKeyboardScope(event.target)) return;
 
       const direction = navigationDirectionFromKey(event.key);
       if (direction) {
@@ -1202,16 +1304,19 @@ function App() {
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("start-engineer:group-navigation", onNativeGroupNavigation);
     };
-  }, [activeSection, appGroups, closeMenu, confirm, displayedApps, edit, groupDelete, groupEdit, importCandidates.length, menu, query, runKeyboardAppAction, searchPanelOpen, selectedAppId]);
+  }, [activeSection, appGroups, closeMenu, confirm, displayedApps, edit, groupDelete, groupEdit, importCandidates.length, isAppSection, menu, query, runKeyboardAppAction, searchPanelOpen, selectedAppId]);
 
   return (
-    <main className={`app-shell drag-region ${fileDropActive ? "file-drop-active" : ""}`} data-theme={themeAttributes.theme} data-wallpaper-intensity={themeAttributes.wallpaperIntensity} data-wallpaper-variant={themeAttributes.wallpaperVariant} onPointerDown={closeFloatingUi} onDragEnter={handleFileDragEnter} onDragOver={handleFileDragOver} onDragLeave={handleFileDragLeave} onDrop={handleFileDrop}>
+    <main className={`app-shell drag-region ${fileDropActive ? "file-drop-active" : ""}`} style={themeAttributes.wallpaperStyle as React.CSSProperties} data-theme={themeAttributes.theme} data-wallpaper-intensity={themeAttributes.wallpaperIntensity} data-wallpaper-variant={themeAttributes.wallpaperVariant} data-ui-card-size={preferences.uiLayout.cardSize} data-ui-grid-density={preferences.uiLayout.gridDensity} data-ui-sidebar-width={preferences.uiLayout.sidebarWidth} data-ui-brand-icon-size={preferences.uiLayout.brandIconSize} data-ui-background-tone={preferences.uiLayout.backgroundTone} data-ui-show-running-status={preferences.uiLayout.showRunningStatus ? "true" : "false"} data-ui-show-search-bar={preferences.uiLayout.showSearchBar ? "true" : "false"} data-ui-show-batch-actions={preferences.uiLayout.showBatchActions ? "true" : "false"} onPointerDown={closeFloatingUi} onDragEnter={handleFileDragEnter} onDragOver={handleFileDragOver} onDragLeave={handleFileDragLeave} onDrop={handleFileDrop}>
       <aside className="sidebar no-drag">
         <div className="brand-icon" aria-hidden="true"><BrandLogo /></div>
         <nav className="nav">
           {groups.filter((group) => group.id === "processes").map((group) => <button key={group.id} className={`nav-button ${activeSection === group.id ? "active" : ""}`} onClick={() => switchSection(group.id)}>
             <Icon name={group.icon} /><span>{group.name}</span>
           </button>)}
+          <button className={`nav-button ${activeSection === ALL_APPS_SECTION_ID ? "active" : ""}`} onClick={() => switchSection(ALL_APPS_SECTION_ID)}>
+            <Icon name="grid" /><span>已添加应用</span>
+          </button>
           <div className="nav-divider" aria-hidden="true" />
           {groups.filter((group) => !group.isSystem).map((group) => {
             const acceptsDrop = !group.isSystem;
@@ -1227,7 +1332,7 @@ function App() {
       <section className="window">
         <header className="topbar">
           <div className="page-heading"><span>{pageSubtitle}</span><h1>{pageTitle}</h1></div>
-          <section className="searchbar no-drag" onPointerDown={(event) => event.stopPropagation()}><label><Icon name="search" /><input ref={searchInputRef} value={query} onFocus={() => { closeMenu(); if (query.trim()) setSearchPanelOpen(true); }} onKeyDown={(event) => { if (event.key === "ArrowDown") { event.preventDefault(); setSearchPanelOpen(Boolean(query.trim())); setSearchSelectedIndex((index) => Math.min(index + 1, Math.max(0, searchResultCount - 1))); } else if (event.key === "ArrowUp") { event.preventDefault(); setSearchPanelOpen(Boolean(query.trim())); setSearchSelectedIndex((index) => Math.max(0, index - 1)); } else if (event.key === "Enter") { event.preventDefault(); openSelectedSearchResult(event.ctrlKey || event.metaKey); } else if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); const action = resolveSearchEscapeAction(true, query); if (action === "clear-query") { setQuery(""); setDiscoveredResults([]); setFileResults([]); setSearchSelectedIndex(0); setSearchPanelOpen(false); } else { event.currentTarget.blur(); setSearchPanelOpen(false); restoreFocusAfterSearch(); } } }} onChange={(event) => setQuery(event.target.value)} placeholder={SEARCH_INPUT_PLACEHOLDER} /></label><button className={`search-button ${query ? "clear" : ""}`} onClick={() => { closeMenu(); if (query) { setQuery(""); setFileResults([]); setSearchPanelOpen(false); } else searchInputRef.current?.focus(); }} aria-label={query ? "清除搜索" : "聚焦搜索框"}>{query ? "×" : <Icon name="search" />}</button>{searchPanelOpen && query.trim() ? <SearchResultsPanel query={query} loading={searchLoading} error={searchError} selectedIndex={searchSelectedIndex} managedResults={managedSearchResults} discoveredResults={discoveredResults} fileResults={fileResults} onSelectIndex={setSearchSelectedIndex} onOpenManaged={runManagedSearchResult} onAddDiscovered={(candidate) => void addDiscoveredApp(candidate)} onOpenFile={openFileSearchResult} /> : null}</section>
+          <section className="searchbar no-drag" onPointerDown={(event) => event.stopPropagation()}><label><Icon name="search" /><input ref={searchInputRef} value={query} onFocus={() => { closeMenu(); if (query.trim()) setSearchPanelOpen(true); }} onKeyDown={(event) => { if (event.key === "ArrowDown") { event.preventDefault(); setSearchPanelOpen(Boolean(query.trim())); setSearchSelectedIndex((index) => Math.min(index + 1, Math.max(0, searchResultCount - 1))); } else if (event.key === "ArrowUp") { event.preventDefault(); setSearchPanelOpen(Boolean(query.trim())); setSearchSelectedIndex((index) => Math.max(0, index - 1)); } else if (event.key === "Enter") { event.preventDefault(); openSelectedSearchResult(event.ctrlKey || event.metaKey); } else if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); const action = resolveSearchEscapeAction(true, query); if (action === "clear-query") { setQuery(""); setDiscoveredResults([]); setInstallableResults([]); setFileResults([]); setSearchSelectedIndex(0); setSearchPanelOpen(false); } else { event.currentTarget.blur(); setSearchPanelOpen(false); restoreFocusAfterSearch(); } } }} onChange={(event) => setQuery(event.target.value)} placeholder={SEARCH_INPUT_PLACEHOLDER} /></label><button className={`search-button ${query ? "clear" : ""}`} onClick={() => { closeMenu(); if (query) { setQuery(""); setInstallableResults([]); setFileResults([]); setSearchPanelOpen(false); } else searchInputRef.current?.focus(); }} aria-label={query ? "清除搜索" : "聚焦搜索框"}>{query ? "×" : <Icon name="search" />}</button>{searchPanelOpen && query.trim() ? <SearchResultsPanel query={query} loading={searchLoading} error={searchError} selectedIndex={searchSelectedIndex} managedResults={managedSearchResults} discoveredResults={discoveredResults} installableResults={installableResults} fileResults={fileResults} onSelectIndex={setSearchSelectedIndex} onOpenManaged={runManagedSearchResult} onAddDiscovered={(candidate) => void addDiscoveredApp(candidate)} onOpenInstallable={openInstallableSearchResult} onOpenFile={openFileSearchResult} /> : null}</section>
           <div className="window-controls no-drag">
             <button title="最小化" aria-label="最小化" onClick={() => void api().windowAction("minimize")}>−</button>
             <button title="最大化或还原" aria-label="最大化或还原" onClick={() => void api().windowAction("maximize")}>□</button>
@@ -1236,8 +1341,8 @@ function App() {
         </header>
 
         {activeSection === "processes" ? <ProcessPage processes={visibleProcesses} loading={processesLoading} lockedProcessName={lockedProcessName} sortKey={sortKey} sortDirection={sortDirection} changeSort={changeSort} filter={processFilter} setFilter={changeProcessFilter} onContextMenu={openProcessMenu} />
-          : activeSection === "settings" ? <SettingsPage apps={runtimeApps} groups={appGroups} preferences={preferences} onPreferencesChange={savePreferences} onThemeChange={saveTheme} onPickEverythingCli={pickEverythingCli} onAdd={addApp} onAddToGroup={(groupId) => void runAppAction(() => api().addAppFromDialog(groupId))} onCreate={() => setGroupEdit({ name: "", icon: "grid" })} onEdit={(group) => setGroupEdit({ id: group.id, name: group.name, icon: group.icon })} onDelete={requestDeleteGroup} onReorder={reorderGroups} onOpenApp={(app) => { setActiveSection(app.groupId); setSelectedAppId(app.id); }} onAppContextMenu={(event, app) => { event.preventDefault(); event.stopPropagation(); openMenu({ kind: "app", x: event.clientX, y: event.clientY, appId: app.id }); }} onMoveApp={moveAppWithinSettings} />
-          : <GroupPage apps={displayedApps} launchingAppIds={launchingAppIds} selectedAppId={selectedAppId} invalidAppIds={invalidAppIds} draggingAppId={drag?.appId} selectedCount={activeGroupApps.filter((app) => app.launchSelected).length} runningCount={activeGroupApps.filter((app) => app.metrics.isRunning).length} showAppNames={preferences.showAppNames} onSelectApp={handleAppSelection} onFocusApp={(app) => void focusAppWindow(app)} onLaunchApp={(app) => void launchApp(app.id)} onLaunchingFeedback={handleLaunchingFeedback} onToggleLaunchSelected={toggleAppLaunchSelected} onLaunchSelected={() => void launchSelectedApps()} onCloseAll={() => void requestCloseGroupApps()} onAdd={addApp} onContextMenu={(event, app) => { event.preventDefault(); event.stopPropagation(); if (!drag) openMenu({ kind: "app", x: event.clientX, y: event.clientY, appId: app.id }); }} onPointerDown={(event, app) => { if (event.button !== 0) return; const rect = event.currentTarget.getBoundingClientRect(); dragCandidate.current = { appId: app.id, sourceGroupId: app.groupId, startX: event.clientX, startY: event.clientY, grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top, width: rect.width, height: rect.height, initialOrder: displayedApps.map((item) => item.id) }; }} onRequestClose={requestCloseApp} />}
+          : activeSection === "settings" ? <SettingsPage apps={runtimeApps} groups={appGroups} preferences={preferences} onPreferencesChange={savePreferences} onWallpaperIntensityPreview={previewWallpaperGlassIntensity} onThemeChange={saveTheme} onPickEverythingCli={pickEverythingCli} onAdd={addApp} onAddToGroup={(groupId) => void runAppAction(() => api().addAppFromDialog(groupId))} onCreate={() => setGroupEdit({ name: "", icon: "grid" })} onEdit={(group) => setGroupEdit({ id: group.id, name: group.name, icon: group.icon })} onDelete={requestDeleteGroup} onReorder={reorderGroups} onOpenApp={(app) => { setActiveSection(app.groupId); setSelectedAppId(app.id); }} onAppContextMenu={(event, app) => { event.preventDefault(); event.stopPropagation(); openMenu({ kind: "app", x: event.clientX, y: event.clientY, appId: app.id }); }} onMoveApp={moveAppWithinSettings} />
+          : <GroupPage apps={displayedApps} launchingAppIds={launchingAppIds} selectedAppId={selectedAppId} invalidAppIds={invalidAppIds} draggingAppId={drag?.appId} selectedCount={activeGroupApps.filter((app) => app.launchSelected).length} runningCount={activeGroupApps.filter((app) => app.metrics.isRunning).length} showAppNames={preferences.uiLayout.showAppNames} onSelectApp={handleAppSelection} onFocusApp={(app) => void focusAppWindow(app)} onLaunchApp={(app) => void launchApp(app.id)} onLaunchingFeedback={handleLaunchingFeedback} onToggleLaunchSelected={toggleAppLaunchSelected} onLaunchSelected={() => void launchSelectedApps()} onCloseAll={() => void requestCloseGroupApps()} onAdd={addApp} onContextMenu={(event, app) => { event.preventDefault(); event.stopPropagation(); if (!drag) openMenu({ kind: "app", x: event.clientX, y: event.clientY, appId: app.id }); }} onPointerDown={(event, app) => { if (event.button !== 0) return; const rect = event.currentTarget.getBoundingClientRect(); dragCandidate.current = { appId: app.id, sourceGroupId: app.groupId, startX: event.clientX, startY: event.clientY, grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top, width: rect.width, height: rect.height, initialOrder: displayedApps.map((item) => item.id) }; }} onRequestClose={requestCloseApp} />}
         {notice || error ? <ToastStack notice={notice} error={error} onDismissNotice={() => setNotice("")} onDismissError={() => setError("")} /> : null}
       </section>
 
@@ -1369,8 +1474,8 @@ function ConfirmDialog({ state, onClose, onError }: { state: NonNullable<Confirm
   const confirm = async () => { setBusy(true); try { await state.onConfirm(); onClose(); } catch (reason) { onError(reason instanceof Error ? reason.message : "操作失败"); setBusy(false); } };
   return <div className="modal-backdrop no-drag" onPointerDown={onClose}><div className="dialog" onPointerDown={(event) => event.stopPropagation()}><h2>{state.title}</h2><p>{state.message}</p><div className="dialog-actions"><button className="ghost" onClick={onClose} disabled={busy}>取消</button><button className="danger-button" onClick={() => void confirm()} disabled={busy}>{busy ? "处理中..." : state.confirmLabel}</button></div></div></div>;
 }
-export function SearchResultsPanel({ query, loading, error, selectedIndex, managedResults, discoveredResults, fileResults, onSelectIndex, onOpenManaged, onAddDiscovered, onOpenFile }: { query: string; loading: boolean; error: string; selectedIndex: number; managedResults: Array<Extract<InternalSearchResult, { kind: "app" }>>; discoveredResults: DiscoveredAppCandidate[]; fileResults: EverythingSearchResult[]; onSelectIndex: (index: number) => void; onOpenManaged: (result: Extract<InternalSearchResult, { kind: "app" }>) => void; onAddDiscovered: (candidate: DiscoveredAppCandidate) => void; onOpenFile: (result: EverythingSearchResult) => void }) {
-  const appResultCount = managedResults.length + discoveredResults.length;
+export function SearchResultsPanel({ query, loading, error, selectedIndex, managedResults, discoveredResults, installableResults, fileResults, onSelectIndex, onOpenManaged, onAddDiscovered, onOpenInstallable, onOpenFile }: { query: string; loading: boolean; error: string; selectedIndex: number; managedResults: Array<Extract<InternalSearchResult, { kind: "app" }>>; discoveredResults: DiscoveredAppCandidate[]; installableResults: InstallableAppCandidate[]; fileResults: EverythingSearchResult[]; onSelectIndex: (index: number) => void; onOpenManaged: (result: Extract<InternalSearchResult, { kind: "app" }>) => void; onAddDiscovered: (candidate: DiscoveredAppCandidate) => void; onOpenInstallable: (candidate: InstallableAppCandidate) => void; onOpenFile: (result: EverythingSearchResult) => void }) {
+  const appResultCount = managedResults.length + discoveredResults.length + installableResults.length;
   const showFileFallback = !appResultCount && Boolean(fileResults.length);
   const resultCount = appResultCount || fileResults.length;
   const panelRef = useRef<HTMLDivElement>(null);
@@ -1386,6 +1491,10 @@ export function SearchResultsPanel({ query, loading, error, selectedIndex, manag
       const index = managedResults.length + offset;
       return <button key={`discovered-${result.id}`} className={`search-result-row internal ${index === selectedIndex ? "selected" : ""}`} role="option" aria-selected={index === selectedIndex} {...{ [SEARCH_RESULT_OPTION_ATTRIBUTE]: index }} onMouseEnter={() => onSelectIndex(index)} onClick={() => onAddDiscovered(result)}><Icon name="grid" /><span><strong>{result.name}</strong><small>{result.source === "start-menu" ? "开始菜单" : result.source === "desktop" ? "桌面快捷方式" : "本机结果"}</small></span><em className={`search-result-status ${result.alreadyAdded ? "added" : "add"}`} title={result.alreadyAdded ? "已添加" : "添加到当前分组"}>{result.alreadyAdded ? "✓" : "+"}</em></button>;
     })}</div> : null}
+    {!error && installableResults.length ? <div className="search-results-section"><div className="search-results-title compact"><span>可安装应用</span><small>Enter 打开下载页</small></div>{installableResults.map((result, offset) => {
+      const index = managedResults.length + discoveredResults.length + offset;
+      return <button key={`installable-${result.id}`} className={`search-result-row internal ${index === selectedIndex ? "selected" : ""}`} role="option" aria-selected={index === selectedIndex} {...{ [SEARCH_RESULT_OPTION_ATTRIBUTE]: index }} onMouseEnter={() => onSelectIndex(index)} onClick={() => onOpenInstallable(result)}><Icon name="search" /><span><strong>{result.name}</strong><small>{result.publisher} · 官方下载页</small></span><em className="search-result-status open" title="打开官方下载页">打开</em></button>;
+    })}</div> : null}
     {!error && showFileFallback ? <div className="search-results-section"><div className="search-results-title compact"><span>Everything 搜索结果</span><small>Enter 打开</small></div>{fileResults.map((result, index) => <button key={`file-${result.path}`} className={`search-result-row file ${index === selectedIndex ? "selected" : ""}`} role="option" aria-selected={index === selectedIndex} {...{ [SEARCH_RESULT_OPTION_ATTRIBUTE]: index }} onMouseEnter={() => onSelectIndex(index)} onClick={() => onOpenFile(result)}><Icon name="search" /><span><strong>{result.name}</strong><small>{result.path}</small></span><em className="search-result-status open" title="打开">打开</em></button>)}</div> : null}
   </div>;
 }
@@ -1397,13 +1506,13 @@ function AppEditDialog({ state, onClose, onSave }: { state: EditState; onClose: 
   const save = async () => { if (!form.name.trim()) return; setBusy(true); await onSave({ id: form.id, name: form.name.trim(), launchArgs: form.launchArgs.trim() || undefined, workingDirectory: form.workingDirectory.trim() || undefined }); onClose(); };
   return <div className="modal-backdrop no-drag" onPointerDown={onClose}><form className="dialog edit-dialog" onSubmit={(event) => { event.preventDefault(); void save(); }} onPointerDown={(event) => event.stopPropagation()}><h2>编辑应用信息</h2><label>名称<input autoFocus value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label><label>启动参数<input value={form.launchArgs} onChange={(event) => setForm({ ...form, launchArgs: event.target.value })} placeholder="例如：--silent" /></label><label>工作目录<input value={form.workingDirectory} onChange={(event) => setForm({ ...form, workingDirectory: event.target.value })} placeholder="留空则使用程序所在目录" /></label><div className="dialog-actions"><button type="button" className="ghost" onClick={onClose}>取消</button><button type="submit" className="launch" disabled={busy || !form.name.trim()}>保存</button></div></form></div>;
 }
-function SettingsPage({ apps, groups, preferences, onPreferencesChange, onThemeChange, onPickEverythingCli, onAdd, onAddToGroup, onCreate, onEdit, onDelete, onReorder, onOpenApp, onAppContextMenu, onMoveApp }: { apps: RuntimeApp[]; groups: AppGroup[]; preferences: AppPreferencesState; onPreferencesChange: (input: UpdatePreferencesInput) => Promise<AppPreferencesState>; onThemeChange: (theme: UiTheme) => Promise<AppPreferencesState>; onPickEverythingCli: () => void; onAdd: () => void; onAddToGroup: (id: string) => void; onCreate: () => void; onEdit: (group: AppGroup) => void; onDelete: (id: string) => void; onReorder: (ids: string[]) => Promise<boolean>; onOpenApp: (app: RuntimeApp) => void; onAppContextMenu: (event: React.MouseEvent, app: RuntimeApp) => void; onMoveApp: (appId: string, groupId: string) => Promise<void> }) {
+function SettingsPage({ apps, groups, preferences, onPreferencesChange, onWallpaperIntensityPreview, onThemeChange, onPickEverythingCli, onAdd, onAddToGroup, onCreate, onEdit, onDelete, onReorder, onOpenApp, onAppContextMenu, onMoveApp }: { apps: RuntimeApp[]; groups: AppGroup[]; preferences: AppPreferencesState; onPreferencesChange: (input: UpdatePreferencesInput) => Promise<AppPreferencesState>; onWallpaperIntensityPreview: (value: WallpaperGlassIntensity) => void; onThemeChange: (theme: UiTheme) => Promise<AppPreferencesState>; onPickEverythingCli: () => void; onAdd: () => void; onAddToGroup: (id: string) => void; onCreate: () => void; onEdit: (group: AppGroup) => void; onDelete: (id: string) => void; onReorder: (ids: string[]) => Promise<boolean>; onOpenApp: (app: RuntimeApp) => void; onAppContextMenu: (event: React.MouseEvent, app: RuntimeApp) => void; onMoveApp: (appId: string, groupId: string) => Promise<void> }) {
   const [ordered, setOrdered] = useState(groups);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [expandedSettings, setExpandedSettings] = useState<Set<"general" | "theme" | "dependency">>(new Set());
+  const [expandedSettings, setExpandedSettings] = useState<Set<"general" | "layout" | "theme" | "dependency">>(new Set());
   const [sortPreview, setSortPreview] = useState<{ id: string; left: number; top: number; width: number } | null>(null);
   const [appDrag, setAppDrag] = useState<{ appId: string; x: number; y: number; grabOffsetX: number; grabOffsetY: number; targetGroup?: string } | null>(null);
-  const [savingPreference, setSavingPreference] = useState<"startup" | "close" | "shortcut" | "theme" | "wallpaperIntensity" | "wallpaperVariant" | "administrator" | "search" | "runningSort" | "appNames" | null>(null);
+  const [savingPreference, setSavingPreference] = useState<"startup" | "close" | "shortcut" | "theme" | "layout" | "wallpaperIntensity" | "wallpaperVariant" | "administrator" | "search" | "runningSort" | "appNames" | null>(null);
   const [recordingShortcut, setRecordingShortcut] = useState(false);
   const [shortcutMessage, setShortcutMessage] = useState("");
   const [administratorActionMessage, setAdministratorActionMessage] = useState("");
@@ -1415,6 +1524,8 @@ function SettingsPage({ apps, groups, preferences, onPreferencesChange, onThemeC
   const sortCandidate = useRef<{ id: string; startX: number; startY: number; grabOffsetX: number; grabOffsetY: number; original: AppGroup[]; active: boolean; valid: boolean } | null>(null);
   const appCandidate = useRef<{ appId: string; startX: number; startY: number; grabOffsetX: number; grabOffsetY: number } | null>(null);
   const suppressAppClick = useRef(false);
+  const wallpaperIntensitySaveTimer = useRef<number | null>(null);
+  const latestWallpaperIntensity = useRef(preferences.wallpaperGlassIntensity);
 
   useEffect(() => {
     setOrdered(groups);
@@ -1430,6 +1541,10 @@ function SettingsPage({ apps, groups, preferences, onPreferencesChange, onThemeC
     return () => { cancelled = true; };
   }, []);
   useEffect(() => { latestOrdered.current = ordered; }, [ordered]);
+  useEffect(() => { latestWallpaperIntensity.current = preferences.wallpaperGlassIntensity; }, [preferences.wallpaperGlassIntensity]);
+  useEffect(() => () => {
+    if (wallpaperIntensitySaveTimer.current) window.clearTimeout(wallpaperIntensitySaveTimer.current);
+  }, []);
 
   const captureRects = () => {
     flipRects.current = new Map([...rows.current].map(([id, element]) => [id, element.getBoundingClientRect()]));
@@ -1543,13 +1658,39 @@ function SettingsPage({ apps, groups, preferences, onPreferencesChange, onThemeC
   const draggedApp = apps.find((app) => app.id === appDrag?.appId);
   const previewGroup = ordered.find((group) => group.id === sortPreview?.id);
   const toggle = (id: string) => setExpanded((current) => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next; });
-  const savePreference = async (kind: "startup" | "close" | "shortcut" | "wallpaperIntensity" | "wallpaperVariant" | "administrator" | "search" | "runningSort" | "appNames", input: UpdatePreferencesInput) => {
+  const savePreference = async (kind: "startup" | "close" | "shortcut" | "layout" | "wallpaperIntensity" | "wallpaperVariant" | "administrator" | "search" | "runningSort" | "appNames", input: UpdatePreferencesInput) => {
     setSavingPreference(kind);
     if (kind === "administrator") setAdministratorActionMessage("");
     try {
       const result = await onPreferencesChange(input);
       setShortcutMessage(result.globalShortcutMessage ?? "");
     } catch { /* The app-level toast reports the failure. */ } finally { setSavingPreference(null); }
+  };
+  const saveWallpaperIntensity = (value: WallpaperGlassIntensity, immediate = false) => {
+    latestWallpaperIntensity.current = value;
+    onWallpaperIntensityPreview(value);
+    if (wallpaperIntensitySaveTimer.current) {
+      window.clearTimeout(wallpaperIntensitySaveTimer.current);
+      wallpaperIntensitySaveTimer.current = null;
+    }
+    const commit = () => {
+      void savePreference("wallpaperIntensity", { wallpaperGlassIntensity: latestWallpaperIntensity.current });
+    };
+    if (immediate) commit();
+    else wallpaperIntensitySaveTimer.current = window.setTimeout(commit, 160);
+  };
+  const flushWallpaperIntensity = () => saveWallpaperIntensity(latestWallpaperIntensity.current, true);
+  const saveLayoutPreference = (input: Partial<UiLayoutPreferences>) => {
+    const uiLayout = { ...preferences.uiLayout, ...input };
+    void savePreference("layout", { uiLayout, showAppNames: uiLayout.showAppNames });
+  };
+  const copyLayoutShareCode = () => {
+    void api().exportUiLayoutShareCode().then((code) => api().writeClipboardText(code)).then(() => setShortcutMessage("界面分享码已复制")).catch((reason) => setShortcutMessage(cleanErrorMessage(reason, "复制分享码失败")));
+  };
+  const importLayoutShareCode = () => {
+    const code = window.prompt("粘贴界面分享码");
+    if (!code) return;
+    void api().importUiLayoutShareCode(code).then((next) => { setShortcutMessage("界面已导入"); return onPreferencesChange({ uiLayout: next.uiLayout, showAppNames: next.uiLayout.showAppNames }); }).catch((reason) => setShortcutMessage(cleanErrorMessage(reason, "导入分享码失败")));
   };
   const selectTheme = async (theme: UiTheme) => {
     if (theme === preferences.uiTheme || savingPreference !== null) return;
@@ -1591,7 +1732,24 @@ function SettingsPage({ apps, groups, preferences, onPreferencesChange, onThemeC
           </button>
         ))}
       </div>
-      {preferences.uiTheme === "wallpaper" ? <div className="wallpaper-controls"><WallpaperGlassVariantControl value={preferences.wallpaperGlassVariant} disabled={savingPreference !== null} onChange={(value) => void savePreference("wallpaperVariant", { wallpaperGlassVariant: value })} /><WallpaperGlassIntensityControl value={preferences.wallpaperGlassIntensity} disabled={savingPreference !== null} onChange={(value) => void savePreference("wallpaperIntensity", { wallpaperGlassIntensity: value })} /></div> : null}
+      {preferences.uiTheme === "wallpaper" ? <div className="wallpaper-controls"><WallpaperGlassVariantControl value={preferences.wallpaperGlassVariant} disabled={savingPreference !== null} onChange={(value) => void savePreference("wallpaperVariant", { wallpaperGlassVariant: value })} /><WallpaperGlassIntensityControl value={preferences.wallpaperGlassIntensity} disabled={savingPreference !== null && savingPreference !== "wallpaperIntensity"} onChange={(value) => saveWallpaperIntensity(value)} onCommit={flushWallpaperIntensity} /></div> : null}
+    </section>
+  );
+  const layoutOption = <T extends string,>(label: string, value: T, current: T, onClick: (value: T) => void) => <button className={current === value ? "selected" : ""} disabled={savingPreference !== null} onClick={() => onClick(value)}>{label}</button>;
+  const layoutEditor = (
+    <section className="theme-panel layout-editor">
+      <div className="preference-grid">
+        <div className="preference-row"><span><strong>卡片大小</strong><small>调整应用卡片的整体尺寸。</small></span><div className="preference-options">{layoutOption("小", "small", preferences.uiLayout.cardSize, (value) => saveLayoutPreference({ cardSize: value }))}{layoutOption("中", "medium", preferences.uiLayout.cardSize, (value) => saveLayoutPreference({ cardSize: value }))}{layoutOption("大", "large", preferences.uiLayout.cardSize, (value) => saveLayoutPreference({ cardSize: value }))}</div></div>
+        <div className="preference-row"><span><strong>网格密度</strong><small>控制应用之间的留白。</small></span><div className="preference-options">{layoutOption("紧凑", "compact", preferences.uiLayout.gridDensity, (value) => saveLayoutPreference({ gridDensity: value }))}{layoutOption("标准", "standard", preferences.uiLayout.gridDensity, (value) => saveLayoutPreference({ gridDensity: value }))}{layoutOption("宽松", "relaxed", preferences.uiLayout.gridDensity, (value) => saveLayoutPreference({ gridDensity: value }))}</div></div>
+        <div className="preference-row"><span><strong>侧栏宽度</strong><small>调整左侧导航区域宽度。</small></span><div className="preference-options">{layoutOption("窄", "narrow", preferences.uiLayout.sidebarWidth, (value) => saveLayoutPreference({ sidebarWidth: value }))}{layoutOption("标准", "standard", preferences.uiLayout.sidebarWidth, (value) => saveLayoutPreference({ sidebarWidth: value }))}{layoutOption("宽", "wide", preferences.uiLayout.sidebarWidth, (value) => saveLayoutPreference({ sidebarWidth: value }))}</div></div>
+        <div className="preference-row"><span><strong>顶部图标</strong><small>控制左上角标识大小。</small></span><div className="preference-options">{layoutOption("标准", "standard", preferences.uiLayout.brandIconSize, (value) => saveLayoutPreference({ brandIconSize: value }))}{layoutOption("大", "large", preferences.uiLayout.brandIconSize, (value) => saveLayoutPreference({ brandIconSize: value }))}</div></div>
+        <div className="preference-row"><span><strong>背景色调</strong><small>选择受约束的背景色。</small></span><div className="preference-options">{layoutOption("默认", "default", preferences.uiLayout.backgroundTone, (value) => saveLayoutPreference({ backgroundTone: value }))}{layoutOption("极光", "aurora", preferences.uiLayout.backgroundTone, (value) => saveLayoutPreference({ backgroundTone: value }))}{layoutOption("石墨", "graphite", preferences.uiLayout.backgroundTone, (value) => saveLayoutPreference({ backgroundTone: value }))}{layoutOption("雾蓝", "mist", preferences.uiLayout.backgroundTone, (value) => saveLayoutPreference({ backgroundTone: value }))}</div></div>
+        <div className="preference-row"><span><strong>显示应用名称</strong><small>主界面卡片显示名称。</small></span><button className={`setting-switch ${preferences.uiLayout.showAppNames ? "enabled" : ""}`} role="switch" aria-checked={preferences.uiLayout.showAppNames} disabled={savingPreference !== null} onClick={() => saveLayoutPreference({ showAppNames: !preferences.uiLayout.showAppNames })}><i /></button></div>
+        <div className="preference-row"><span><strong>显示搜索栏</strong><small>隐藏后仍可用设置重新打开。</small></span><button className={`setting-switch ${preferences.uiLayout.showSearchBar ? "enabled" : ""}`} role="switch" aria-checked={preferences.uiLayout.showSearchBar} disabled={savingPreference !== null} onClick={() => saveLayoutPreference({ showSearchBar: !preferences.uiLayout.showSearchBar })}><i /></button></div>
+        <div className="preference-row"><span><strong>显示运行状态</strong><small>控制卡片右上角运行绿点。</small></span><button className={`setting-switch ${preferences.uiLayout.showRunningStatus ? "enabled" : ""}`} role="switch" aria-checked={preferences.uiLayout.showRunningStatus} disabled={savingPreference !== null} onClick={() => saveLayoutPreference({ showRunningStatus: !preferences.uiLayout.showRunningStatus })}><i /></button></div>
+        <div className="preference-row"><span><strong>显示批量按钮</strong><small>控制底部一键启动等操作。</small></span><button className={`setting-switch ${preferences.uiLayout.showBatchActions ? "enabled" : ""}`} role="switch" aria-checked={preferences.uiLayout.showBatchActions} disabled={savingPreference !== null} onClick={() => saveLayoutPreference({ showBatchActions: !preferences.uiLayout.showBatchActions })}><i /></button></div>
+        <div className="preference-row"><span><strong>界面分享码</strong><small>只分享布局偏好，不包含应用路径。</small>{shortcutMessage ? <em>{shortcutMessage}</em> : null}</span><div className="administrator-controls"><button className="shortcut-reset" onClick={copyLayoutShareCode}>复制分享码</button><button className="shortcut-reset" onClick={importLayoutShareCode}>导入</button></div></div>
+      </div>
     </section>
   );
   const app = appDrag ?? { grabOffsetX: 0, grabOffsetY: 0 };
@@ -1613,7 +1771,7 @@ function SettingsPage({ apps, groups, preferences, onPreferencesChange, onThemeC
 
   const administratorStatus = administratorActionMessage || (preferences.administratorRestartRequired ? shortcutMessage : "") || preferences.administratorMessage || (preferences.administratorStatusLoading ? "权限状态检测中" : preferences.administratorRestartRequired ? "下次启动生效" : preferences.isRunningAsAdministrator ? "当前以管理员权限运行" : "当前以普通权限运行");
 
-  return <section className="content settings-page no-drag" tabIndex={-1}><SettingsCollapsibleSection title="常规设置" description="控制 Windows 启动、窗口关闭和快速唤出行为。" expanded={expandedSettings.has("general")} onToggle={() => toggleSettingsSection("general")}><div className="preference-grid"><div className="preference-row"><span><strong>开机启动</strong><small>登录 Windows 后自动打开 Start Engineer 主窗口。</small></span><button className={`setting-switch ${preferences.launchAtStartup ? "enabled" : ""}`} role="switch" aria-checked={preferences.launchAtStartup} disabled={savingPreference !== null} onClick={() => void savePreference("startup", { launchAtStartup: !preferences.launchAtStartup })}><i /></button></div><div className="preference-row close-preference"><span><strong>关闭主窗口时</strong><small>选择继续在托盘运行，或直接退出启动器。</small></span><div className="preference-options"><button className={preferences.closeBehavior === "tray" ? "selected" : ""} disabled={savingPreference !== null} onClick={() => void savePreference("close", { closeBehavior: "tray" })}>最小化到托盘</button><button className={preferences.closeBehavior === "quit" ? "selected" : ""} disabled={savingPreference !== null} onClick={() => void savePreference("close", { closeBehavior: "quit" })}>直接退出</button></div></div><div className="preference-row shortcut-preference"><span><strong>快速唤出</strong><small>在任意界面按快捷键显示或隐藏 Start Engineer。</small>{shortcutMessage || preferences.globalShortcutMessage ? <em>{shortcutMessage || preferences.globalShortcutMessage}</em> : null}</span><div className="shortcut-controls"><button className={`shortcut-recorder ${recordingShortcut ? "recording" : ""}`} disabled={savingPreference !== null} onClick={() => { setRecordingShortcut(true); setShortcutMessage("请按下新的快捷键，Esc 取消"); }} onKeyDown={recordShortcut}>{recordingShortcut ? "等待按键…" : preferences.globalShortcut}</button><button className={`setting-switch ${preferences.globalShortcutEnabled ? "enabled" : ""}`} role="switch" aria-checked={preferences.globalShortcutEnabled} disabled={savingPreference !== null} onClick={() => void savePreference("shortcut", { globalShortcutEnabled: !preferences.globalShortcutEnabled })}><i /></button><button className="shortcut-reset" disabled={savingPreference !== null || preferences.globalShortcut === "Ctrl+Shift+Space"} onClick={() => void savePreference("shortcut", { globalShortcut: "Ctrl+Shift+Space", globalShortcutEnabled: true })}>恢复默认</button></div></div><div className="preference-row search-preference"><span><strong>搜索范围</strong><small>默认调用 Everything 搜索文件；开启后只筛选 Start Engineer 内的应用和进程。</small><em>{preferences.searchProvider === "everything" ? "当前使用 Everything" : "当前仅搜索内部应用"}</em></span><div className="administrator-controls"><button className="shortcut-reset" disabled={savingPreference !== null || preferences.searchProvider !== "everything"} onClick={() => void api().pickEverythingCli().then(setPreferences).catch((reason) => setShortcutMessage(cleanErrorMessage(reason, "选择 ES.exe 失败")))}>选择 ES.exe</button><button className={`setting-switch ${preferences.searchProvider === "internal" ? "enabled" : ""}`} role="switch" aria-checked={preferences.searchProvider === "internal"} disabled={savingPreference !== null} onClick={() => void savePreference("search", { searchProvider: preferences.searchProvider === "internal" ? "everything" : "internal" })}><i /></button></div></div><div className="preference-row running-sort-preference"><span><strong>运行应用置顶</strong><small>分组内已启动应用自动显示在前面，关闭后恢复原有顺序。</small></span><button className={`setting-switch ${preferences.sortRunningAppsFirst ? "enabled" : ""}`} role="switch" aria-checked={preferences.sortRunningAppsFirst} disabled={savingPreference !== null} onClick={() => void savePreference("runningSort", { sortRunningAppsFirst: !preferences.sortRunningAppsFirst })}><i /></button></div><div className="preference-row app-name-preference"><span><strong>显示应用名称</strong><small>在主界面卡片下方显示应用名称，关闭后只保留图标和状态。</small></span><button className={`setting-switch ${preferences.showAppNames ? "enabled" : ""}`} role="switch" aria-checked={preferences.showAppNames} disabled={savingPreference !== null} onClick={() => void savePreference("appNames", { showAppNames: !preferences.showAppNames })}><i /></button></div><div className="preference-row administrator-preference"><span><strong>以管理员方式启动</strong><small>启动时请求 Windows 管理员权限，结束高权限应用时通常无需再次授权。</small><em className={preferences.administratorRestartRequired ? "pending" : "active"}>{administratorStatus}</em></span><div className="administrator-controls">{preferences.administratorRestartRequired ? <button className="shortcut-reset administrator-restart" onClick={() => void api().restartWithConfiguredPrivileges().catch((reason) => setShortcutMessage(cleanErrorMessage(reason, "重启失败")))}>{preferences.runAsAdministrator ? "立即以管理员身份重启" : "立即以普通权限重启"}</button> : null}<button className={`setting-switch ${preferences.runAsAdministrator ? "enabled" : ""}`} role="switch" aria-checked={preferences.runAsAdministrator} disabled={savingPreference !== null} onClick={() => void savePreference("administrator", { runAsAdministrator: !preferences.runAsAdministrator })}><i /></button></div></div></div></SettingsCollapsibleSection><SettingsCollapsibleSection title="界面主题" description="选择一套固定外观，或让界面跟随 Windows 明暗模式。" expanded={expandedSettings.has("theme")} onToggle={() => toggleSettingsSection("theme")}>{themePicker}</SettingsCollapsibleSection><div className="settings-heading group-settings-heading"><div><h2>分组管理</h2><p>点击分组查看应用，拖动手柄调整左侧导航顺序。</p></div><div className="settings-actions"><button className="ghost" onClick={onAdd}>添加应用</button><button className="launch" onClick={onCreate}>新建分组</button></div></div><div className="group-manager">{ordered.map((group) => <GroupManagerItem key={group.id} group={group} apps={apps.filter((app) => app.groupId === group.id)} expanded={expanded.has(group.id)} sorting={sortPreview?.id === group.id} appDrag={appDrag} register={(element) => { if (element) rows.current.set(group.id, element); else rows.current.delete(group.id); }} onToggle={() => toggle(group.id)} onSortStart={(event) => { if (appCandidate.current) return; event.preventDefault(); const rect = rows.current.get(group.id)?.getBoundingClientRect(); sortCandidate.current = { id: group.id, startX: event.clientX, startY: event.clientY, grabOffsetX: rect ? event.clientX - rect.left : 40, grabOffsetY: rect ? event.clientY - rect.top : 32, original: [...ordered], active: false, valid: true }; }} onEdit={() => onEdit(group)} onDelete={() => onDelete(group.id)} canDelete={groups.length > 1} onAdd={() => onAddToGroup(group.id)} onOpenApp={(app) => { if (!suppressAppClick.current) onOpenApp(app); }} onAppContextMenu={onAppContextMenu} onAppPointerDown={(event, app) => { if (event.button !== 0 || sortCandidate.current) return; const rect = event.currentTarget.getBoundingClientRect(); appCandidate.current = { appId: app.id, startX: event.clientX, startY: event.clientY, grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top }; }} />)}</div>{sortPreview && previewGroup && typeof document !== "undefined" ? createPortal(<GroupSortPreview group={previewGroup} count={apps.filter((app) => app.groupId === previewGroup.id).length} left={sortPreview.left} top={sortPreview.top} width={sortPreview.width} />, document.body) : null}{appDrag && draggedApp ? <div className="drag-preview no-drag" style={{ left: appDrag.x - app.grabOffsetX, top: appDrag.y - app.grabOffsetY }}>{draggedApp.iconDataUrl ? <img src={draggedApp.iconDataUrl} alt="" /> : <Icon name="grid" />}<span>{draggedApp.name}</span></div> : null}</section>;
+  return <section className="content settings-page no-drag" tabIndex={-1}><SettingsCollapsibleSection title="常规设置" description="控制 Windows 启动、窗口关闭和快速唤出行为。" expanded={expandedSettings.has("general")} onToggle={() => toggleSettingsSection("general")}><div className="preference-grid"><div className="preference-row"><span><strong>开机启动</strong><small>登录 Windows 后自动打开 Start Engineer 主窗口。</small></span><button className={`setting-switch ${preferences.launchAtStartup ? "enabled" : ""}`} role="switch" aria-checked={preferences.launchAtStartup} disabled={savingPreference !== null} onClick={() => void savePreference("startup", { launchAtStartup: !preferences.launchAtStartup })}><i /></button></div><div className="preference-row close-preference"><span><strong>关闭主窗口时</strong><small>选择继续在托盘运行，或直接退出启动器。</small></span><div className="preference-options"><button className={preferences.closeBehavior === "tray" ? "selected" : ""} disabled={savingPreference !== null} onClick={() => void savePreference("close", { closeBehavior: "tray" })}>最小化到托盘</button><button className={preferences.closeBehavior === "quit" ? "selected" : ""} disabled={savingPreference !== null} onClick={() => void savePreference("close", { closeBehavior: "quit" })}>直接退出</button></div></div><div className="preference-row shortcut-preference"><span><strong>快速唤出</strong><small>在任意界面按快捷键显示或隐藏 Start Engineer。</small>{shortcutMessage || preferences.globalShortcutMessage ? <em>{shortcutMessage || preferences.globalShortcutMessage}</em> : null}</span><div className="shortcut-controls"><button className={`shortcut-recorder ${recordingShortcut ? "recording" : ""}`} disabled={savingPreference !== null} onClick={() => { setRecordingShortcut(true); setShortcutMessage("请按下新的快捷键，Esc 取消"); }} onKeyDown={recordShortcut}>{recordingShortcut ? "等待按键…" : preferences.globalShortcut}</button><button className={`setting-switch ${preferences.globalShortcutEnabled ? "enabled" : ""}`} role="switch" aria-checked={preferences.globalShortcutEnabled} disabled={savingPreference !== null} onClick={() => void savePreference("shortcut", { globalShortcutEnabled: !preferences.globalShortcutEnabled })}><i /></button><button className="shortcut-reset" disabled={savingPreference !== null || preferences.globalShortcut === "Ctrl+Shift+Space"} onClick={() => void savePreference("shortcut", { globalShortcut: "Ctrl+Shift+Space", globalShortcutEnabled: true })}>恢复默认</button></div></div><div className="preference-row search-preference"><span><strong>搜索范围</strong><small>默认调用 Everything 搜索文件；开启后只筛选 Start Engineer 内的应用和进程。</small><em>{preferences.searchProvider === "everything" ? "当前使用 Everything" : "当前仅搜索内部应用"}</em></span><div className="administrator-controls"><button className="shortcut-reset" disabled={savingPreference !== null || preferences.searchProvider !== "everything"} onClick={() => void api().pickEverythingCli().then(setPreferences).catch((reason) => setShortcutMessage(cleanErrorMessage(reason, "选择 ES.exe 失败")))}>选择 ES.exe</button><button className={`setting-switch ${preferences.searchProvider === "internal" ? "enabled" : ""}`} role="switch" aria-checked={preferences.searchProvider === "internal"} disabled={savingPreference !== null} onClick={() => void savePreference("search", { searchProvider: preferences.searchProvider === "internal" ? "everything" : "internal" })}><i /></button></div></div><div className="preference-row running-sort-preference"><span><strong>运行应用置顶</strong><small>分组内已启动应用自动显示在前面，关闭后恢复原有顺序。</small></span><button className={`setting-switch ${preferences.sortRunningAppsFirst ? "enabled" : ""}`} role="switch" aria-checked={preferences.sortRunningAppsFirst} disabled={savingPreference !== null} onClick={() => void savePreference("runningSort", { sortRunningAppsFirst: !preferences.sortRunningAppsFirst })}><i /></button></div><div className="preference-row app-name-preference"><span><strong>显示应用名称</strong><small>在主界面卡片下方显示应用名称，关闭后只保留图标和状态。</small></span><button className={`setting-switch ${preferences.showAppNames ? "enabled" : ""}`} role="switch" aria-checked={preferences.showAppNames} disabled={savingPreference !== null} onClick={() => void savePreference("appNames", { showAppNames: !preferences.showAppNames })}><i /></button></div><div className="preference-row administrator-preference"><span><strong>以管理员方式启动</strong><small>启动时请求 Windows 管理员权限，结束高权限应用时通常无需再次授权。</small><em className={preferences.administratorRestartRequired ? "pending" : "active"}>{administratorStatus}</em></span><div className="administrator-controls">{preferences.administratorRestartRequired ? <button className="shortcut-reset administrator-restart" onClick={() => void api().restartWithConfiguredPrivileges().catch((reason) => setShortcutMessage(cleanErrorMessage(reason, "重启失败")))}>{preferences.runAsAdministrator ? "立即以管理员身份重启" : "立即以普通权限重启"}</button> : null}<button className={`setting-switch ${preferences.runAsAdministrator ? "enabled" : ""}`} role="switch" aria-checked={preferences.runAsAdministrator} disabled={savingPreference !== null} onClick={() => void savePreference("administrator", { runAsAdministrator: !preferences.runAsAdministrator })}><i /></button></div></div></div></SettingsCollapsibleSection><SettingsCollapsibleSection title="界面主题" description="选择一套固定外观，或让界面跟随 Windows 明暗模式。" expanded={expandedSettings.has("theme")} onToggle={() => toggleSettingsSection("theme")}>{layoutEditor}{themePicker}</SettingsCollapsibleSection><div className="settings-heading group-settings-heading"><div><h2>分组管理</h2><p>点击分组查看应用，拖动手柄调整左侧导航顺序。</p></div><div className="settings-actions"><button className="ghost" onClick={onAdd}>添加应用</button><button className="launch" onClick={onCreate}>新建分组</button></div></div><div className="group-manager">{ordered.map((group) => <GroupManagerItem key={group.id} group={group} apps={apps.filter((app) => app.groupId === group.id)} expanded={expanded.has(group.id)} sorting={sortPreview?.id === group.id} appDrag={appDrag} register={(element) => { if (element) rows.current.set(group.id, element); else rows.current.delete(group.id); }} onToggle={() => toggle(group.id)} onSortStart={(event) => { if (appCandidate.current) return; event.preventDefault(); const rect = rows.current.get(group.id)?.getBoundingClientRect(); sortCandidate.current = { id: group.id, startX: event.clientX, startY: event.clientY, grabOffsetX: rect ? event.clientX - rect.left : 40, grabOffsetY: rect ? event.clientY - rect.top : 32, original: [...ordered], active: false, valid: true }; }} onEdit={() => onEdit(group)} onDelete={() => onDelete(group.id)} canDelete={groups.length > 1} onAdd={() => onAddToGroup(group.id)} onOpenApp={(app) => { if (!suppressAppClick.current) onOpenApp(app); }} onAppContextMenu={onAppContextMenu} onAppPointerDown={(event, app) => { if (event.button !== 0 || sortCandidate.current) return; const rect = event.currentTarget.getBoundingClientRect(); appCandidate.current = { appId: app.id, startX: event.clientX, startY: event.clientY, grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top }; }} />)}</div>{sortPreview && previewGroup && typeof document !== "undefined" ? createPortal(<GroupSortPreview group={previewGroup} count={apps.filter((app) => app.groupId === previewGroup.id).length} left={sortPreview.left} top={sortPreview.top} width={sortPreview.width} />, document.body) : null}{appDrag && draggedApp ? <div className="drag-preview no-drag" style={{ left: appDrag.x - app.grabOffsetX, top: appDrag.y - app.grabOffsetY }}>{draggedApp.iconDataUrl ? <img src={draggedApp.iconDataUrl} alt="" /> : <Icon name="grid" />}<span>{draggedApp.name}</span></div> : null}</section>;
 }
 
 export function SettingsCollapsibleSection({ title, description, expanded, onToggle, children }: { title: string; description: string; expanded: boolean; onToggle: () => void; children: React.ReactNode }) {
@@ -1725,3 +1883,4 @@ if (typeof document !== "undefined") {
   const root = document.getElementById("root");
   if (root) createRoot(root).render(<React.StrictMode><App /></React.StrictMode>);
 }
+

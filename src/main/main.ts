@@ -45,6 +45,8 @@ import { AppWindowManager } from "./window-manager.js";
 import { startEngineerGroupShortcutDirection } from "./window-shortcuts.js";
 import { addDroppedExecutablesToApps } from "./dropped-apps.js";
 import { buildManagedRunningStatus, parseTasklistCsv } from "./managed-running-status.js";
+import { decodeUiLayoutShareCode, encodeUiLayoutShareCode } from "../shared/ui-layout-share.js";
+import { getInstallableAppById, searchInstallableApps } from "./installable-apps.js";
 
 const isDev = process.env.VITE_DEV_SERVER_URL !== undefined;
 const appRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -358,6 +360,17 @@ function updatePreferences(input: UpdatePreferencesInput): AppPreferencesState {
   }
   savePreferences(next);
   if (input.uiTheme !== undefined) applyWindowTheme(next);
+  return preferencesSnapshot();
+}
+
+function exportUiLayoutShareCode() {
+  return encodeUiLayoutShareCode(loadPreferences().uiLayout);
+}
+
+function importUiLayoutShareCode(code: string) {
+  const result = decodeUiLayoutShareCode(code.trim());
+  if (!result.ok) throw new Error("分享码无效");
+  savePreferences({ ...loadPreferences(), uiLayout: result.preferences, showAppNames: result.preferences.showAppNames });
   return preferencesSnapshot();
 }
 
@@ -1285,6 +1298,12 @@ function registerIpc() {
   ipcMain.handle("apps:discoverImportCandidates", () => discoverImportCandidates());
   ipcMain.handle("apps:importDiscovered", (_event, candidateIds: string[]) => importDiscoveredApps(Array.isArray(candidateIds) ? candidateIds : []));
   ipcMain.handle("apps:searchCandidates", (_event, query: string) => searchAppCandidates(String(query ?? "")));
+  ipcMain.handle("apps:searchInstallable", (_event, query: string) => searchInstallableApps(String(query ?? "")));
+  ipcMain.handle("apps:openInstallableDownload", async (_event, candidateId: string) => {
+    const candidate = getInstallableAppById(String(candidateId ?? ""));
+    if (!candidate) throw new Error("未找到可安装应用");
+    await shell.openExternal(candidate.downloadPage);
+  });
   ipcMain.handle("apps:addDiscoveredCandidate", (_event, candidateId: string, groupId: AppEntry["groupId"]) => addDiscoveredCandidate(String(candidateId ?? ""), groupId));
   ipcMain.handle("apps:refreshDiscoveryIndex", () => refreshDiscoveryIndex());
   ipcMain.handle("apps:refreshIcons", () => refreshAppIcons());
@@ -1585,6 +1604,8 @@ function registerIpc() {
   ipcMain.handle("runtime:managedRunningStatus", () => getManagedRunningStatus());
   ipcMain.handle("preferences:get", () => preferencesSnapshot());
   ipcMain.handle("preferences:update", (_event, input: UpdatePreferencesInput) => updatePreferences(input));
+  ipcMain.handle("preferences:exportUiLayoutShareCode", () => exportUiLayoutShareCode());
+  ipcMain.handle("preferences:importUiLayoutShareCode", (_event, code: string) => importUiLayoutShareCode(String(code ?? "")));
   ipcMain.handle("preferences:restartWithConfiguredPrivileges", () => restartWithConfiguredPrivileges());
 
   ipcMain.handle("window:action", (_event, action: WindowAction) => {

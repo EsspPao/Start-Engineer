@@ -1,4 +1,4 @@
-export type SystemSectionId = "processes" | "settings";
+export type SystemSectionId = "processes" | "all-apps" | "settings";
 export type SectionId = SystemSectionId | string;
 
 export type AppEntry = {
@@ -77,8 +77,28 @@ export type CloseBehavior = "tray" | "quit";
 export type FixedUiTheme = "fluent" | "midnight" | "utility" | "glass" | "wallpaper";
 export type UiTheme = FixedUiTheme | "system";
 export type SearchProvider = "everything" | "internal";
-export type WallpaperGlassIntensity = "weak" | "medium" | "strong";
+export type WallpaperGlassIntensity = number;
 export type WallpaperGlassVariant = "dark" | "light";
+export type UiCardSize = "small" | "medium" | "large";
+export type UiGridDensity = "compact" | "standard" | "relaxed";
+export type UiSidebarWidth = "narrow" | "standard" | "wide";
+export type UiBrandIconSize = "standard" | "large";
+export type UiBackgroundTone = "default" | "aurora" | "graphite" | "mist";
+export type UiLayoutPreferences = {
+  cardSize: UiCardSize;
+  gridDensity: UiGridDensity;
+  sidebarWidth: UiSidebarWidth;
+  brandIconSize: UiBrandIconSize;
+  backgroundTone: UiBackgroundTone;
+  showRunningStatus: boolean;
+  showAppNames: boolean;
+  showBatchActions: boolean;
+  showSearchBar: boolean;
+};
+export type AllAppsViewPreferences = {
+  orderedAppIds: string[];
+  launchSelectedAppIds: string[];
+};
 export type AppPreferences = {
   launchAtStartup: boolean;
   closeBehavior: CloseBehavior;
@@ -91,6 +111,8 @@ export type AppPreferences = {
   searchProvider: SearchProvider;
   sortRunningAppsFirst: boolean;
   showAppNames: boolean;
+  uiLayout: UiLayoutPreferences;
+  allAppsView: AllAppsViewPreferences;
   firstRunImportCompleted: boolean;
   windowBounds?: WindowBounds;
   everythingCliPath?: string;
@@ -226,6 +248,19 @@ export type DiscoveredAppCandidate = {
   rank?: number;
 };
 
+export type InstallableAppCandidate = {
+  id: string;
+  name: string;
+  description: string;
+  publisher: string;
+  downloadPage: string;
+  aliases: string[];
+  category: "browser" | "chat" | "developer" | "game" | "office" | "tool";
+  source: "official";
+  action: "open-download-page";
+  score?: number;
+};
+
 export type AddDiscoveredAppResult = {
   apps: AppEntry[];
   appId?: string;
@@ -249,6 +284,8 @@ export type StartEngineerApi = {
   discoverImportCandidates: () => Promise<DiscoveredAppCandidate[]>;
   importDiscoveredApps: (candidateIds: string[]) => Promise<AppEntry[]>;
   searchAppCandidates: (query: string) => Promise<DiscoveredAppCandidate[]>;
+  searchInstallableApps: (query: string) => Promise<InstallableAppCandidate[]>;
+  openInstallableAppDownload: (candidateId: string) => Promise<void>;
   addDiscoveredCandidate: (candidateId: string, groupId: AppEntry["groupId"]) => Promise<AddDiscoveredAppResult>;
   refreshDiscoveryIndex: () => Promise<DiscoveredAppCandidate[]>;
   refreshAppIcons: () => Promise<AppEntry[]>;
@@ -286,6 +323,8 @@ export type StartEngineerApi = {
   getManagedRunningStatus: () => Promise<AppRunningStatus[]>;
   getPreferences: () => Promise<AppPreferencesState>;
   updatePreferences: (input: UpdatePreferencesInput) => Promise<AppPreferencesState>;
+  exportUiLayoutShareCode: () => Promise<string>;
+  importUiLayoutShareCode: (code: string) => Promise<AppPreferencesState>;
   restartWithConfiguredPrivileges: () => Promise<void>;
   windowAction: (action: WindowAction) => Promise<void>;
 };
