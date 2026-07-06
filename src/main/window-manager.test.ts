@@ -238,6 +238,66 @@ describe("window-manager", () => {
     expect(runHelper.mock.calls.map((call) => call[0])).toEqual(["scan"]);
   });
 
+  it("relaunches Codex once to safely activate it when only tray helper windows exist", async () => {
+    const runHelper = vi.fn(async (command: string) => {
+      if (command === "focus") return JSON.stringify({ focused: true });
+      const firstScan = runHelper.mock.calls.filter((call) => call[0] === "scan").length === 1;
+      return JSON.stringify(firstScan ? {
+        allWindowsScanned: 32,
+        relatedWindows: [
+          candidate({
+            handle: 40503834,
+            pid: 10824,
+            title: "",
+            className: "OwlElectron_NotifyIconHostWindow",
+            processName: "Codex",
+            visible: false,
+            width: 0,
+            height: 0,
+            filterReason: "non-interactive-window"
+          })
+        ],
+        filteredWindows: [
+          { handle: 40503834, pid: 10824, title: "", className: "OwlElectron_NotifyIconHostWindow", score: 795, filterReason: "non-interactive-window" }
+        ],
+        finalCandidates: []
+      } : {
+        allWindowsScanned: 33,
+        relatedWindows: [
+          candidate({ handle: 9009, pid: 10824, title: "Codex", className: "Chrome_WidgetWin_1", processName: "Codex" })
+        ],
+        filteredWindows: [],
+        finalCandidates: [
+          candidate({ handle: 9009, pid: 10824, title: "Codex", className: "Chrome_WidgetWin_1", processName: "Codex" })
+        ]
+      });
+    });
+    const activateRunningApp = vi.fn(async () => ({ launched: true }));
+    const waitAfterSafeActivation = vi.fn(async () => undefined);
+    const manager = new AppWindowManager({
+      runPowerShell: vi.fn(async () => "not-found"),
+      runWindowFocusHelper: runHelper,
+      getProcesses: vi.fn(async () => [{ pid: 10824, name: "Codex.exe", path: "C:\\Program Files\\WindowsApps\\OpenAI.Codex\\app\\Codex.exe", parentPid: 0 }]),
+      activateRunningApp,
+      waitAfterSafeActivation
+    });
+
+    await expect(manager.focusAppWindow(app({
+      name: "Codex",
+      executablePath: "C:\\Program Files\\WindowsApps\\OpenAI.Codex\\app\\Codex.exe",
+      processName: "Codex"
+    }), metrics({
+      pids: [10824],
+      matchedPids: [10824],
+      associatedPids: [],
+      matchedProcessNames: ["Codex"],
+      matchedPaths: ["C:\\Program Files\\WindowsApps\\OpenAI.Codex\\app\\Codex.exe"]
+    }))).resolves.toEqual({ focused: true });
+    expect(activateRunningApp).toHaveBeenCalledTimes(1);
+    expect(waitAfterSafeActivation).toHaveBeenCalledTimes(1);
+    expect(runHelper.mock.calls.map((call) => call[0])).toEqual(["scan", "scan", "focus"]);
+  });
+
   it("restores a minimized WeChat taskbar window through the selected hwnd without tray restore", async () => {
     const runPowerShell = vi.fn()
       .mockResolvedValueOnce(`${JSON.stringify(candidate({ iconic: true, visible: true, className: "WeChatMainWnd", processName: "Weixin", executablePath: "E:\\Weixin\\Weixin.exe" }))}`)

@@ -28,6 +28,8 @@ export type WindowManagerDependencies = {
   runPowerShell: PowerShellRunner;
   runWindowFocusHelper?: WindowFocusHelperRunner;
   getProcesses: () => Promise<FocusProcessSnapshot[]>;
+  activateRunningApp?: (app: AppEntry) => Promise<{ launched: boolean }>;
+  waitAfterSafeActivation?: () => Promise<void>;
 };
 
 type RestoreMethod = "hwndRestore" | "trayRestore" | "fallbackRelaunch" | "none";
@@ -126,6 +128,14 @@ export function buildWindowDiagnostics(app: AppEntry, stages: FocusWindowStage[]
   return lines.join("\n");
 }
 
+export function shouldUseSafeActivation(app: AppEntry) {
+  if (isWeChatLikeApp(app)) return false;
+  const haystack = `${app.name} ${app.processName} ${app.executablePath} ${(app.processAliases ?? []).join(" ")}`.toLowerCase();
+  return haystack.includes("codex");
+}
+
+const defaultSafeActivationWait = () => new Promise<void>((resolve) => setTimeout(resolve, 900));
+
 export class AppWindowManager {
   private latestRequestId = 0;
   private cache = new Map<string, FocusWindowCandidate>();
@@ -181,6 +191,8 @@ export class AppWindowManager {
       if (isWeChatLikeApp(app)) {
         return this.restoreWeChatFromTrayThenFocus(app, "fast-tray", fastStages, requestId, fastResult.reason);
       }
+      const safeActivationResult = await this.safeActivateThenFocus(app, "safe-activate", metrics, requestId, fastResult.reason);
+      if (safeActivationResult.focused || safeActivationResult.reason !== "fallbackRelaunchDisabled") return safeActivationResult;
       return {
         focused: false,
         reason: fastResult.reason ?? "no-window"
@@ -231,6 +243,53 @@ export class AppWindowManager {
     });
     if (result.focused) this.cache.set(app.id, candidate);
     return result;
+  }
+
+  private async safeActivateThenFocus(app: AppEntry, label: string, metrics: AppMetrics | undefined, requestId: number, previousReason?: FocusAppWindowResult["reason"]): Promise<FocusAppWindowResult> {
+    if (!shouldUseSafeActivation(app) || !this.dependencies.activateRunningApp) {
+      return { focused: false, reason: "fallbackRelaunchDisabled" };
+    }
+
+    const activation = await this.dependencies.activateRunningApp(app);
+    if (requestId !== this.latestRequestId) return { focused: false, reason: "stale" };
+    if (!activation.launched) {
+      this.lastAttempts.set(app.id, {
+        restoreMethod: "fallbackRelaunch",
+        restoreResult: "failed",
+        reason: previousReason ?? "no-window"
+      });
+      return { focused: false, reason: previousReason ?? "no-window" };
+    }
+
+    await (this.dependencies.waitAfterSafeActivation ?? defaultSafeActivationWait)();
+    if (requestId !== this.latestRequestId) return { focused: false, reason: "stale" };
+
+    const processes = await this.dependencies.getProcesses();
+    const stages = focusStagesFromCandidates(app, metrics, processes, true);
+    const scan = await scanFocusWindowsForStages(`${app.name}:${label}:post`, stages, this.dependencies.runPowerShell, this.dependencies.runWindowFocusHelper);
+    const candidate = scan.finalCandidates[0];
+    if (!candidate || candidate.filterReason) {
+      const reason = candidate?.filterReason === "suspected-wechat-shell" ? "suspectedWrongWindow" : previousReason ?? "no-window";
+      this.lastAttempts.set(app.id, {
+        selectedCandidate: candidate,
+        restoreMethod: "fallbackRelaunch",
+        restoreResult: "partial",
+        reason,
+        postRestoreWindows: scan.relatedWindows
+      });
+      return { focused: false, reason };
+    }
+
+    const result = await focusWindowHandleDetailed(candidate, this.dependencies.runPowerShell, focusStagePids(stages), this.dependencies.runWindowFocusHelper);
+    this.lastAttempts.set(app.id, {
+      selectedCandidate: candidate,
+      restoreMethod: "fallbackRelaunch",
+      restoreResult: result.focused ? "success" : "partial",
+      reason: result.reason,
+      postRestoreWindows: scan.relatedWindows
+    });
+    if (result.focused) this.cache.set(app.id, candidate);
+    return result.focused ? { focused: true } : result.reason ? result : { focused: false, reason: "restoredButNotInteractive" };
   }
 
   private async restoreWeChatFromTrayThenFocus(app: AppEntry, label: string, stages: FocusWindowStage[], requestId: number, previousReason?: FocusAppWindowResult["reason"]): Promise<FocusAppWindowResult> {

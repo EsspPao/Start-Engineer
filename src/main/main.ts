@@ -808,7 +808,17 @@ function runPowerShell(script: string): Promise<string> {
 
 const windowManager = new AppWindowManager({
   runPowerShell,
-  getProcesses: () => getProcessSnapshots()
+  getProcesses: () => getProcessSnapshots(),
+  activateRunningApp: async (appEntry) => {
+    const entry = getApp(appEntry.id) ?? appEntry;
+    if (!entry.executablePath || !existsSync(entry.executablePath)) return { launched: false };
+    const workingDirectory = entry.workingDirectory || dirname(entry.executablePath);
+    if (!existsSync(workingDirectory)) return { launched: false };
+    const result = await launchExecutable(entry);
+    if (result.status !== "launched") return { launched: false };
+    void saveLaunchedPidAndTrack(entry.id, result.pid, false);
+    return { launched: true };
+  }
 });
 
 function runTaskkill(args: string[]): Promise<void> {
