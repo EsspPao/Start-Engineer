@@ -89,8 +89,8 @@ describe("preferences", () => {
     expect(normalizePreferences({ windowBounds: { x: Number.NaN, y: 30, width: 1280, height: 760 } }).windowBounds).toBeUndefined();
   });
 
-  it("falls back to Modern Utility for unsupported themes", () => {
-    expect(normalizePreferences({ uiTheme: "unknown" as "utility" }).uiTheme).toBe("utility");
+  it("falls back to Apple Gallery for unsupported themes", () => {
+    expect(normalizePreferences({ uiTheme: "unknown" as "utility" }).uiTheme).toBe("apple");
   });
 
   it("supports Wallpaper Glass intensity as a 0-100 value with legacy migration", () => {

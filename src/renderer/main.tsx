@@ -40,7 +40,7 @@ type MenuState =
   | { kind: "group"; x: number; y: number; groupId: string }
   | null;
 type ConfirmState = { title: string; message: string; confirmLabel: string; onConfirm: () => Promise<void> } | null;
-type EditState = { id: string; name: string; launchArgs: string; workingDirectory: string } | null;
+type EditState = { id: string; name: string; executablePath: string; launchArgs: string } | null;
 type DragState = { appId: string; x: number; y: number; grabOffsetX: number; grabOffsetY: number; width: number; height: number; targetGroup?: AppGroupId; reorderGroupId?: AppGroupId; previewOrder?: string[] } | null;
 type GroupEditState = { id?: string; name: string; icon: string } | null;
 type GroupDeleteState = { groupId: string; targetGroupId: string } | null;
@@ -74,7 +74,7 @@ const fallbackApi: StartEngineerApi = {
   addAppFromDialog: electronOnly,
   addDroppedExecutables: async () => ({ apps: [], addedAppIds: [], skippedPaths: [] }),
   getPathForFile: (file) => (file as File & { path?: string }).path ?? "",
-  pickExecutable: electronOnly,
+  pickExecutable: async () => null,
   updateApp: async () => [],
   setAppGroup: async () => [],
   reorderAppsInGroup: async () => [],
@@ -103,8 +103,8 @@ const fallbackApi: StartEngineerApi = {
   openSearchDependencyFolder: electronOnly,
   openSearchResult: async () => electronOnly(),
   showSearchResultInFolder: async () => electronOnly(),
-  getPreferences: async () => ({ launchAtStartup: false, closeBehavior: "tray", globalShortcutEnabled: true, globalShortcut: "Ctrl+Shift+Space", uiTheme: "utility", wallpaperGlassIntensity: 55, wallpaperGlassVariant: "dark", runAsAdministrator: false, searchProvider: "everything", sortRunningAppsFirst: true, showAppNames: false, uiLayout: defaultUiLayoutPreferences, allAppsView: { orderedAppIds: [], launchSelectedAppIds: [] }, firstRunImportCompleted: false, globalShortcutStatus: "registered", isRunningAsAdministrator: false, administratorStatusLoading: false, administratorRestartRequired: false }),
-  updatePreferences: async (input) => ({ launchAtStartup: input.launchAtStartup ?? false, closeBehavior: input.closeBehavior ?? "tray", globalShortcutEnabled: input.globalShortcutEnabled ?? true, globalShortcut: input.globalShortcut ?? "Ctrl+Shift+Space", uiTheme: input.uiTheme ?? "utility", wallpaperGlassIntensity: input.wallpaperGlassIntensity ?? 55, wallpaperGlassVariant: input.wallpaperGlassVariant ?? "dark", runAsAdministrator: input.runAsAdministrator ?? false, searchProvider: input.searchProvider ?? "everything", sortRunningAppsFirst: input.sortRunningAppsFirst ?? true, showAppNames: input.showAppNames ?? false, uiLayout: input.uiLayout ?? defaultUiLayoutPreferences, allAppsView: input.allAppsView ?? { orderedAppIds: [], launchSelectedAppIds: [] }, firstRunImportCompleted: input.firstRunImportCompleted ?? false, everythingCliPath: input.everythingCliPath, globalShortcutStatus: "registered", isRunningAsAdministrator: false, administratorStatusLoading: false, administratorRestartRequired: Boolean(input.runAsAdministrator) }),
+  getPreferences: async () => ({ launchAtStartup: false, closeBehavior: "tray", globalShortcutEnabled: true, globalShortcut: "Ctrl+Shift+Space", uiTheme: "apple", wallpaperGlassIntensity: 55, wallpaperGlassVariant: "dark", runAsAdministrator: false, searchProvider: "everything", sortRunningAppsFirst: true, showAppNames: false, uiLayout: defaultUiLayoutPreferences, allAppsView: { orderedAppIds: [], launchSelectedAppIds: [] }, firstRunImportCompleted: false, globalShortcutStatus: "registered", isRunningAsAdministrator: false, administratorStatusLoading: false, administratorRestartRequired: false }),
+  updatePreferences: async (input) => ({ launchAtStartup: input.launchAtStartup ?? false, closeBehavior: input.closeBehavior ?? "tray", globalShortcutEnabled: input.globalShortcutEnabled ?? true, globalShortcut: input.globalShortcut ?? "Ctrl+Shift+Space", uiTheme: input.uiTheme ?? "apple", wallpaperGlassIntensity: input.wallpaperGlassIntensity ?? 55, wallpaperGlassVariant: input.wallpaperGlassVariant ?? "dark", runAsAdministrator: input.runAsAdministrator ?? false, searchProvider: input.searchProvider ?? "everything", sortRunningAppsFirst: input.sortRunningAppsFirst ?? true, showAppNames: input.showAppNames ?? false, uiLayout: input.uiLayout ?? defaultUiLayoutPreferences, allAppsView: input.allAppsView ?? { orderedAppIds: [], launchSelectedAppIds: [] }, firstRunImportCompleted: input.firstRunImportCompleted ?? false, everythingCliPath: input.everythingCliPath, globalShortcutStatus: "registered", isRunningAsAdministrator: false, administratorStatusLoading: false, administratorRestartRequired: Boolean(input.runAsAdministrator) }),
   exportUiLayoutShareCode: async () => "",
   importUiLayoutShareCode: electronOnly,
   restartWithConfiguredPrivileges: electronOnly,
@@ -161,7 +161,7 @@ function App() {
   const [activeSection, setActiveSection] = useState<SectionId>(() => firstAppGroupId(fallbackGroups));
   const [selectedAppId, setSelectedAppId] = useState("");
   const [query, setQuery] = useState("");
-  const [preferences, setPreferences] = useState<AppPreferencesState>({ launchAtStartup: false, closeBehavior: "tray", globalShortcutEnabled: true, globalShortcut: "Ctrl+Shift+Space", uiTheme: "utility", wallpaperGlassIntensity: 55, wallpaperGlassVariant: "dark", runAsAdministrator: false, searchProvider: "everything", sortRunningAppsFirst: true, showAppNames: false, uiLayout: defaultUiLayoutPreferences, allAppsView: { orderedAppIds: [], launchSelectedAppIds: [] }, firstRunImportCompleted: false, globalShortcutStatus: "registered", isRunningAsAdministrator: false, administratorStatusLoading: false, administratorRestartRequired: false });
+  const [preferences, setPreferences] = useState<AppPreferencesState>({ launchAtStartup: false, closeBehavior: "tray", globalShortcutEnabled: true, globalShortcut: "Ctrl+Shift+Space", uiTheme: "apple", wallpaperGlassIntensity: 55, wallpaperGlassVariant: "dark", runAsAdministrator: false, searchProvider: "everything", sortRunningAppsFirst: true, showAppNames: false, uiLayout: defaultUiLayoutPreferences, allAppsView: { orderedAppIds: [], launchSelectedAppIds: [] }, firstRunImportCompleted: false, globalShortcutStatus: "registered", isRunningAsAdministrator: false, administratorStatusLoading: false, administratorRestartRequired: false });
   const [discoveredResults, setDiscoveredResults] = useState<DiscoveredAppCandidate[]>([]);
   const [installableResults, setInstallableResults] = useState<InstallableAppCandidate[]>([]);
   const [fileResults, setFileResults] = useState<EverythingSearchResult[]>([]);
@@ -886,13 +886,8 @@ function App() {
         if (result.errorCode === 2 || /路径|不存在/.test(result.message ?? "")) {
           setInvalidAppIds((current) => new Set(current).add(id));
           setError(result.message || "程序路径不存在，请重新选择启动程序。");
-          const nextApps = await api().pickExecutable(id);
-          setApps(nextApps);
-          setInvalidAppIds((current) => {
-            const next = new Set(current);
-            next.delete(id);
-            return next;
-          });
+          const app = runtimeApps.find((item) => item.id === id);
+          if (app) editApp(app);
           return;
         }
         setError(result.message || "启动失败，请检查程序路径和启动参数。");
@@ -1115,16 +1110,7 @@ function App() {
       setError(cleanErrorMessage(reason, "读取分组运行状态失败"));
     }
   };
-  const editApp = (app: AppEntry) => setEdit({ id: app.id, name: app.name, launchArgs: app.launchArgs ?? "", workingDirectory: app.workingDirectory ?? "" });
-  const pickExecutableForApp = useCallback(async (app: RuntimeApp) => {
-    await runAppAction(() => api().pickExecutable(app.id));
-    setInvalidAppIds((current) => {
-      if (!current.has(app.id)) return current;
-      const next = new Set(current);
-      next.delete(app.id);
-      return next;
-    });
-  }, [runAppAction]);
+  const editApp = (app: AppEntry) => setEdit({ id: app.id, name: app.name, executablePath: app.executablePath, launchArgs: app.launchArgs ?? "" });
   const runKeyboardAppAction = useCallback((app: RuntimeApp, key: string, shiftKey = false, menuPosition?: { x: number; y: number }) => {
     const action = resolveAppKeyboardAction({
       isRunning: app.metrics.isRunning,
@@ -1133,8 +1119,6 @@ function App() {
     }, key, shiftKey);
     if (action === "launching-feedback") {
       handleLaunchingFeedback(app);
-    } else if (action === "pick-executable") {
-      void pickExecutableForApp(app);
     } else if (action === "focus") {
       void focusAppWindow(app);
     } else if (action === "launch") {
@@ -1146,7 +1130,7 @@ function App() {
     } else if (action === "edit") {
       editApp(app);
     }
-  }, [focusAppWindow, invalidAppIds, pickExecutableForApp, toggleAppLaunchSelected]);
+  }, [focusAppWindow, invalidAppIds, toggleAppLaunchSelected]);
   const saveGroup = async (input: GroupInput & { id?: string }) => {
     try {
       setError("");
@@ -1347,11 +1331,11 @@ function App() {
       </section>
 
       {menu?.kind === "process" && processMenuItem ? <ProcessContextMenu state={menu} process={processMenuItem} onClose={closeMenu} onConfirm={setConfirm} onError={setError} /> : null}
-      {menu?.kind === "app" ? <AppContextMenu state={menu} app={runtimeApps.find((item) => item.id === menu.appId)} groups={appGroups} onClose={closeMenu} onLaunch={launchApp} onKill={requestCloseApp} onPick={(app) => void runAppAction(() => api().pickExecutable(app.id))} onEdit={editApp} onMove={activeSection === "settings" ? moveAppWithinSettings : moveAppToGroup} onRemove={(app) => setConfirm({ title: "移除应用", message: `确定从 Start Engineer 中移除 ${app.name} 吗？本地程序文件不会被删除。`, confirmLabel: "移除应用", onConfirm: async () => { await runAppAction(() => api().removeApp(app.id)); setSelectedAppId(""); } })} onNotice={setNotice} onError={setError} /> : null}
+      {menu?.kind === "app" ? <AppContextMenu state={menu} app={runtimeApps.find((item) => item.id === menu.appId)} groups={appGroups} onClose={closeMenu} onLaunch={launchApp} onKill={requestCloseApp} onEdit={editApp} onMove={activeSection === "settings" ? moveAppWithinSettings : moveAppToGroup} onRemove={(app) => setConfirm({ title: "移除应用", message: `确定从 Start Engineer 中移除 ${app.name} 吗？本地程序文件不会被删除。`, confirmLabel: "移除应用", onConfirm: async () => { await runAppAction(() => api().removeApp(app.id)); setSelectedAppId(""); } })} onNotice={setNotice} onError={setError} /> : null}
       {menu?.kind === "group" ? <GroupContextMenu state={menu} groups={appGroups} onClose={closeMenu} onCreate={() => setGroupEdit({ name: "", icon: "grid" })} onEdit={(group) => setGroupEdit({ id: group.id, name: group.name, icon: group.icon })} onDelete={requestDeleteGroup} onReorder={reorderGroups} /> : null}
       {confirm ? <ConfirmDialog state={confirm} onClose={() => setConfirm(null)} onError={(message) => { setConfirm(null); setError(cleanErrorMessage(message)); }} /> : null}
       {importCandidates.length ? <FirstRunImportDialog candidates={importCandidates} selectedIds={selectedImportIds} busy={importingApps} onToggle={(id) => setSelectedImportIds((current) => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next; })} onSkip={dismissFirstRunImport} onImport={importSelectedApps} /> : null}
-      {edit ? <AppEditDialog state={edit} onClose={() => setEdit(null)} onSave={(input) => runAppAction(() => api().updateApp(input))} /> : null}
+      {edit ? <AppEditDialog state={edit} onClose={() => setEdit(null)} onPickExecutable={(id) => api().pickExecutable(id)} onSave={(input) => runAppAction(() => api().updateApp(input))} /> : null}
       {groupEdit ? <GroupEditDialog state={groupEdit} onClose={() => setGroupEdit(null)} onSave={saveGroup} /> : null}
       {groupDelete ? <GroupDeleteDialog state={groupDelete} groups={appGroups} appCount={apps.filter((item) => item.groupId === groupDelete.groupId).length} onChangeTarget={(targetGroupId) => setGroupDelete({ ...groupDelete, targetGroupId })} onClose={() => setGroupDelete(null)} onConfirm={removeGroup} /> : null}
       {drag && draggedApp ? <div className="drag-preview app-card-drag-preview no-drag" style={{ left: drag.x - drag.grabOffsetX, top: drag.y - drag.grabOffsetY, width: drag.width, height: drag.height }}>{draggedApp.iconDataUrl ? <img src={draggedApp.iconDataUrl} alt="" /> : <Icon name="grid" />}<span>{draggedApp.name}</span></div> : null}
@@ -1382,7 +1366,7 @@ function ProcessContextMenu({ state, process, onClose, onConfirm, onError }: { s
   return <ContextMenu x={state.x} y={state.y} onClose={onClose}><div className="process-menu-header"><strong>{item.name}</strong><span>{item.isEnded ? "进程已结束" : `${item.processCount} 个进程`}</span></div><MenuDivider /><MenuButton disabled={!item.canTerminate || item.isEnded} title={item.terminationBlockedReason} danger onClick={() => { onClose(); onConfirm({ title: "结束进程组", message: `确定结束 ${item.name} 的 ${item.pids.length} 个进程吗？`, confirmLabel: "结束进程组", onConfirm: () => api().killProcessGroup({ name: item.name, pids: item.pids }) }); }}>结束进程组</MenuButton><MenuButton disabled={!item.exePath} onClick={() => { onClose(); if (item.exePath) void api().showItemInFolder(item.exePath).catch((reason) => onError(reason.message)); }}>打开文件所在位置</MenuButton><MenuDivider /><MenuButton onClick={() => void copy(item.name)}>复制进程名称</MenuButton><MenuButton disabled={!item.exePath} onClick={() => item.exePath && void copy(item.exePath)}>复制文件路径</MenuButton><MenuButton disabled={item.isEnded} onClick={() => void copy(item.pids.join(", "))}>复制 PID</MenuButton></ContextMenu>;
 }
 
-function AppContextMenu({ state, app, groups, onClose, onLaunch, onKill, onPick, onEdit, onMove, onRemove, onNotice, onError }: { state: Extract<MenuState, { kind: "app" }>; app?: RuntimeApp; groups: AppGroup[]; onClose: () => void; onLaunch: (id: string) => void; onKill: (app: RuntimeApp) => void; onPick: (app: RuntimeApp) => void; onEdit: (app: RuntimeApp) => void; onMove: (id: string, group: AppGroupId) => Promise<void>; onRemove: (app: RuntimeApp) => void; onNotice: (message: string) => void; onError: (message: string) => void }) {
+export function AppContextMenu({ state, app, groups, onClose, onLaunch, onKill, onEdit, onMove, onRemove, onNotice, onError }: { state: Extract<MenuState, { kind: "app" }>; app?: RuntimeApp; groups: AppGroup[]; onClose: () => void; onLaunch: (id: string) => void; onKill: (app: RuntimeApp) => void; onEdit: (app: RuntimeApp) => void; onMove: (id: string, group: AppGroupId) => Promise<void>; onRemove: (app: RuntimeApp) => void; onNotice: (message: string) => void; onError: (message: string) => void }) {
   const [windows, setWindows] = useState<AppWindowInfo[] | null>(null);
   const windowDependencyKey = app ? [
     app.id,
@@ -1440,7 +1424,6 @@ function AppContextMenu({ state, app, groups, onClose, onLaunch, onKill, onPick,
     <MenuButton disabled={!app.metrics.isRunning} danger onClick={() => invoke(() => onKill(app))}>结束进程</MenuButton>
     <MenuButton disabled={!app.executablePath} onClick={() => { onClose(); void api().showItemInFolder(app.executablePath).catch((reason) => onError(reason.message)); }}>打开文件所在位置</MenuButton>
     <MenuDivider />
-    <MenuButton onClick={() => invoke(() => onPick(app))}>修改启动程序</MenuButton>
     <MenuButton onClick={() => invoke(() => onEdit(app))}>编辑应用信息</MenuButton>
     <div className="menu-label">移动到分组</div>
     {groups.map((group) => <MenuButton key={group.id} disabled={app.groupId === group.id} onClick={() => { onClose(); void onMove(app.id, group.id); }}>{group.name}{app.groupId === group.id ? "（当前）" : ""}</MenuButton>)}
@@ -1499,12 +1482,32 @@ export function SearchResultsPanel({ query, loading, error, selectedIndex, manag
   </div>;
 }
 
-function AppEditDialog({ state, onClose, onSave }: { state: EditState; onClose: () => void; onSave: (input: UpdateAppInput) => Promise<void> }) {
+export function AppEditDialog({ state, onClose, onPickExecutable, onSave }: { state: EditState; onClose: () => void; onPickExecutable: (id: string) => Promise<string | null>; onSave: (input: UpdateAppInput) => Promise<void> }) {
   const [form, setForm] = useState(state!);
   const [busy, setBusy] = useState(false);
+  const [selectingProgram, setSelectingProgram] = useState(false);
+  const [selectionError, setSelectionError] = useState("");
   if (!form) return null;
-  const save = async () => { if (!form.name.trim()) return; setBusy(true); await onSave({ id: form.id, name: form.name.trim(), launchArgs: form.launchArgs.trim() || undefined, workingDirectory: form.workingDirectory.trim() || undefined }); onClose(); };
-  return <div className="modal-backdrop no-drag" onPointerDown={onClose}><form className="dialog edit-dialog" onSubmit={(event) => { event.preventDefault(); void save(); }} onPointerDown={(event) => event.stopPropagation()}><h2>编辑应用信息</h2><label>名称<input autoFocus value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label><label>启动参数<input value={form.launchArgs} onChange={(event) => setForm({ ...form, launchArgs: event.target.value })} placeholder="例如：--silent" /></label><label>工作目录<input value={form.workingDirectory} onChange={(event) => setForm({ ...form, workingDirectory: event.target.value })} placeholder="留空则使用程序所在目录" /></label><div className="dialog-actions"><button type="button" className="ghost" onClick={onClose}>取消</button><button type="submit" className="launch" disabled={busy || !form.name.trim()}>保存</button></div></form></div>;
+  const chooseExecutable = async () => {
+    setSelectionError("");
+    setSelectingProgram(true);
+    try {
+      const executablePath = await onPickExecutable(form.id);
+      if (executablePath) setForm((current) => current ? { ...current, executablePath } : current);
+    } catch (reason) {
+      setSelectionError(cleanErrorMessage(reason, "选择启动程序失败"));
+    } finally {
+      setSelectingProgram(false);
+    }
+  };
+  const save = async () => {
+    if (!form.name.trim()) return;
+    setBusy(true);
+    const input: UpdateAppInput = { id: form.id, name: form.name.trim(), executablePath: form.executablePath, launchArgs: form.launchArgs.trim() || undefined };
+    await onSave(input);
+    onClose();
+  };
+  return <div className="modal-backdrop no-drag" onPointerDown={onClose}><form className="dialog edit-dialog" onSubmit={(event) => { event.preventDefault(); void save(); }} onPointerDown={(event) => event.stopPropagation()}><h2>编辑应用信息</h2><label>名称<input autoFocus value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label><label>启动程序<span className="executable-picker"><input value={form.executablePath} readOnly title={form.executablePath} /><button type="button" className="ghost" onClick={() => void chooseExecutable()} disabled={busy || selectingProgram}>{selectingProgram ? "选择中..." : "选择程序"}</button></span></label><label>启动参数<input value={form.launchArgs} onChange={(event) => setForm({ ...form, launchArgs: event.target.value })} placeholder="例如：--silent" /></label>{selectionError ? <p className="dialog-error">{selectionError}</p> : null}<div className="dialog-actions"><button type="button" className="ghost" onClick={onClose} disabled={busy || selectingProgram}>取消</button><button type="submit" className="launch" disabled={busy || selectingProgram || !form.name.trim() || !form.executablePath}>保存</button></div></form></div>;
 }
 function SettingsPage({ apps, groups, preferences, onPreferencesChange, onWallpaperIntensityPreview, onThemeChange, onPickEverythingCli, onAdd, onAddToGroup, onCreate, onEdit, onDelete, onReorder, onOpenApp, onAppContextMenu, onMoveApp }: { apps: RuntimeApp[]; groups: AppGroup[]; preferences: AppPreferencesState; onPreferencesChange: (input: UpdatePreferencesInput) => Promise<AppPreferencesState>; onWallpaperIntensityPreview: (value: WallpaperGlassIntensity) => void; onThemeChange: (theme: UiTheme) => Promise<AppPreferencesState>; onPickEverythingCli: () => void; onAdd: () => void; onAddToGroup: (id: string) => void; onCreate: () => void; onEdit: (group: AppGroup) => void; onDelete: (id: string) => void; onReorder: (ids: string[]) => Promise<boolean>; onOpenApp: (app: RuntimeApp) => void; onAppContextMenu: (event: React.MouseEvent, app: RuntimeApp) => void; onMoveApp: (appId: string, groupId: string) => Promise<void> }) {
   const [ordered, setOrdered] = useState(groups);

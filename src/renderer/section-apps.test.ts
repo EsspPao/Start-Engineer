@@ -46,6 +46,12 @@ describe("section apps", () => {
     expect(appSectionApps("all-apps", [app("steam", "games"), app("notion", "office"), app("wechat", "office")], ["wechat", "steam"]).map((item) => item.id)).toEqual(["wechat", "steam", "notion"]);
   });
 
+  it("deduplicates apps with the same executable path in the all apps section", () => {
+    const gamesSteam = app("steam-games", "games");
+    const officeSteam = { ...app("steam-office", "office"), executablePath: gamesSteam.executablePath };
+    expect(appSectionApps("all-apps", [gamesSteam, officeSteam, app("notion", "office")], ["steam-office"]).map((item) => item.id)).toEqual(["steam-office", "notion"]);
+  });
+
   it("decorates all apps launch selection without changing the source app selection", () => {
     const source = [app("steam", "games"), { ...app("notion", "office"), launchSelected: true }];
     const decorated = decorateAllAppsLaunchSelection(source, ["steam"]);

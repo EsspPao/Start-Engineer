@@ -21,7 +21,7 @@ describe("app card interaction rules", () => {
     expect(resolveAppKeyboardAction({ isRunning: false, isLaunching: false, isInvalid: false }, "Enter")).toBe("launch");
     expect(resolveAppKeyboardAction({ isRunning: true, isLaunching: false, isInvalid: false }, "Enter")).toBe("focus");
     expect(resolveAppKeyboardAction({ isRunning: false, isLaunching: true, isInvalid: false }, "Enter")).toBe("launching-feedback");
-    expect(resolveAppKeyboardAction({ isRunning: false, isLaunching: false, isInvalid: true }, "Enter")).toBe("pick-executable");
+    expect(resolveAppKeyboardAction({ isRunning: false, isLaunching: false, isInvalid: true }, "Enter")).toBe("edit");
   });
 
   it("resolves keyboard secondary app actions", () => {

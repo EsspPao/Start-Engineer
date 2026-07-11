@@ -3,6 +3,7 @@ import {
   collectFocusCandidateStages,
   findFocusWindowCandidateForStages,
   focusWindowHandleDetailed,
+  isWeGameLikeApp,
   isWeChatLikeApp,
   listFocusWindowCandidatesForStages,
   restoreWeChatFromTray,
@@ -184,6 +185,12 @@ export class AppWindowManager {
       this.cache.delete(app.id);
     }
 
+    // WeGame owns its tray restoration flow. Restoring one of its renderer hosts
+    // directly can surface an empty black window instead of the main client.
+    if (isWeGameLikeApp(app)) {
+      return this.activateWeGameFromTray(app, requestId);
+    }
+
     const fastResult = await this.focusCandidate(app, "fast", fastStages, requestId);
     if (fastResult.focused) return { focused: true };
     if (requestId !== this.latestRequestId) return { focused: false, reason: "stale" };
@@ -243,6 +250,31 @@ export class AppWindowManager {
     });
     if (result.focused) this.cache.set(app.id, candidate);
     return result;
+  }
+
+  private async activateWeGameFromTray(app: AppEntry, requestId: number): Promise<FocusAppWindowResult> {
+    if (!this.dependencies.activateRunningApp) {
+      return { focused: false, reason: "fallbackRelaunchDisabled" };
+    }
+
+    const activation = await this.dependencies.activateRunningApp(app);
+    if (requestId !== this.latestRequestId) return { focused: false, reason: "stale" };
+    if (!activation.launched) {
+      this.lastAttempts.set(app.id, {
+        restoreMethod: "fallbackRelaunch",
+        restoreResult: "failed",
+        reason: "no-window"
+      });
+      return { focused: false, reason: "no-window" };
+    }
+
+    await (this.dependencies.waitAfterSafeActivation ?? defaultSafeActivationWait)();
+    if (requestId !== this.latestRequestId) return { focused: false, reason: "stale" };
+    this.lastAttempts.set(app.id, {
+      restoreMethod: "fallbackRelaunch",
+      restoreResult: "success"
+    });
+    return { focused: true };
   }
 
   private async safeActivateThenFocus(app: AppEntry, label: string, metrics: AppMetrics | undefined, requestId: number, previousReason?: FocusAppWindowResult["reason"]): Promise<FocusAppWindowResult> {

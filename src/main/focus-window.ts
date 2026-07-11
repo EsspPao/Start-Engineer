@@ -114,6 +114,11 @@ export function isWeChatLikeApp(app: AppEntry) {
   return haystack.includes("weixin") || haystack.includes("wechat") || haystack.includes("微信");
 }
 
+export function isWeGameLikeApp(app: AppEntry) {
+  const haystack = `${app.name} ${app.processName} ${app.executablePath} ${(app.processAliases ?? []).join(" ")}`.toLowerCase();
+  return haystack.includes("wegame") || haystack.includes("腾讯游戏平台");
+}
+
 function descendantPids(processes: FocusProcessSnapshot[], roots: number[]) {
   const candidates = new Set(validPids(roots));
   const descendants = new Set<number>();

@@ -1,7 +1,7 @@
 import type { AllAppsViewPreferences, AppPreferences, SearchProvider, UiTheme, WallpaperGlassIntensity, WallpaperGlassVariant, WindowBounds } from "../shared/types.js";
 import { defaultUiLayoutPreferences, normalizeUiLayoutPreferences } from "../shared/ui-layout-share.js";
 
-const supportedThemes = new Set<UiTheme>(["fluent", "midnight", "utility", "glass", "wallpaper", "system"]);
+const supportedThemes = new Set<UiTheme>(["apple", "fluent", "midnight", "utility", "glass", "wallpaper", "system"]);
 const supportedSearchProviders = new Set<SearchProvider>(["everything", "internal"]);
 const supportedWallpaperGlassVariants = new Set<WallpaperGlassVariant>(["dark", "light"]);
 
@@ -10,7 +10,7 @@ export const defaultPreferences: AppPreferences = {
   closeBehavior: "tray",
   globalShortcutEnabled: true,
   globalShortcut: "Ctrl+Shift+Space",
-  uiTheme: "utility",
+  uiTheme: "apple",
   wallpaperGlassIntensity: 55,
   wallpaperGlassVariant: "dark",
   runAsAdministrator: false,

@@ -27,6 +27,23 @@ export function orderAllApps<T extends { id: string }>(apps: T[], orderedAppIds:
   return ordered.length ? [...ordered, ...apps.filter((app) => !included.has(app.id))] : apps;
 }
 
+function normalizeExecutablePath(value: string) {
+  return value.trim().replace(/\//g, "\\").toLocaleLowerCase();
+}
+
+export function dedupeAllApps<T extends Pick<AppEntry, "id" | "executablePath">>(apps: T[]) {
+  const seen = new Set<string>();
+  const result: T[] = [];
+  for (const app of apps) {
+    const pathKey = normalizeExecutablePath(app.executablePath);
+    const key = pathKey || `id:${app.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(app);
+  }
+  return result;
+}
+
 export function decorateAllAppsLaunchSelection<T extends AppEntry>(apps: T[], selectedIds: string[]) {
   const selected = new Set(selectedIds);
   return apps.map((app) => ({ ...app, launchSelected: selected.has(app.id) }));
@@ -40,5 +57,5 @@ export function allAppsSelection(selectedIds: string[], appId: string, selected:
 }
 
 export function appSectionApps(activeSection: SectionId, apps: RuntimeApp[], allAppsOrder: string[] = []) {
-  return activeSection === ALL_APPS_SECTION_ID ? orderAllApps(apps, allAppsOrder) : apps.filter((item) => item.groupId === activeSection);
+  return activeSection === ALL_APPS_SECTION_ID ? dedupeAllApps(orderAllApps(apps, allAppsOrder)) : apps.filter((item) => item.groupId === activeSection);
 }

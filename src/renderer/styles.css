@@ -477,6 +477,9 @@ button { border: 0; }
 .edit-dialog label { display: grid; gap: 6px; color: #4c5870; font-size: 11px; }
 .edit-dialog input, .edit-dialog select { height: 39px; border: 1px solid rgba(115,131,166,.22); border-radius: var(--radius-control); outline: none; color: var(--ink); background: rgba(255,255,255,.68); padding: 0 11px; font-size: 12px; box-shadow: inset 0 1px 0 rgba(255,255,255,.8); }
 .edit-dialog input:focus, .edit-dialog select:focus { border-color: rgba(88,101,242,.48); box-shadow: 0 0 0 3px rgba(88,101,242,.1), inset 0 1px 0 white; }
+.executable-picker { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; }
+.executable-picker input { min-width: 0; }
+.executable-picker button { white-space: nowrap; }
 .icon-picker { margin: 0; border: 0; padding: 0; }
 .icon-picker legend { margin-bottom: 7px; color: #4c5870; font-size: 11px; }
 .icon-picker > div { display: grid; grid-template-columns: repeat(6,39px); gap: 7px; }
@@ -645,6 +648,10 @@ button { border: 0; }
 .theme-card-copy small { min-height: 26px; color: var(--ink-muted); font-size: 9px; line-height: 1.4; }
 .theme-check { position: absolute; top: 13px; right: 13px; display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; color: white; background: var(--accent); box-shadow: 0 3px 8px rgba(0,0,0,.18); opacity: 0; transform: scale(.7); font-size: 10px; transition: opacity 150ms ease, transform 150ms var(--ease); }
 .theme-card.selected .theme-check { opacity: 1; transform: scale(1); }
+.theme-apple .theme-preview { background: #f5f5f7; }
+.theme-apple .theme-preview i { background: #000; }
+.theme-apple .theme-preview b { background: #fff; }
+.theme-apple .theme-preview em { background: #fff; box-shadow: inset 2px 0 #0066cc; }
 .theme-fluent .theme-preview { background: #eef3f9; }
 .theme-fluent .theme-preview i { background: #dce7f4; }
 .theme-fluent .theme-preview b { background: #f9fbfd; }
@@ -682,6 +689,360 @@ button { border: 0; }
 .wallpaper-variant-control button.selected { color: white; background: var(--accent); box-shadow: 0 6px 16px color-mix(in srgb,var(--accent) 26%,transparent); }
 .wallpaper-intensity-slider input:disabled,
 .wallpaper-variant-control button:disabled { cursor: wait; opacity: .6; }
+
+/* Apple Gallery */
+:root[data-theme="apple"] {
+  --ink: #1d1d1f;
+  --ink-soft: #333;
+  --ink-muted: #7a7a7a;
+  --accent: #0066cc;
+  --accent-2: #0066cc;
+  --cyan: #0066cc;
+  --danger: #d70015;
+  --success: #248a3d;
+  --glass: #fff;
+  --glass-strong: #fff;
+  --glass-soft: #f5f5f7;
+  --line: #e0e0e0;
+  --line-bright: #f0f0f0;
+  --shadow-panel: none;
+  --shadow-float: none;
+  --liquid-button-border: #0066cc;
+  --liquid-button-highlight: transparent;
+  --liquid-button-glass: #fafafc;
+  --liquid-button-glass-hover: #fff;
+  --liquid-button-shadow: none;
+  --liquid-primary-shadow: none;
+  --radius-window: 0;
+  --radius-panel: 18px;
+  --radius-control: 999px;
+  --radius-small: 8px;
+}
+:root[data-theme="apple"] body::after,
+:root[data-theme="apple"] .app-shell::before,
+:root[data-theme="apple"] .sidebar::before,
+:root[data-theme="apple"] .topbar::before,
+:root[data-theme="apple"] .app-card::before {
+  display: none;
+}
+:root[data-theme="apple"] .app-shell {
+  grid-template-columns: 216px minmax(0, 1fr);
+  gap: 0;
+  color: #1d1d1f;
+  background: #f5f5f7;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Microsoft YaHei UI", sans-serif;
+}
+:root[data-theme="apple"] .sidebar,
+:root[data-theme="apple"] .topbar,
+:root[data-theme="apple"] .content,
+:root[data-theme="apple"] .context-menu,
+:root[data-theme="apple"] .dialog,
+:root[data-theme="apple"] .toast,
+:root[data-theme="apple"] .drag-preview,
+:root[data-theme="apple"] .group-sort-preview,
+:root[data-theme="apple"] .search-results-panel {
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+:root[data-theme="apple"] .sidebar {
+  grid-template-rows: 82px minmax(0, 1fr) 58px;
+  border: 0;
+  border-right: 1px solid #1f1f21;
+  color: #fff;
+  background: #000;
+  padding: 12px 10px 10px;
+}
+:root[data-theme="apple"] .brand-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  box-shadow: none;
+}
+:root[data-theme="apple"] .nav { gap: 2px; padding-right: 0; }
+:root[data-theme="apple"] .nav-divider {
+  height: 1px;
+  margin: 10px 8px;
+  background: rgba(255,255,255,.18);
+  box-shadow: none;
+}
+:root[data-theme="apple"] .nav-button {
+  height: 38px;
+  border: 0;
+  border-radius: 8px;
+  color: #ccc;
+  background: transparent;
+  font-size: 12px;
+}
+:root[data-theme="apple"] .nav-button:hover {
+  color: #fff;
+  background: rgba(255,255,255,.1);
+  transform: none;
+}
+:root[data-theme="apple"] .nav-button.active {
+  color: #fff;
+  background: #1d1d1f;
+  box-shadow: none;
+  font-weight: 600;
+}
+:root[data-theme="apple"] .nav-button.drop-active {
+  color: #fff;
+  background: rgba(0,102,204,.42);
+  box-shadow: none;
+}
+:root[data-theme="apple"] .window {
+  grid-template-rows: 64px minmax(0, 1fr);
+  background: #f5f5f7;
+}
+:root[data-theme="apple"] .topbar {
+  grid-template-columns: 190px minmax(260px, 1fr) auto;
+  border: 0;
+  border-bottom: 1px solid rgba(0,0,0,.08);
+  background: rgba(245,245,247,.86);
+  padding: 10px 16px;
+}
+:root[data-theme="apple"] .page-heading h1 {
+  color: #1d1d1f;
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+:root[data-theme="apple"] .page-heading span,
+:root[data-theme="apple"] .settings-heading p,
+:root[data-theme="apple"] .preference-row small,
+:root[data-theme="apple"] .group-manager-title small,
+:root[data-theme="apple"] .search-result-row small,
+:root[data-theme="apple"] .search-result-row em {
+  color: #7a7a7a;
+}
+:root[data-theme="apple"] .searchbar label {
+  height: 44px;
+  border: 1px solid rgba(0,0,0,.08);
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: none;
+}
+:root[data-theme="apple"] .searchbar label:focus-within {
+  border-color: #0071e3;
+  background: #fff;
+  box-shadow: 0 0 0 2px #0071e3;
+}
+:root[data-theme="apple"] .searchbar input {
+  color: #1d1d1f;
+  font-size: 17px;
+}
+:root[data-theme="apple"] .search-button,
+:root[data-theme="apple"] .launch {
+  min-height: 38px;
+  border: 0;
+  border-radius: 999px;
+  color: #fff;
+  background: #0066cc;
+  box-shadow: none;
+  font-size: 14px;
+  font-weight: 400;
+}
+:root[data-theme="apple"] .search-button:hover:not(:disabled),
+:root[data-theme="apple"] .launch:hover:not(:disabled) {
+  background: #0071e3;
+  transform: none;
+}
+:root[data-theme="apple"] .search-button:active,
+:root[data-theme="apple"] .launch:active,
+:root[data-theme="apple"] button:active {
+  transform: scale(.98);
+}
+:root[data-theme="apple"] .window-controls button,
+:root[data-theme="apple"] .ghost,
+:root[data-theme="apple"] .shortcut-reset,
+:root[data-theme="apple"] .search-result-row button,
+:root[data-theme="apple"] .drag-handle,
+:root[data-theme="apple"] .icon-action,
+:root[data-theme="apple"] .group-app-empty button {
+  border: 1px solid rgba(0,0,0,.04);
+  border-radius: 11px;
+  color: #0066cc;
+  background: #fafafc;
+  box-shadow: none;
+}
+:root[data-theme="apple"] .window-controls button:hover,
+:root[data-theme="apple"] .ghost:hover:not(:disabled),
+:root[data-theme="apple"] .shortcut-reset:hover:not(:disabled),
+:root[data-theme="apple"] .search-result-row button:hover:not(:disabled),
+:root[data-theme="apple"] .drag-handle:hover,
+:root[data-theme="apple"] .icon-action:hover,
+:root[data-theme="apple"] .group-app-empty button:hover {
+  color: #0071e3;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px rgba(0,102,204,.22);
+  transform: none;
+}
+:root[data-theme="apple"] .window-controls .close:hover {
+  color: #fff;
+  background: #d70015;
+  box-shadow: none;
+}
+:root[data-theme="apple"] .content {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: #f5f5f7;
+  padding: 24px;
+}
+:root[data-theme="apple"] .app-grid {
+  justify-content: start;
+}
+:root[data-theme="apple"] .app-card {
+  border: 1px solid #e0e0e0;
+  border-radius: 18px;
+  color: #1d1d1f;
+  background: #fff;
+  box-shadow: none;
+  transition: border-color 160ms ease, background 160ms ease, transform 160ms var(--ease);
+}
+:root[data-theme="apple"] .app-card:hover {
+  border-color: rgba(0,102,204,.3);
+  background: #fff;
+  box-shadow: none;
+  transform: translateY(-2px);
+}
+:root[data-theme="apple"] .app-card.current {
+  border-color: #0071e3;
+  background: #fff;
+  box-shadow: 0 0 0 2px #0071e3;
+}
+:root[data-theme="apple"] .app-card-wrap.launch-selected .app-card {
+  border-color: #0066cc;
+}
+:root[data-theme="apple"] .app-icon {
+  filter: drop-shadow(3px 5px 18px rgba(0,0,0,.16));
+}
+:root[data-theme="apple"] .app-name {
+  color: #1d1d1f;
+  font-size: 14px;
+  font-weight: 600;
+}
+:root[data-theme="apple"] .app-check {
+  border-color: #e0e0e0;
+  background: #fafafc;
+  box-shadow: none;
+}
+:root[data-theme="apple"] .app-card-wrap.launch-selected .app-check {
+  border-color: #0066cc;
+  background: #0066cc;
+  box-shadow: none;
+}
+:root[data-theme="apple"] .running-dot {
+  width: 9px;
+  height: 9px;
+  border: 2px solid #fff;
+  background: #248a3d;
+  box-shadow: 0 0 0 3px rgba(36,138,61,.14);
+}
+:root[data-theme="apple"] .running-status-button:hover,
+:root[data-theme="apple"] .running-status-button:focus-visible {
+  border-color: #d70015;
+  background: #d70015;
+  box-shadow: none;
+}
+:root[data-theme="apple"] .group-actions .group-close {
+  color: #d70015;
+  border-color: rgba(215,0,21,.18);
+  background: #fff;
+}
+:root[data-theme="apple"] .settings-collapsible,
+:root[data-theme="apple"] .preference-row,
+:root[data-theme="apple"] .dependency-status,
+:root[data-theme="apple"] .group-manager-item,
+:root[data-theme="apple"] .theme-card,
+:root[data-theme="apple"] .process-table,
+:root[data-theme="apple"] .search-results-panel,
+:root[data-theme="apple"] .context-menu,
+:root[data-theme="apple"] .dialog {
+  border: 1px solid #e0e0e0;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: none;
+}
+:root[data-theme="apple"] .settings-collapse-toggle:hover,
+:root[data-theme="apple"] .search-result-row:hover,
+:root[data-theme="apple"] .search-result-row.selected,
+:root[data-theme="apple"] .menu-item:hover:not(:disabled),
+:root[data-theme="apple"] .group-manager-main:hover,
+:root[data-theme="apple"] .group-app-item:hover {
+  color: #1d1d1f;
+  background: #f5f5f7;
+}
+:root[data-theme="apple"] .preference-options,
+:root[data-theme="apple"] .segmented,
+:root[data-theme="apple"] .wallpaper-intensity-control > div,
+:root[data-theme="apple"] .wallpaper-variant-control > div {
+  border: 1px solid #e0e0e0;
+  border-radius: 999px;
+  background: #f5f5f7;
+  box-shadow: none;
+}
+:root[data-theme="apple"] .preference-options button,
+:root[data-theme="apple"] .segmented button,
+:root[data-theme="apple"] .wallpaper-variant-control button {
+  border-radius: 999px;
+}
+:root[data-theme="apple"] .preference-options button.selected,
+:root[data-theme="apple"] .segmented .selected,
+:root[data-theme="apple"] .wallpaper-variant-control button.selected {
+  color: #fff;
+  background: #0066cc;
+  box-shadow: none;
+}
+:root[data-theme="apple"] .setting-switch {
+  background: #d2d2d7;
+  box-shadow: none;
+}
+:root[data-theme="apple"] .setting-switch.enabled {
+  background: #0066cc;
+  box-shadow: none;
+}
+:root[data-theme="apple"] .process-table {
+  overflow: auto;
+}
+:root[data-theme="apple"] .process-row.virtual,
+:root[data-theme="apple"] .process-row.virtual:nth-child(even) {
+  background: #fff;
+}
+:root[data-theme="apple"] .process-row.virtual:hover {
+  background: #f5f5f7;
+}
+:root[data-theme="apple"] .process-row.header {
+  background: #fafafc;
+}
+:root[data-theme="apple"] .process-row.locked {
+  background: #eef6ff !important;
+  box-shadow: inset 3px 0 #0066cc;
+}
+:root[data-theme="apple"] .process-icon,
+:root[data-theme="apple"] .group-manager-icon,
+:root[data-theme="apple"] .import-spark {
+  color: #fff;
+  background: #1d1d1f;
+  box-shadow: none;
+}
+:root[data-theme="apple"] .toast {
+  color: #d70015;
+  border-color: rgba(215,0,21,.2);
+  background: #fff;
+}
+:root[data-theme="apple"] .toast.info {
+  color: #333;
+  border-color: #e0e0e0;
+  background: #fff;
+}
+:root[data-theme="apple"] .file-drop-overlay {
+  border-color: #0066cc;
+  background: rgba(245,245,247,.82);
+}
+:root[data-theme="apple"] .modal-backdrop {
+  background: rgba(0,0,0,.28);
+}
 
 /* Fluent Task Center */
 :root[data-theme="fluent"] {
@@ -981,12 +1342,114 @@ button { border: 0; }
   --liquid-button-shadow: inset 0 1px 0 rgba(255,255,255,.1), inset 0 -1px 0 rgba(0,0,0,.12), 0 10px 24px rgba(0,0,0,.16);
 }
 
+/* UI layout tones are applied after theme palettes so the setting stays visible. */
+:root[data-theme] .app-shell[data-ui-background-tone="aurora"] {
+  background:
+    radial-gradient(circle at 10% 10%, rgba(67, 214, 209, 0.32), transparent 28%),
+    radial-gradient(circle at 92% 8%, rgba(143, 99, 246, 0.3), transparent 30%),
+    linear-gradient(135deg, rgba(235, 251, 255, 0.96), rgba(244, 239, 255, 0.96));
+}
+:root[data-theme] .app-shell[data-ui-background-tone="graphite"] {
+  background:
+    radial-gradient(circle at 14% 12%, rgba(91, 110, 139, 0.28), transparent 28%),
+    linear-gradient(135deg, rgba(235, 241, 247, 0.97), rgba(220, 226, 235, 0.95));
+}
+:root[data-theme] .app-shell[data-ui-background-tone="mist"] {
+  background:
+    radial-gradient(circle at 12% 8%, rgba(144, 205, 244, 0.28), transparent 30%),
+    linear-gradient(135deg, rgba(245, 251, 255, 0.98), rgba(232, 243, 255, 0.96));
+}
+:root:not([data-theme="midnight"]):not([data-theme="wallpaper"]) .app-shell[data-ui-background-tone="aurora"] .content { background: rgba(240, 249, 255, 0.52); }
+:root:not([data-theme="midnight"]):not([data-theme="wallpaper"]) .app-shell[data-ui-background-tone="graphite"] .content { background: rgba(229, 234, 241, 0.58); }
+:root:not([data-theme="midnight"]):not([data-theme="wallpaper"]) .app-shell[data-ui-background-tone="mist"] .content { background: rgba(237, 247, 255, 0.58); }
+:root[data-theme="midnight"] .app-shell[data-ui-background-tone="aurora"] {
+  background:
+    radial-gradient(circle at 12% 10%, rgba(49, 209, 206, 0.22), transparent 30%),
+    radial-gradient(circle at 88% 6%, rgba(99, 140, 255, 0.2), transparent 32%),
+    #07111f;
+}
+:root[data-theme="midnight"] .app-shell[data-ui-background-tone="graphite"] {
+  background:
+    radial-gradient(circle at 10% 12%, rgba(120, 140, 166, 0.14), transparent 32%),
+    #0b111a;
+}
+:root[data-theme="midnight"] .app-shell[data-ui-background-tone="mist"] {
+  background:
+    radial-gradient(circle at 12% 8%, rgba(84, 168, 233, 0.18), transparent 32%),
+    #071522;
+}
+:root[data-theme="midnight"] .app-shell[data-ui-background-tone] .content { background: rgba(9, 21, 34, 0.9); }
+:root[data-theme="wallpaper"] .app-shell[data-ui-background-tone="aurora"] {
+  background:
+    radial-gradient(circle at 8% 12%, rgba(49, 209, 206, 0.18), transparent 30%),
+    radial-gradient(circle at 90% 8%, rgba(155, 124, 255, 0.18), transparent 32%),
+    linear-gradient(135deg,var(--wallpaper-shell),rgba(9,12,18,.44));
+}
+:root[data-theme="wallpaper"] .app-shell[data-ui-background-tone="graphite"] {
+  background:
+    radial-gradient(circle at 10% 10%, rgba(148, 163, 184, 0.12), transparent 32%),
+    linear-gradient(135deg,var(--wallpaper-shell),rgba(9,12,18,.5));
+}
+:root[data-theme="wallpaper"] .app-shell[data-ui-background-tone="mist"] {
+  background:
+    radial-gradient(circle at 8% 12%, rgba(104, 167, 255, 0.18), transparent 30%),
+    linear-gradient(135deg,var(--wallpaper-shell),rgba(20,35,54,.42));
+}
+:root[data-theme="wallpaper"][data-wallpaper-variant="light"] .app-shell[data-ui-background-tone="aurora"] {
+  background:
+    radial-gradient(circle at 8% 12%, rgba(36, 191, 213, 0.16), transparent 30%),
+    radial-gradient(circle at 90% 8%, rgba(139, 92, 246, 0.14), transparent 32%),
+    linear-gradient(135deg,var(--wallpaper-shell),rgba(236,244,255,.24));
+}
+:root[data-theme="wallpaper"][data-wallpaper-variant="light"] .app-shell[data-ui-background-tone="graphite"] {
+  background:
+    radial-gradient(circle at 10% 10%, rgba(100, 116, 139, 0.14), transparent 32%),
+    linear-gradient(135deg,var(--wallpaper-shell),rgba(226,232,240,.28));
+}
+:root[data-theme="wallpaper"][data-wallpaper-variant="light"] .app-shell[data-ui-background-tone="mist"] {
+  background:
+    radial-gradient(circle at 8% 12%, rgba(79, 125, 247, 0.14), transparent 30%),
+    linear-gradient(135deg,var(--wallpaper-shell),rgba(224,242,254,.28));
+}
+
 /* Keep selection unmistakable and consistent across every visual theme. */
 :root[data-theme] .app-card.current { border-color: #2563eb; background: linear-gradient(145deg,#f8fbff,#dbeafe); box-shadow: 0 0 0 3px rgba(37,99,235,.2),0 15px 32px rgba(37,99,235,.2),inset 0 1px 0 rgba(255,255,255,.9); }
 :root[data-theme] .app-card-wrap.launch-selected .app-check { color: white; border-color: #1d4ed8; background: #2563eb; box-shadow: 0 5px 14px rgba(37,99,235,.34); }
 :root[data-theme="midnight"] .app-card.current { border-color: #3b82f6; background: #112d55; box-shadow: 0 0 0 3px rgba(59,130,246,.24),0 14px 30px rgba(0,0,0,.28); }
 :root[data-theme="wallpaper"] .app-card.current { border-color: #60a5fa; background: rgba(37,99,235,.24); box-shadow: 0 0 0 3px rgba(96,165,250,.24),0 18px 42px rgba(0,0,0,.24),inset 0 1px 0 rgba(255,255,255,.14); }
 :root[data-theme="wallpaper"][data-wallpaper-variant="light"] .app-card.current { border-color: #4f7df7; background: rgba(79,125,247,.18); box-shadow: 0 0 0 3px rgba(79,125,247,.18),0 18px 42px rgba(68,80,112,.2),inset 0 1px 0 rgba(255,255,255,.72); }
+:root[data-theme="apple"] .search-button,
+:root[data-theme="apple"] .launch {
+  border: 0;
+  color: #fff;
+  background: #0066cc;
+  box-shadow: none;
+}
+:root[data-theme="apple"] .search-button:hover:not(:disabled),
+:root[data-theme="apple"] .launch:hover:not(:disabled) {
+  background: #0071e3;
+}
+:root[data-theme="apple"] .ghost,
+:root[data-theme="apple"] .shortcut-reset,
+:root[data-theme="apple"] .search-result-row button,
+:root[data-theme="apple"] .window-controls button,
+:root[data-theme="apple"] .drag-handle,
+:root[data-theme="apple"] .icon-action,
+:root[data-theme="apple"] .group-app-empty button {
+  border-color: rgba(0,0,0,.04);
+  background: #fafafc;
+  box-shadow: none;
+}
+:root[data-theme="apple"] .app-card.current {
+  border-color: #0071e3;
+  background: #fff;
+  box-shadow: 0 0 0 2px #0071e3;
+}
+:root[data-theme="apple"] .app-card-wrap.launch-selected .app-check {
+  border-color: #0066cc;
+  background: #0066cc;
+  box-shadow: none;
+}
 
 @media (max-width: 1160px) {
   .app-shell { grid-template-columns: 174px minmax(0,1fr); gap: 9px; padding: 0; }

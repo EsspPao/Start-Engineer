@@ -1327,28 +1327,8 @@ function registerIpc() {
   });
 
   ipcMain.handle("apps:pickExecutable", async (_event, id: string) => {
-    const filePath = await showExeDialog("选择应用启动程序");
-    if (!filePath) {
-      return loadApps();
-    }
-    runtimeAssociatedPids.delete(id);
-
-    const nextApps = await Promise.all(
-      loadApps().map(async (item) => {
-        if (item.id !== id) {
-          return item;
-        }
-
-        return cacheAppIcon({
-          ...item,
-          executablePath: filePath,
-          processName: basename(filePath, extname(filePath)),
-          workingDirectory: dirname(filePath)
-        });
-      })
-    );
-    saveApps(nextApps);
-    return nextApps;
+    if (!getApp(id)) throw new Error("未找到该应用配置。");
+    return showExeDialog("选择应用启动程序");
   });
 
   ipcMain.handle("apps:update", async (_event, input: UpdateAppInput) => {
@@ -1358,8 +1338,16 @@ function registerIpc() {
         if (item.id !== input.id) {
           return item;
         }
-        const next = { ...item, ...input };
-        return input.executablePath ? cacheAppIcon(next) : next;
+        const executableChanged = Boolean(input.executablePath && input.executablePath !== item.executablePath);
+        const next = executableChanged
+          ? {
+              ...item,
+              ...input,
+              processName: basename(input.executablePath!, extname(input.executablePath!)),
+              workingDirectory: Object.prototype.hasOwnProperty.call(input, "workingDirectory") ? input.workingDirectory : dirname(input.executablePath!)
+            }
+          : { ...item, ...input };
+        return executableChanged ? cacheAppIcon(next) : next;
       })
     );
     saveApps(nextApps);

@@ -118,6 +118,30 @@ describe("window-manager", () => {
     await expect(manager.focusAppWindow(app({ name: "Notion", executablePath: "C:\\Notion\\Notion.exe", processName: "Notion" }), metrics())).resolves.toEqual({ focused: false, reason: "no-window" });
   });
 
+  it("lets WeGame restore its own tray window instead of focusing a renderer host", async () => {
+    const runHelper = vi.fn(async () => {
+      throw new Error("window scanning must not run for WeGame tray restoration");
+    });
+    const activateRunningApp = vi.fn(async () => ({ launched: true }));
+    const waitAfterSafeActivation = vi.fn(async () => undefined);
+    const manager = new AppWindowManager({
+      runPowerShell: vi.fn(async () => "not-found"),
+      runWindowFocusHelper: runHelper,
+      getProcesses: vi.fn(async () => []),
+      activateRunningApp,
+      waitAfterSafeActivation
+    });
+
+    await expect(manager.focusAppWindow(app({
+      name: "WeGame",
+      executablePath: "E:\\WeGame\\wegame.exe",
+      processName: "wegame"
+    }), metrics())).resolves.toEqual({ focused: true });
+    expect(activateRunningApp).toHaveBeenCalledTimes(1);
+    expect(waitAfterSafeActivation).toHaveBeenCalledTimes(1);
+    expect(runHelper).not.toHaveBeenCalled();
+  });
+
   it("does not run the slow process fallback when runtime metrics already provide candidate pids", async () => {
     const getProcesses = vi.fn(async () => [{ pid: 102, name: "WeChatApp.exe", path: "C:\\Program Files\\Tencent\\WeChat\\WeChatApp.exe", parentPid: 100 }]);
     const manager = new AppWindowManager({
