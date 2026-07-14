@@ -31,12 +31,10 @@ describe("preferences", () => {
   it("normalizes independent all apps view preferences", () => {
     expect(normalizePreferences({
       allAppsView: {
-        orderedAppIds: ["wechat", "steam", "wechat", ""],
-        launchSelectedAppIds: ["steam", "notion", "steam", 42 as unknown as string]
+        orderedAppIds: ["wechat", "steam", "wechat", ""]
       }
     }).allAppsView).toEqual({
-      orderedAppIds: ["wechat", "steam"],
-      launchSelectedAppIds: ["steam", "notion"]
+      orderedAppIds: ["wechat", "steam"]
     });
   });
 

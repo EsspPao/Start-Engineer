@@ -44,18 +44,6 @@ export function dedupeAllApps<T extends Pick<AppEntry, "id" | "executablePath">>
   return result;
 }
 
-export function decorateAllAppsLaunchSelection<T extends AppEntry>(apps: T[], selectedIds: string[]) {
-  const selected = new Set(selectedIds);
-  return apps.map((app) => ({ ...app, launchSelected: selected.has(app.id) }));
-}
-
-export function allAppsSelection(selectedIds: string[], appId: string, selected: boolean) {
-  const current = new Set(selectedIds.filter(Boolean));
-  if (selected) current.add(appId);
-  else current.delete(appId);
-  return [...current];
-}
-
 export function appSectionApps(activeSection: SectionId, apps: RuntimeApp[], allAppsOrder: string[] = []) {
   return activeSection === ALL_APPS_SECTION_ID ? dedupeAllApps(orderAllApps(apps, allAppsOrder)) : apps.filter((item) => item.groupId === activeSection);
 }

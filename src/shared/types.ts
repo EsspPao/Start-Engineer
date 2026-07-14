@@ -18,7 +18,6 @@ export type AppEntry = {
   launchedPid?: number;
   processAliases?: string[];
   associatedPids?: number[];
-  launchSelected?: boolean;
 };
 
 export type AppGroup = {
@@ -106,11 +105,10 @@ export type UiLayoutPreferences = {
   showBatchActions: boolean;
   showSearchBar: boolean;
 };
-export type AppKeyboardShortcutId = "up" | "down" | "left" | "right" | "activate" | "toggleLaunch" | "cancel" | "edit" | "menu" | "search" | "previousGroup" | "nextGroup" | `group${1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9}`;
+export type AppKeyboardShortcutId = "up" | "down" | "left" | "right" | "activate" | "cancel" | "edit" | "menu" | "search" | "previousGroup" | "nextGroup" | `group${1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9}`;
 export type KeyboardShortcutPreferences = Record<AppKeyboardShortcutId, string[]>;
 export type AllAppsViewPreferences = {
   orderedAppIds: string[];
-  launchSelectedAppIds: string[];
 };
 export type AppPreferences = {
   launchAtStartup: boolean;
@@ -330,15 +328,13 @@ export type StartEngineerApi = {
   updateApp: (input: UpdateAppInput) => Promise<AppEntry[]>;
   setAppGroup: (id: string, groupId: AppEntry["groupId"]) => Promise<AppEntry[]>;
   reorderAppsInGroup: (groupId: AppEntry["groupId"], appIds: string[]) => Promise<AppEntry[]>;
-  setAppLaunchSelected: (id: string, selected: boolean) => Promise<AppEntry[]>;
-  setGroupLaunchSelected: (groupId: string, selected: boolean) => Promise<AppEntry[]>;
   launchApp: (id: string) => Promise<LaunchAppResult>;
   focusAppWindow: (id: string, hints?: FocusWindowHints) => Promise<FocusAppWindowResult>;
   focusAppWindowHandle: (id: string, handle: number, hints?: FocusWindowHints) => Promise<FocusAppWindowResult>;
   listAppWindows: (id: string, hints?: FocusWindowHints) => Promise<AppWindowInfo[]>;
   getAppWindowDiagnostics: (id: string, hints?: FocusWindowHints) => Promise<string>;
-  launchSelectedApps: (groupId: string) => Promise<BatchLaunchResult>;
   killApp: (id: string) => Promise<KillAppResult | AppEntry[]>;
+  killFolderApps: (folderId: string) => Promise<BatchKillResult>;
   killGroupApps: (groupId: string) => Promise<BatchKillResult>;
   removeApp: (id: string) => Promise<AppEntry[]>;
   killProcessGroup: (input: { name: string; pids: number[] }) => Promise<void>;

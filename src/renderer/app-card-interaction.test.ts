@@ -25,7 +25,6 @@ describe("app card interaction rules", () => {
   });
 
   it("resolves keyboard secondary app actions", () => {
-    expect(resolveAppKeyboardAction({ isRunning: false, isLaunching: false, isInvalid: false }, " ")).toBe("toggle-launch-selected");
     expect(resolveAppKeyboardAction({ isRunning: false, isLaunching: false, isInvalid: false }, "ContextMenu")).toBe("context-menu");
     expect(resolveAppKeyboardAction({ isRunning: false, isLaunching: false, isInvalid: false }, "F10", true)).toBe("context-menu");
     expect(resolveAppKeyboardAction({ isRunning: false, isLaunching: false, isInvalid: false }, "F2")).toBe("edit");

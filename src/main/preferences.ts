@@ -5,7 +5,7 @@ const supportedThemes = new Set<UiTheme>(["apple", "fluent", "midnight", "utilit
 const supportedSearchProviders = new Set<SearchProvider>(["everything", "internal"]);
 const supportedWallpaperGlassVariants = new Set<WallpaperGlassVariant>(["dark", "light"]);
 export const defaultKeyboardShortcuts: KeyboardShortcutPreferences = {
-  up: ["Up", "W"], down: ["Down", "S"], left: ["Left", "A"], right: ["Right", "D"], activate: ["Enter"], toggleLaunch: ["Space"], cancel: ["Esc"], edit: ["F2"], menu: ["Menu", "Shift+F10"], search: ["Ctrl+F"], previousGroup: ["Ctrl+Up", "Ctrl+W"], nextGroup: ["Ctrl+Down", "Ctrl+S"],
+  up: ["Up", "W"], down: ["Down", "S"], left: ["Left", "A"], right: ["Right", "D"], activate: ["Enter"], cancel: ["Esc"], edit: ["F2"], menu: ["Menu", "Shift+F10"], search: ["Ctrl+F"], previousGroup: ["Ctrl+Up", "Ctrl+W"], nextGroup: ["Ctrl+Down", "Ctrl+S"],
   group1: ["Ctrl+1"], group2: ["Ctrl+2"], group3: ["Ctrl+3"], group4: ["Ctrl+4"], group5: ["Ctrl+5"], group6: ["Ctrl+6"], group7: ["Ctrl+7"], group8: ["Ctrl+8"], group9: ["Ctrl+9"]
 };
 
@@ -23,7 +23,7 @@ export const defaultPreferences: AppPreferences = {
   showAppNames: false,
   keyboardShortcuts: defaultKeyboardShortcuts,
   uiLayout: defaultUiLayoutPreferences,
-  allAppsView: { orderedAppIds: [], launchSelectedAppIds: [] },
+  allAppsView: { orderedAppIds: [] },
   firstRunImportCompleted: false
 };
 
@@ -56,8 +56,7 @@ function normalizeAllAppsView(value: unknown): AllAppsViewPreferences {
   if (!value || typeof value !== "object") return defaultPreferences.allAppsView;
   const raw = value as Partial<AllAppsViewPreferences>;
   return {
-    orderedAppIds: normalizeStringList(raw.orderedAppIds),
-    launchSelectedAppIds: normalizeStringList(raw.launchSelectedAppIds)
+    orderedAppIds: normalizeStringList(raw.orderedAppIds)
   };
 }
 

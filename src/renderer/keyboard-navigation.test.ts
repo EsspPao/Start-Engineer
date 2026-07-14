@@ -36,6 +36,19 @@ describe("keyboard navigation", () => {
     expect(pickDirectionalApp(cards, "top-left", "left")).toBe("top-left");
   });
 
+  it("moves between normal apps and merged app cards in one visible grid", () => {
+    const cards = [
+      rect("app:steam", 0, 0),
+      rect("folder:games", 140, 0),
+      rect("app:codex", 280, 0),
+      rect("app:notion", 0, 120)
+    ];
+
+    expect(pickDirectionalApp(cards, "app:steam", "right")).toBe("folder:games");
+    expect(pickDirectionalApp(cards, "folder:games", "right")).toBe("app:codex");
+    expect(pickDirectionalApp(cards, "folder:games", "left")).toBe("app:steam");
+  });
+
   it("does not hijack text entry targets", () => {
     expect(isTextInputTarget({ tagName: "INPUT" } as unknown as EventTarget)).toBe(true);
     expect(isTextInputTarget({ tagName: "textarea" } as unknown as EventTarget)).toBe(true);

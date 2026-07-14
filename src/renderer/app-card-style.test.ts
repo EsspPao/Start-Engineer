@@ -52,6 +52,13 @@ describe("app card styles", () => {
     expect(styles).toContain("folder-batch-active");
   });
 
+  it("distinguishes partially running folders and emphasizes group actions", () => {
+    expect(styles).toMatch(/\.folder-running-status\.partial\s+\.running-dot\s*\{[^}]*conic-gradient\(#22c55e var\(--folder-running-progress/i);
+    expect(styles).toContain(".folder-member-launch.member-running");
+    expect(styles).toMatch(/\.group-actions\s+\.group-add-action[\s\S]*?height:\s*46px/i);
+    expect(styles).toMatch(/\.group-actions\s+\.group-close-action[\s\S]*?background:\s*color-mix\(in srgb,#fff1f3/i);
+  });
+
   it("applies a constrained liquid glass material to buttons without changing global focus behavior", () => {
     expect(styles).toContain("--liquid-button-highlight");
     expect(styles).toMatch(/\.search-button::before,\s*[\s\S]*?\.toast button::before\s*\{[\s\S]*?background:\s*linear-gradient\(180deg,var\(--liquid-button-highlight\),transparent\)/i);

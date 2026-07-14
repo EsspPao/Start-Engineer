@@ -1,5 +1,5 @@
 export type AppCardActivation = "select" | "focus" | "launch" | "launching-feedback";
-export type AppKeyboardAction = "focus" | "launch" | "launching-feedback" | "toggle-launch-selected" | "context-menu" | "edit";
+export type AppKeyboardAction = "focus" | "launch" | "launching-feedback" | "context-menu" | "edit";
 
 export function resolveAppCardActivation(state: { isRunning: boolean; isLaunching: boolean }, event: "single" | "double"): AppCardActivation[] {
   if (event === "single") {
@@ -17,7 +17,6 @@ export function resolveAppKeyboardAction(state: { isRunning: boolean; isLaunchin
     if (state.isInvalid && !state.isRunning) return "edit";
     return state.isRunning ? "focus" : "launch";
   }
-  if (key === " ") return "toggle-launch-selected";
   if (key === "ContextMenu" || (shiftKey && key === "F10")) return "context-menu";
   if (key === "F2") return "edit";
   return null;

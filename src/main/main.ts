@@ -1359,7 +1359,6 @@ function registerIpc() {
       folder.appIds.map(getApp).filter((item): item is AppEntry => Boolean(item)),
       (entry) => launchConfiguredApp(entry.id, { waitForAssociation: true }),
       {
-        includeUnselected: true,
         onProgress: (progress) => event.sender.send("folders:launch-progress", { folderId: id, ...progress } satisfies FolderLaunchProgress)
       }
     );
@@ -1526,20 +1525,6 @@ function registerIpc() {
     return nextApps;
   });
 
-  ipcMain.handle("apps:setLaunchSelected", (_event, id: string, selected: boolean) => {
-    if (!getApp(id)) throw new Error("未找到该应用配置。");
-    const nextApps = loadApps().map((item) => item.id === id ? { ...item, launchSelected: Boolean(selected) } : item);
-    saveApps(nextApps);
-    return nextApps;
-  });
-
-  ipcMain.handle("groups:setLaunchSelected", (_event, groupId: string, selected: boolean) => {
-    if (!loadAppGroups().some((group) => group.id === groupId)) throw new Error("分组不存在。");
-    const nextApps = loadApps().map((item) => item.groupId === groupId ? { ...item, launchSelected: Boolean(selected) } : item);
-    saveApps(nextApps);
-    return nextApps;
-  });
-
   ipcMain.handle("apps:launch", async (_event, id: string) => {
     const entry = getApp(id);
     if (!entry) {
@@ -1593,13 +1578,6 @@ function registerIpc() {
     return windowManager.diagnostics(entry, metricsFromFocusHints(entry.id, hints));
   });
 
-  ipcMain.handle("groups:launchSelected", async (_event, groupId: string) => {
-    if (!loadAppGroups().some((group) => group.id === groupId)) throw new Error("分组不存在。");
-    const groupApps = loadApps().filter((item) => item.groupId === groupId);
-    const results = await launchAppsSequentially(groupApps, (entry) => launchConfiguredApp(entry.id));
-    return { apps: loadApps(), results } satisfies BatchLaunchResult;
-  });
-
   ipcMain.handle("apps:kill", async (_event, id: string) => {
     const metrics = (await buildRuntimeSnapshot("managed", true)).metrics.find((item) => item.appId === id);
     const pids = metrics?.pids ?? [];
@@ -1619,6 +1597,36 @@ function registerIpc() {
     const nextApps = loadApps().map((item) => (item.id === id ? { ...item, launchedPid: undefined } : item));
     saveApps(nextApps);
     return { apps: nextApps, metrics: refreshed.metrics } satisfies KillAppResult;
+  });
+
+  ipcMain.handle("folders:killApps", async (_event, folderId: string) => {
+    const folder = loadFolders().find((item) => item.id === folderId);
+    if (!folder) throw new Error("合并应用卡片不存在。");
+    const memberIds = new Set(folder.appIds);
+    const folderApps = loadApps().filter((item) => memberIds.has(item.id));
+    const snapshot = await buildRuntimeSnapshot("managed", true);
+    const targets = collectGroupTermination(folderApps, snapshot.metrics);
+
+    for (const entry of targets.apps) {
+      const metric = snapshot.metrics.find((item) => item.appId === entry.id);
+      const blockedReason = getTerminationBlockReason(`${entry.processName || ""}.exe`, metric?.pids ?? []);
+      if (blockedReason) throw new Error(`${entry.name}：${blockedReason}`);
+    }
+
+    if (targets.pids.length) {
+      await terminatePids(targets.pids, { runNormal: runTaskkill, runElevated: runElevatedTaskkill, getRunningPids });
+    }
+
+    const refreshed = await buildRuntimeSnapshot("managed", true);
+    const refreshedByApp = new Map(refreshed.metrics.map((metric) => [metric.appId, metric]));
+    const results = targets.apps.map((entry) => refreshedByApp.get(entry.id)?.isRunning
+      ? { appId: entry.id, name: entry.name, status: "restarted" as const, message: "应用进程仍在运行，可能已被后台服务重新启动。" }
+      : { appId: entry.id, name: entry.name, status: "terminated" as const });
+    const stoppedIds = new Set(results.filter((item) => item.status === "terminated").map((item) => item.appId));
+    for (const id of stoppedIds) runtimeAssociatedPids.delete(id);
+    const nextApps = loadApps().map((item) => stoppedIds.has(item.id) ? { ...item, launchedPid: undefined } : item);
+    saveApps(nextApps);
+    return { apps: nextApps, results } satisfies BatchKillResult;
   });
 
   ipcMain.handle("groups:killApps", async (_event, groupId: string) => {

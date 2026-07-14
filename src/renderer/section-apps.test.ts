@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AppEntry, AppGroup, AppMetrics } from "../shared/types";
-import { allAppsSelection, appSectionApps, decorateAllAppsLaunchSelection, mergeAllAppsOrder, navigationSectionIds } from "./section-apps";
+import { appSectionApps, mergeAllAppsOrder, navigationSectionIds } from "./section-apps";
 
 type RuntimeApp = AppEntry & { metrics: AppMetrics };
 
@@ -52,20 +52,8 @@ describe("section apps", () => {
     expect(appSectionApps("all-apps", [gamesSteam, officeSteam, app("notion", "office")], ["steam-office"]).map((item) => item.id)).toEqual(["steam-office", "notion"]);
   });
 
-  it("decorates all apps launch selection without changing the source app selection", () => {
-    const source = [app("steam", "games"), { ...app("notion", "office"), launchSelected: true }];
-    const decorated = decorateAllAppsLaunchSelection(source, ["steam"]);
-    expect(decorated.map((item) => [item.id, item.launchSelected])).toEqual([["steam", true], ["notion", false]]);
-    expect(source.map((item) => [item.id, item.launchSelected])).toEqual([["steam", undefined], ["notion", true]]);
-  });
-
   it("merges all apps reorder changes without depending on source groups", () => {
     expect(mergeAllAppsOrder(["steam", "notion"], ["wechat", "steam", "steam", "ghost"], ["steam", "notion", "wechat"])).toEqual(["wechat", "steam", "notion"]);
-  });
-
-  it("updates all apps selection independently", () => {
-    expect(allAppsSelection(["steam"], "notion", true)).toEqual(["steam", "notion"]);
-    expect(allAppsSelection(["steam", "steam", "notion"], "steam", false)).toEqual(["notion"]);
   });
 
   it("returns only apps from a normal user group", () => {

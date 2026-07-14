@@ -22,7 +22,6 @@ export function migrateAppEntry(raw: Partial<AppEntry>, groupId: string, createI
     executablePath, processName, accent: raw.accent || "#2f66e8", iconCachePath: raw.iconCachePath,
     iconDataUrl: raw.iconDataUrl, iconCacheVersion: raw.iconCacheVersion, iconPixelSize: raw.iconPixelSize,
     launchArgs: raw.launchArgs, workingDirectory: raw.workingDirectory,
-    launchedPid: raw.launchedPid,
-    launchSelected: raw.launchSelected === true
+    launchedPid: raw.launchedPid
   };
 }

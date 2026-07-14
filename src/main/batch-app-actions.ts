@@ -1,7 +1,6 @@
 import type { AppEntry, AppMetrics, BatchLaunchItemResult, LaunchAppResult } from "../shared/types.js";
 
 type LaunchAppsSequentiallyOptions = {
-  includeUnselected?: boolean;
   onProgress?: (result: BatchLaunchItemResult | { appId: string; name: string; status: "launching" }) => void;
 };
 
@@ -12,7 +11,6 @@ export async function launchAppsSequentially(
 ): Promise<BatchLaunchItemResult[]> {
   const results: BatchLaunchItemResult[] = [];
   for (const app of apps) {
-    if (!options.includeUnselected && !app.launchSelected) continue;
     options.onProgress?.({ appId: app.id, name: app.name, status: "launching" });
     try {
       const result = await launch(app);

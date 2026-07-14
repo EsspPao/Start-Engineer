@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import type { AppEntry, AppFolder, AppMetrics, FolderLaunchVisualStatus } from "../shared/types";
+import type { AppEntry, AppFolder, AppMetrics, FolderLaunchVisualStatus, GroupGridItemId } from "../shared/types";
 import { GroupPage, ProcessPage, UnifiedGroupPage } from "./pages";
 
 type RuntimeApp = AppEntry & { metrics: AppMetrics };
@@ -28,7 +28,6 @@ const makeApp = (id: string, isRunning: boolean): RuntimeApp => ({
   processName: `${id}.exe`,
   accent: "#2563eb",
   iconDataUrl: "data:image/png;base64,icon",
-  launchSelected: id === "running",
   metrics: metrics(id, isRunning),
 });
 
@@ -37,15 +36,12 @@ const renderGroup = () => renderToStaticMarkup(createElement(GroupPage, {
   launchingAppIds: new Set<string>(),
   selectedAppId: "running",
   invalidAppIds: new Set<string>(),
-  selectedCount: 1,
   runningCount: 1,
   showAppNames: true,
   onSelectApp: vi.fn(),
   onFocusApp: vi.fn(),
   onLaunchApp: vi.fn(),
   onLaunchingFeedback: vi.fn(),
-  onToggleLaunchSelected: vi.fn(),
-  onLaunchSelected: vi.fn(),
   onCloseAll: vi.fn(),
   onAdd: vi.fn(),
   onContextMenu: vi.fn(),
@@ -75,7 +71,10 @@ describe("GroupPage", () => {
     expect(html).not.toContain("取消全选");
     expect(html).toContain("添加应用");
     expect(html).toContain("关闭全部");
-    expect(html).toContain("一键启动");
+    expect(html).not.toContain("一键启动");
+    expect(html).not.toContain('class="app-check"');
+    expect(html).toContain('class="launch group-add-action"');
+    expect(html).toContain('class="ghost group-close group-close-action"');
   });
 
   it("renders an immediate launching state for apps being started", () => {
@@ -84,15 +83,12 @@ describe("GroupPage", () => {
       launchingAppIds: new Set(["stopped"]),
       selectedAppId: "",
       invalidAppIds: new Set<string>(),
-      selectedCount: 0,
       runningCount: 0,
       showAppNames: true,
       onSelectApp: vi.fn(),
       onFocusApp: vi.fn(),
       onLaunchApp: vi.fn(),
       onLaunchingFeedback: vi.fn(),
-      onToggleLaunchSelected: vi.fn(),
-      onLaunchSelected: vi.fn(),
       onCloseAll: vi.fn(),
       onAdd: vi.fn(),
       onContextMenu: vi.fn(),
@@ -110,15 +106,12 @@ describe("GroupPage", () => {
       launchingAppIds: new Set<string>(),
       selectedAppId: "",
       invalidAppIds: new Set<string>(),
-      selectedCount: 0,
       runningCount: 0,
       showAppNames: false,
       onSelectApp: vi.fn(),
       onFocusApp: vi.fn(),
       onLaunchApp: vi.fn(),
       onLaunchingFeedback: vi.fn(),
-      onToggleLaunchSelected: vi.fn(),
-      onLaunchSelected: vi.fn(),
       onCloseAll: vi.fn(),
       onAdd: vi.fn(),
       onContextMenu: vi.fn(),
@@ -139,15 +132,12 @@ describe("GroupPage", () => {
       launchingAppIds: new Set<string>(),
       selectedAppId: "",
       invalidAppIds: new Set(["stopped"]),
-      selectedCount: 0,
       runningCount: 0,
       showAppNames: false,
       onSelectApp: vi.fn(),
       onFocusApp: vi.fn(),
       onLaunchApp: vi.fn(),
       onLaunchingFeedback: vi.fn(),
-      onToggleLaunchSelected: vi.fn(),
-      onLaunchSelected: vi.fn(),
       onCloseAll: vi.fn(),
       onAdd: vi.fn(),
       onContextMenu: vi.fn(),
@@ -164,11 +154,15 @@ describe("GroupPage", () => {
 describe("UnifiedGroupPage", () => {
   const folder: AppFolder = { id: "bundle", groupId: "tools", name: "多应用卡片", appIds: ["one", "two", "three"], order: 0 };
   const allApps = [makeApp("one", false), makeApp("two", false), makeApp("three", false), makeApp("outer", false)];
-  const renderUnified = (expandedFolderId = "", folderLaunchStatuses: Record<string, FolderLaunchVisualStatus> = {}) => renderToStaticMarkup(createElement(UnifiedGroupPage, {
-    apps: [allApps[3]], allApps, folders: [folder], itemOrder: ["folder:bundle", "app:outer"], expandedFolderId,
-    launchingAppIds: new Set<string>(), folderLaunchStatuses, selectedAppId: "", invalidAppIds: new Set<string>(), selectedCount: 0, runningCount: 0, showAppNames: true,
-    onSelectApp: vi.fn(), onFocusApp: vi.fn(), onLaunchApp: vi.fn(), onLaunchingFeedback: vi.fn(), onToggleLaunchSelected: vi.fn(), onLaunchSelected: vi.fn(), onCloseAll: vi.fn(), onAdd: vi.fn(), onContextMenu: vi.fn(), onAppPointerDown: vi.fn(), onFolderPointerDown: vi.fn(), onToggleFolder: vi.fn(), onLaunchFolder: vi.fn(), onRequestClose: vi.fn()
+  const renderUnified = (expandedFolderId = "", folderLaunchStatuses: Record<string, FolderLaunchVisualStatus> = {}, selectedItemId: GroupGridItemId | "" = "", runningMemberCount = 0) => {
+    const runningIds = new Set(folder.appIds.slice(0, runningMemberCount));
+    const renderedApps = allApps.map((app) => runningIds.has(app.id) ? { ...app, metrics: metrics(app.id, true) } : app);
+    return renderToStaticMarkup(createElement(UnifiedGroupPage, {
+    apps: [renderedApps[3]], allApps: renderedApps, folders: [folder], itemOrder: ["folder:bundle", "app:outer"], expandedFolderId,
+    launchingAppIds: new Set<string>(), folderLaunchStatuses, selectedItemId, invalidAppIds: new Set<string>(), runningCount: 0, showAppNames: true,
+    onSelectApp: vi.fn(), onSelectFolder: vi.fn(), onFocusApp: vi.fn(), onLaunchApp: vi.fn(), onLaunchingFeedback: vi.fn(), onCloseAll: vi.fn(), onAdd: vi.fn(), onContextMenu: vi.fn(), onAppPointerDown: vi.fn(), onFolderPointerDown: vi.fn(), onToggleFolder: vi.fn(), onLaunchFolder: vi.fn(), onRequestCloseFolder: vi.fn(), onRequestClose: vi.fn()
   }));
+  };
 
   it("renders every real member icon inside the collapsed card and keeps mixed item order", () => {
     const html = renderUnified();
@@ -185,6 +179,30 @@ describe("UnifiedGroupPage", () => {
     expect(html).toContain("folder-member-launch launching");
     expect(html).toContain("folder-member-launch waiting");
     expect(html).toContain("folder-member-launch failed");
+  });
+
+  it("shows a merged app card as the current keyboard selection", () => {
+    const html = renderUnified("", {}, "folder:bundle");
+    expect(html).toContain('class="app-card-wrap folder-card-wrap current');
+    expect(html).toContain('aria-pressed="true"');
+  });
+
+  it("shows one close control only when every folder member is running", () => {
+    expect(renderUnified()).not.toContain('aria-label="关闭卡片内全部应用"');
+    const html = renderUnified("", {}, "", 3);
+    expect(html).toContain('class="app-card-wrap folder-card-wrap running');
+    expect(html).toContain('aria-label="关闭卡片内全部应用"');
+    expect(html).toContain('class="running-dot"');
+    expect(html).toContain('class="running-close-x"');
+  });
+
+  it("shows member dots and a proportional status ring when only part of a folder is running", () => {
+    const html = renderUnified("", {}, "", 2);
+    expect(html).toContain("folder-card-wrap partial-running");
+    expect(html.match(/member-running/g)).toHaveLength(2);
+    expect(html).toContain("folder-running-status partial");
+    expect(html).toContain("--folder-running-progress:67%");
+    expect(html).toContain("2/3 个应用运行中");
   });
 
   it("enlarges the folder card without rendering a modal", () => {

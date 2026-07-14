@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import type { AppEntry, AppMetrics, LaunchAppResult } from "../shared/types.js";
 import { collectGroupTermination, launchAppsSequentially } from "./batch-app-actions.js";
 
-const app = (id: string, selected = true): AppEntry => ({
+const app = (id: string): AppEntry => ({
   id, name: id.toUpperCase(), category: "Tools", groupId: "tools", executablePath: `C:\\${id}.exe`,
-  processName: id, accent: "#000", launchSelected: selected
+  processName: id, accent: "#000"
 });
 
 const makeMetrics = (appId: string, pids: number[]): AppMetrics => ({
@@ -21,7 +21,7 @@ const makeMetrics = (appId: string, pids: number[]): AppMetrics => ({
 });
 
 describe("batch app actions", () => {
-  it("launches selected apps sequentially and continues after failures", async () => {
+  it("launches all requested apps sequentially and continues after failures", async () => {
     const calls: string[] = [];
     const launch = vi.fn(async (entry: AppEntry): Promise<LaunchAppResult> => {
       calls.push(entry.id);
@@ -29,19 +29,18 @@ describe("batch app actions", () => {
       return { status: entry.id === "c" ? "alreadyRunning" : "launched", apps: [] };
     });
 
-    const results = await launchAppsSequentially([app("a"), app("skip", false), app("b"), app("c")], launch);
+    const results = await launchAppsSequentially([app("a"), app("skip"), app("b"), app("c")], launch);
 
-    expect(calls).toEqual(["a", "b", "c"]);
-    expect(results.map((item) => item.status)).toEqual(["launched", "failed", "alreadyRunning"]);
-    expect(results[1]).toMatchObject({ appId: "b", message: "broken" });
+    expect(calls).toEqual(["a", "skip", "b", "c"]);
+    expect(results.map((item) => item.status)).toEqual(["launched", "launched", "failed", "alreadyRunning"]);
+    expect(results[2]).toMatchObject({ appId: "b", message: "broken" });
   });
 
   it("can launch every folder member and reports per-app progress", async () => {
     const progress: string[] = [];
     const launch = vi.fn(async (): Promise<LaunchAppResult> => ({ status: "launched", apps: [] }));
 
-    const results = await launchAppsSequentially([app("a"), app("b", false)], launch, {
-      includeUnselected: true,
+    const results = await launchAppsSequentially([app("a"), app("b")], launch, {
       onProgress: (item) => progress.push(`${item.appId}:${item.status}`)
     });
 

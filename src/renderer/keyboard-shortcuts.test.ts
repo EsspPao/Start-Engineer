@@ -9,7 +9,7 @@ describe("keyboard shortcut help", () => {
 
     expect(labels).toContain("方向键 / WASD");
     expect(labels).toContain("Enter");
-    expect(labels).toContain("Space");
+    expect(labels).not.toContain("Space");
     expect(labels).toContain("Esc");
     expect(labels).toContain("Ctrl+↑/↓ / Ctrl+W/S");
     expect(labels).toContain("Ctrl+1/2/3");
