@@ -58,6 +58,7 @@ describe("preferences", () => {
       searchProvider: "internal",
       sortRunningAppsFirst: false,
       showAppNames: true,
+      keyboardShortcuts: defaultPreferences.keyboardShortcuts,
       uiLayout: defaultPreferences.uiLayout,
       allAppsView: defaultPreferences.allAppsView,
       firstRunImportCompleted: false,

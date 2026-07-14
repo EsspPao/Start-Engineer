@@ -68,7 +68,7 @@ describe("keyboard navigation", () => {
     expect(groupIndexNavigationFromKey({ key: "1", code: "Digit1" })).toBeNull();
     expect(groupIndexNavigationFromKey({ key: "1", code: "Digit1", ctrlKey: true, altKey: true })).toBeNull();
     expect(groupIndexNavigationFromKey({ key: "1", code: "Digit1", ctrlKey: true, metaKey: true })).toBeNull();
-    expect(groupIndexNavigationFromKey({ key: "4", code: "Digit4", ctrlKey: true })).toBeNull();
+    expect(groupIndexNavigationFromKey({ key: "4", code: "Digit4", ctrlKey: true })).toBe(3);
   });
 
   it("suppresses the same physical key after group navigation until keyup", () => {

@@ -32,6 +32,26 @@ describe("app card styles", () => {
     expect(styles).toMatch(/\.app-grid\s*\{[^}]*justify-content:\s*center;/i);
   });
 
+  it("shrinks apps into both ordinary cards and existing multi-app cards without text or progress chrome", () => {
+    expect(styles).toMatch(/merge-target-app-in\s+380ms/i);
+    expect(styles).toMatch(/merge-target-folder-in\s+380ms/i);
+    expect(styles).toMatch(/merge-source-app-in\s+380ms/i);
+    expect(styles).toMatch(/merge-source-folder-in/i);
+    expect(styles).not.toContain('content: "保持片刻"');
+    expect(styles).not.toContain('content: "松开合并"');
+    expect(styles).not.toContain("merge-target-arm");
+  });
+
+  it("uses one iPhone-style progress ring before showing terminal folder member states", () => {
+    for (const status of ["queued", "launching", "waiting", "launched", "alreadyRunning", "failed"]) {
+      expect(styles).toContain(`.folder-member-launch.${status}`);
+    }
+    expect(styles).toMatch(/\.folder-member-launch\.queued > i,\s*\.folder-member-launch\.launching > i,\s*\.folder-member-launch\.waiting > i\s*\{[^}]*border-radius:\s*50%;/i);
+    expect(styles).not.toMatch(/\.folder-member-launch\.queued > i\s*\{[^}]*dashed/i);
+    expect(styles).toMatch(/folder-member-spin\s+900ms\s+linear\s+infinite/i);
+    expect(styles).toContain("folder-batch-active");
+  });
+
   it("applies a constrained liquid glass material to buttons without changing global focus behavior", () => {
     expect(styles).toContain("--liquid-button-highlight");
     expect(styles).toMatch(/\.search-button::before,\s*[\s\S]*?\.toast button::before\s*\{[\s\S]*?background:\s*linear-gradient\(180deg,var\(--liquid-button-highlight\),transparent\)/i);

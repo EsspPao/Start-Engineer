@@ -7,6 +7,12 @@ import { basename, dirname, extname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type {
   AppEntry,
+  AppFolder,
+  AppFolderInput,
+  AppFolderUpdateInput,
+  FolderMutationResult,
+  GroupGridItemId,
+  GroupGridOrder,
   AppGroup,
   AppMetrics,
   AppPreferences,
@@ -16,10 +22,12 @@ import type {
   BatchLaunchResult,
   DiscoveredAppCandidate,
   FocusWindowHints,
+  FolderLaunchProgress,
   SearchDependencyStatus,
   GroupInput,
   GroupUpdateInput,
   LaunchAppResult,
+  MoveFolderMemberInput,
   ProcessInfo,
   SnapshotMode,
   UpdateAppInput,
@@ -61,6 +69,8 @@ if (!smokeMode) migrateLegacyUserData(startEngineerUserData, join(app.getPath("a
 app.setPath("userData", startEngineerUserData);
 const configPath = () => join(app.getPath("userData"), "apps.json");
 const groupsPath = () => join(app.getPath("userData"), "groups.json");
+const foldersPath = () => join(app.getPath("userData"), "folders.json");
+const groupGridPath = () => join(app.getPath("userData"), "group-grid-order.json");
 const preferencesPath = () => join(app.getPath("userData"), "preferences.json");
 const iconCacheDir = () => join(app.getPath("userData"), "icons");
 const processIconCache = new Map<string, string>();
@@ -83,6 +93,8 @@ let tray: Tray | null = null;
 let isQuitting = false;
 let appsCache: AppEntry[] = [];
 let groupsCache: AppGroup[] = [];
+let foldersCache: AppFolder[] | null = null;
+let groupGridCache: GroupGridOrder[] | null = null;
 let preferencesCache: AppPreferences | null = null;
 let registeredShortcut = "";
 let shortcutState: Pick<AppPreferencesState, "globalShortcutStatus" | "globalShortcutMessage"> = { globalShortcutStatus: "disabled" };
@@ -148,6 +160,57 @@ function saveGroups(groups: AppGroup[]) {
   mkdirSync(dirname(groupsPath()), { recursive: true });
   writeFileSync(groupsPath(), JSON.stringify(normalized, null, 2), "utf8");
   groupsCache = normalized;
+}
+function loadFolders(): AppFolder[] {
+  if (foldersCache) return foldersCache;
+  try {
+    const seen = new Set<string>();
+    const rows = JSON.parse(readFileSync(foldersPath(), "utf8")) as AppFolder[];
+    foldersCache = rows.map((folder) => ({ ...folder, appIds: [...new Set(folder.appIds)].filter((id) => !seen.has(id) && Boolean(seen.add(id))) })).filter((folder) => folder.appIds.length >= 2);
+  } catch { foldersCache = []; }
+  return foldersCache;
+}
+function saveFolders(folders: AppFolder[]) {
+  foldersCache = folders.map((folder, order) => ({ ...folder, order }));
+  mkdirSync(dirname(foldersPath()), { recursive: true });
+  writeFileSync(foldersPath(), JSON.stringify(foldersCache, null, 2), "utf8");
+  return foldersCache;
+}
+
+function validGridItems(groupId: string, apps = loadApps(), folders = loadFolders()): GroupGridItemId[] {
+  const memberIds = new Set(folders.filter((folder) => folder.groupId === groupId).flatMap((folder) => folder.appIds));
+  const appItems = apps.filter((entry) => entry.groupId === groupId && !memberIds.has(entry.id)).map((entry) => `app:${entry.id}` as const);
+  const folderItems = folders.filter((folder) => folder.groupId === groupId).map((folder) => `folder:${folder.id}` as const);
+  return [...appItems, ...folderItems];
+}
+
+function normalizeGridOrder(groupId: string, itemIds: readonly string[], apps = loadApps(), folders = loadFolders()): GroupGridOrder {
+  const valid = validGridItems(groupId, apps, folders);
+  const validSet = new Set(valid);
+  const seen = new Set<string>();
+  const ordered = itemIds.filter((id): id is GroupGridItemId => validSet.has(id as GroupGridItemId) && !seen.has(id) && Boolean(seen.add(id)));
+  return { groupId, itemIds: [...ordered, ...valid.filter((id) => !seen.has(id))] };
+}
+
+function loadGroupGridOrders() {
+  if (groupGridCache) return groupGridCache;
+  let raw: GroupGridOrder[] = [];
+  try { raw = JSON.parse(readFileSync(groupGridPath(), "utf8")) as GroupGridOrder[]; } catch { /* Start with migrated current order. */ }
+  groupGridCache = loadAppGroups().map((group) => normalizeGridOrder(group.id, raw.find((item) => item.groupId === group.id)?.itemIds ?? []));
+  return groupGridCache;
+}
+
+function saveGroupGridOrders(orders: GroupGridOrder[], apps = loadApps(), folders = loadFolders()) {
+  groupGridCache = loadAppGroups().map((group) => normalizeGridOrder(group.id, orders.find((item) => item.groupId === group.id)?.itemIds ?? [], apps, folders));
+  mkdirSync(dirname(groupGridPath()), { recursive: true });
+  writeFileSync(groupGridPath(), JSON.stringify(groupGridCache, null, 2), "utf8");
+  return groupGridCache;
+}
+
+function folderMutationResult(apps: AppEntry[], folders: AppFolder[]): FolderMutationResult {
+  saveApps(apps);
+  saveFolders(folders);
+  return { apps: loadApps(), folders: loadFolders(), gridOrders: saveGroupGridOrders(loadGroupGridOrders(), apps, folders) };
 }
 
 function savePreferences(preferences: AppPreferences) {
@@ -1262,6 +1325,93 @@ async function launchConfiguredApp(id: string, options: { waitForAssociation?: b
 
 function registerIpc() {
   ipcMain.handle("groups:list", () => listGroups());
+  ipcMain.handle("folders:list", () => loadFolders());
+  ipcMain.handle("folders:create", (_event, input: AppFolderInput) => {
+    const groupId = validAppGroup(input.groupId);
+    const appIds = [...new Set(input.appIds)].filter((id) => getApp(id)?.groupId === groupId);
+    if (appIds.length < 2) throw new Error("文件夹至少需要两个同分组应用");
+    const currentOrders = loadGroupGridOrders();
+    const withoutMembers = loadFolders().map((folder) => ({ ...folder, appIds: folder.appIds.filter((id) => !appIds.includes(id)) })).filter((folder) => folder.appIds.length);
+    const folderId = randomUUID();
+    const next = saveFolders([...withoutMembers, { id: folderId, groupId, name: String(input.name || "多应用卡片").trim() || "多应用卡片", appIds, order: withoutMembers.length }]);
+    const currentOrder = currentOrders.find((order) => order.groupId === groupId)?.itemIds ?? [];
+    const memberItems = new Set(appIds.map((id) => `app:${id}`));
+    const firstIndex = currentOrder.findIndex((id) => memberItems.has(id));
+    const nextOrder = currentOrder.filter((id) => !memberItems.has(id));
+    nextOrder.splice(firstIndex < 0 ? nextOrder.length : firstIndex, 0, `folder:${folderId}`);
+    saveGroupGridOrders([...currentOrders.filter((order) => order.groupId !== groupId), { groupId, itemIds: nextOrder as GroupGridItemId[] }], loadApps(), next);
+    return next;
+  });
+  ipcMain.handle("folders:update", (_event, input: AppFolderUpdateInput) => {
+    const next = saveFolders(loadFolders().map((folder) => folder.id === input.id ? { ...folder, ...input, appIds: input.appIds ? [...new Set(input.appIds)].filter((id) => getApp(id)?.groupId === (input.groupId ?? folder.groupId)) : folder.appIds } : folder).filter((folder) => folder.appIds.length >= 2));
+    saveGroupGridOrders(loadGroupGridOrders(), loadApps(), next);
+    return next;
+  });
+  ipcMain.handle("folders:remove", (_event, id: string) => {
+    const next = saveFolders(loadFolders().filter((folder) => folder.id !== id));
+    saveGroupGridOrders(loadGroupGridOrders(), loadApps(), next);
+    return next;
+  });
+  ipcMain.handle("folders:launch", async (event, id: string) => {
+    const folder = loadFolders().find((item) => item.id === id);
+    if (!folder) throw new Error("文件夹不存在");
+    const results = await launchAppsSequentially(
+      folder.appIds.map(getApp).filter((item): item is AppEntry => Boolean(item)),
+      (entry) => launchConfiguredApp(entry.id, { waitForAssociation: true }),
+      {
+        includeUnselected: true,
+        onProgress: (progress) => event.sender.send("folders:launch-progress", { folderId: id, ...progress } satisfies FolderLaunchProgress)
+      }
+    );
+    return { apps: loadApps(), results } satisfies BatchLaunchResult;
+  });
+  ipcMain.handle("groupGrid:list", () => saveGroupGridOrders(loadGroupGridOrders()));
+  ipcMain.handle("groupGrid:reorder", (_event, groupId: string, itemIds: GroupGridItemId[]) => {
+    if (!loadAppGroups().some((group) => group.id === groupId)) throw new Error("分组不存在");
+    const normalized = normalizeGridOrder(groupId, itemIds);
+    const valid = validGridItems(groupId);
+    if (normalized.itemIds.length !== valid.length || itemIds.length !== valid.length || valid.some((id) => !itemIds.includes(id))) throw new Error("网格排序数据无效");
+    return saveGroupGridOrders([...loadGroupGridOrders().filter((item) => item.groupId !== groupId), normalized]);
+  });
+  ipcMain.handle("folders:move", (_event, folderId: string, targetGroupId: string) => {
+    const folder = loadFolders().find((item) => item.id === folderId);
+    if (!folder) throw new Error("多应用卡片不存在");
+    const groupId = validAppGroup(targetGroupId);
+    const targetGroup = loadAppGroups().find((group) => group.id === groupId)!;
+    const apps = loadApps().map((entry) => folder.appIds.includes(entry.id) ? { ...entry, groupId, category: targetGroup.name } : entry);
+    const folders = loadFolders().map((item) => item.id === folder.id ? { ...item, groupId } : item);
+    return folderMutationResult(apps, folders);
+  });
+  ipcMain.handle("folders:moveMember", (_event, input: MoveFolderMemberInput) => {
+    const source = loadFolders().find((folder) => folder.id === input.sourceFolderId);
+    const appEntry = getApp(input.appId);
+    if (!source || !appEntry || !source.appIds.includes(input.appId)) throw new Error("多应用卡片成员不存在");
+    let targetGroupId = source.groupId;
+    let folders = loadFolders().map((folder) => folder.id === source.id ? { ...folder, appIds: folder.appIds.filter((id) => id !== input.appId) } : folder);
+    if (input.target.kind === "folder") {
+      const targetFolderId = input.target.folderId;
+      const target = folders.find((folder) => folder.id === targetFolderId);
+      if (!target || target.id === source.id) throw new Error("目标多应用卡片无效");
+      targetGroupId = target.groupId;
+      folders = folders.map((folder) => folder.id === target.id ? { ...folder, appIds: [...folder.appIds, input.appId] } : folder);
+    } else {
+      targetGroupId = validAppGroup(input.target.groupId);
+    }
+    folders = folders.filter((folder) => folder.appIds.length >= 2);
+    const targetGroup = loadAppGroups().find((group) => group.id === targetGroupId)!;
+    const apps = loadApps().map((entry) => entry.id === input.appId ? { ...entry, groupId: targetGroupId, category: targetGroup.name } : entry);
+    const result = folderMutationResult(apps, folders);
+    if (input.target.kind === "outer" && input.target.index !== undefined) {
+      const order = result.gridOrders.find((item) => item.groupId === targetGroupId);
+      if (order) {
+        const appItem = `app:${input.appId}` as const;
+        const next = order.itemIds.filter((id) => id !== appItem);
+        next.splice(Math.max(0, Math.min(input.target.index, next.length)), 0, appItem);
+        result.gridOrders = saveGroupGridOrders([...result.gridOrders.filter((item) => item.groupId !== targetGroupId), { groupId: targetGroupId, itemIds: next }], apps, folders);
+      }
+    }
+    return result;
+  });
   ipcMain.handle("groups:create", (_event, input: GroupInput) => {
     const groups = loadAppGroups();
     const next = [...groups, {
@@ -1300,8 +1450,11 @@ function registerIpc() {
 
     const targetGroup = groups.find((group) => group.id === targetGroupId)!;
     const nextApps = loadApps().map((entry) => entry.groupId === groupId ? { ...entry, groupId: targetGroupId, category: targetGroup.name } : entry);
+    const nextFolders = loadFolders().map((folder) => folder.groupId === groupId ? { ...folder, groupId: targetGroupId } : folder);
     saveApps(nextApps);
+    saveFolders(nextFolders);
     saveGroups(groups.filter((group) => group.id !== groupId));
+    saveGroupGridOrders(loadGroupGridOrders(), nextApps, nextFolders);
     return { groups: listGroups(), apps: nextApps, targetGroupId };
   });
   ipcMain.handle("apps:list", () => loadApps());
@@ -1358,7 +1511,10 @@ function registerIpc() {
     const validGroupId = validAppGroup(groupId);
     const group = loadAppGroups().find((item) => item.id === validGroupId)!;
     const nextApps = loadApps().map((item) => (item.id === id ? { ...item, groupId: validGroupId, category: group.name } : item));
+    const nextFolders = loadFolders().map((folder) => ({ ...folder, appIds: folder.appIds.filter((appId) => appId !== id) })).filter((folder) => folder.appIds.length >= 2);
     saveApps(nextApps);
+    saveFolders(nextFolders);
+    saveGroupGridOrders(loadGroupGridOrders(), nextApps, nextFolders);
     return nextApps;
   });
 
@@ -1497,7 +1653,10 @@ function registerIpc() {
     const entry = getApp(id);
     runtimeAssociatedPids.delete(id);
     const nextApps = loadApps().filter((item) => item.id !== id);
+    const nextFolders = loadFolders().map((folder) => ({ ...folder, appIds: folder.appIds.filter((appId) => appId !== id) })).filter((folder) => folder.appIds.length >= 2);
     saveApps(nextApps);
+    saveFolders(nextFolders);
+    saveGroupGridOrders(loadGroupGridOrders(), nextApps, nextFolders);
 
     if (entry?.iconCachePath && entry.iconCachePath.startsWith(iconCacheDir()) && existsSync(entry.iconCachePath)) {
       rmSync(entry.iconCachePath, { force: true });

@@ -1,17 +1,28 @@
 import type { AppEntry, AppMetrics, BatchLaunchItemResult, LaunchAppResult } from "../shared/types.js";
 
+type LaunchAppsSequentiallyOptions = {
+  includeUnselected?: boolean;
+  onProgress?: (result: BatchLaunchItemResult | { appId: string; name: string; status: "launching" }) => void;
+};
+
 export async function launchAppsSequentially(
   apps: AppEntry[],
-  launch: (app: AppEntry) => Promise<LaunchAppResult>
+  launch: (app: AppEntry) => Promise<LaunchAppResult>,
+  options: LaunchAppsSequentiallyOptions = {}
 ): Promise<BatchLaunchItemResult[]> {
   const results: BatchLaunchItemResult[] = [];
   for (const app of apps) {
-    if (!app.launchSelected) continue;
+    if (!options.includeUnselected && !app.launchSelected) continue;
+    options.onProgress?.({ appId: app.id, name: app.name, status: "launching" });
     try {
       const result = await launch(app);
-      results.push({ appId: app.id, name: app.name, status: result.status, message: result.message });
+      const item = { appId: app.id, name: app.name, status: result.status, message: result.message } satisfies BatchLaunchItemResult;
+      results.push(item);
+      options.onProgress?.(item);
     } catch (reason) {
-      results.push({ appId: app.id, name: app.name, status: "failed", message: reason instanceof Error ? reason.message : String(reason) });
+      const item = { appId: app.id, name: app.name, status: "failed", message: reason instanceof Error ? reason.message : String(reason) } satisfies BatchLaunchItemResult;
+      results.push(item);
+      options.onProgress?.(item);
     }
   }
   return results;

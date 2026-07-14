@@ -1,7 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { getReorderedIds, hitTestAppOrder } from "./app-drag-order";
+import { completePreviewOrder, getReorderedIds, hitTestAppOrder, reuseOrderIfEqual } from "./app-drag-order";
 
 describe("app card drag ordering", () => {
+  it("reuses an unchanged preview so pointer movement does not rerender the grid", () => {
+    const previous = ["app:a", "app:b", "folder:c"];
+    expect(reuseOrderIfEqual(previous, [...previous])).toBe(previous);
+    expect(reuseOrderIfEqual(previous, ["app:b", "app:a", "folder:c"])).not.toBe(previous);
+  });
+
+  it("never lets an empty or partial preview remove grid items", () => {
+    const base = ["app:a", "folder:b", "app:c"];
+    expect(completePreviewOrder(base, [])).toEqual(base);
+    expect(completePreviewOrder(base, ["app:c"])).toEqual(["app:c", "app:a", "folder:b"]);
+    expect(completePreviewOrder(base, ["unknown", "folder:b"])).toEqual(["folder:b", "app:a", "app:c"]);
+  });
+
   it("moves the dragged id to the target index", () => {
     expect(getReorderedIds(["a", "b", "c", "d"], "b", 3)).toEqual(["a", "c", "d", "b"]);
   });

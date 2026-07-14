@@ -1,8 +1,8 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import type { AppEntry, AppMetrics } from "../shared/types";
-import { GroupPage, ProcessPage } from "./pages";
+import type { AppEntry, AppFolder, AppMetrics, FolderLaunchVisualStatus } from "../shared/types";
+import { GroupPage, ProcessPage, UnifiedGroupPage } from "./pages";
 
 type RuntimeApp = AppEntry & { metrics: AppMetrics };
 
@@ -158,6 +158,42 @@ describe("GroupPage", () => {
     expect(html).toContain('class="invalid-path-badge"');
     expect(html).toContain('title="程序路径可能失效"');
     expect(html).not.toContain("路径失效");
+  });
+});
+
+describe("UnifiedGroupPage", () => {
+  const folder: AppFolder = { id: "bundle", groupId: "tools", name: "多应用卡片", appIds: ["one", "two", "three"], order: 0 };
+  const allApps = [makeApp("one", false), makeApp("two", false), makeApp("three", false), makeApp("outer", false)];
+  const renderUnified = (expandedFolderId = "", folderLaunchStatuses: Record<string, FolderLaunchVisualStatus> = {}) => renderToStaticMarkup(createElement(UnifiedGroupPage, {
+    apps: [allApps[3]], allApps, folders: [folder], itemOrder: ["folder:bundle", "app:outer"], expandedFolderId,
+    launchingAppIds: new Set<string>(), folderLaunchStatuses, selectedAppId: "", invalidAppIds: new Set<string>(), selectedCount: 0, runningCount: 0, showAppNames: true,
+    onSelectApp: vi.fn(), onFocusApp: vi.fn(), onLaunchApp: vi.fn(), onLaunchingFeedback: vi.fn(), onToggleLaunchSelected: vi.fn(), onLaunchSelected: vi.fn(), onCloseAll: vi.fn(), onAdd: vi.fn(), onContextMenu: vi.fn(), onAppPointerDown: vi.fn(), onFolderPointerDown: vi.fn(), onToggleFolder: vi.fn(), onLaunchFolder: vi.fn(), onRequestClose: vi.fn()
+  }));
+
+  it("renders every real member icon inside the collapsed card and keeps mixed item order", () => {
+    const html = renderUnified();
+    expect(html).toContain('data-grid-item-id="folder:bundle"');
+    expect(html.indexOf('folder:bundle')).toBeLessThan(html.indexOf('app:outer'));
+    expect(html.match(/class="folder-icon"/g)).toHaveLength(1);
+    expect(html.match(/data:image\/png;base64,icon/g)).toHaveLength(4);
+    expect(html).toContain("--folder-columns:2");
+  });
+
+  it("renders member-level batch launch states on the collapsed folder card", () => {
+    const html = renderUnified("", { one: "launching", two: "waiting", three: "failed" });
+    expect(html).toContain("folder-batch-active");
+    expect(html).toContain("folder-member-launch launching");
+    expect(html).toContain("folder-member-launch waiting");
+    expect(html).toContain("folder-member-launch failed");
+  });
+
+  it("enlarges the folder card without rendering a modal", () => {
+    const html = renderUnified("bundle");
+    expect(html).toContain('class="folder-zoom-backdrop open"');
+    expect(html).toContain('class="folder-zoom-card open"');
+    expect(html).not.toContain("modal-backdrop");
+    expect(html).not.toContain("2 个应用");
+    expect(html.match(/data-folder-member-id=/g)).toHaveLength(3);
   });
 });
 

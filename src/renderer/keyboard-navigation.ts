@@ -39,9 +39,7 @@ export function groupNavigationFromKey(key: string, controlKey: boolean): GroupN
 export function groupIndexNavigationFromKey(event: KeyboardEventLike) {
   if (!event.ctrlKey || event.metaKey || event.altKey) return null;
   const key = event.key.length === 1 ? event.key : event.code?.replace("Digit", "");
-  if (key === "1") return 0;
-  if (key === "2") return 1;
-  if (key === "3") return 2;
+  if (/^[1-9]$/.test(key ?? "")) return Number(key) - 1;
   return null;
 }
 

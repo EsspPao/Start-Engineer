@@ -28,6 +28,17 @@ export type AppGroup = {
   isSystem: boolean;
   order: number;
 };
+export type AppFolder = { id: string; groupId: string; name: string; appIds: string[]; order: number };
+export type AppFolderInput = { groupId: string; name?: string; appIds: string[] };
+export type AppFolderUpdateInput = Partial<Pick<AppFolder, "name" | "appIds" | "order" | "groupId">> & { id: string };
+export type GroupGridItemId = `app:${string}` | `folder:${string}`;
+export type GroupGridOrder = { groupId: string; itemIds: GroupGridItemId[] };
+export type MoveFolderMemberInput = {
+  appId: string;
+  sourceFolderId: string;
+  target: { kind: "outer"; groupId: string; index?: number } | { kind: "folder"; folderId: string } | { kind: "group"; groupId: string };
+};
+export type FolderMutationResult = { apps: AppEntry[]; folders: AppFolder[]; gridOrders: GroupGridOrder[] };
 
 export type GroupInput = { name: string; icon: string };
 export type GroupUpdateInput = GroupInput & { id: string };
@@ -95,6 +106,8 @@ export type UiLayoutPreferences = {
   showBatchActions: boolean;
   showSearchBar: boolean;
 };
+export type AppKeyboardShortcutId = "up" | "down" | "left" | "right" | "activate" | "toggleLaunch" | "cancel" | "edit" | "menu" | "search" | "previousGroup" | "nextGroup" | `group${1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9}`;
+export type KeyboardShortcutPreferences = Record<AppKeyboardShortcutId, string[]>;
 export type AllAppsViewPreferences = {
   orderedAppIds: string[];
   launchSelectedAppIds: string[];
@@ -111,6 +124,7 @@ export type AppPreferences = {
   searchProvider: SearchProvider;
   sortRunningAppsFirst: boolean;
   showAppNames: boolean;
+  keyboardShortcuts: KeyboardShortcutPreferences;
   uiLayout: UiLayoutPreferences;
   allAppsView: AllAppsViewPreferences;
   firstRunImportCompleted: boolean;
@@ -178,6 +192,16 @@ export type BatchLaunchResult = {
   apps: AppEntry[];
   results: BatchLaunchItemResult[];
 };
+
+export type FolderLaunchProgress = {
+  folderId: string;
+  appId: string;
+  name: string;
+  status: "launching" | BatchLaunchItemStatus;
+  message?: string;
+};
+
+export type FolderLaunchVisualStatus = "queued" | "waiting" | FolderLaunchProgress["status"];
 
 export type BatchKillItemResult = {
   appId: string;
@@ -280,6 +304,16 @@ export type StartEngineerApi = {
   updateGroup: (input: GroupUpdateInput) => Promise<AppGroup[]>;
   reorderGroups: (groupIds: string[]) => Promise<AppGroup[]>;
   removeGroup: (groupId: string, targetGroupId: string) => Promise<RemoveGroupResult>;
+  listFolders: () => Promise<AppFolder[]>;
+  createFolder: (input: AppFolderInput) => Promise<AppFolder[]>;
+  updateFolder: (input: AppFolderUpdateInput) => Promise<AppFolder[]>;
+  removeFolder: (id: string) => Promise<AppFolder[]>;
+  launchFolder: (id: string) => Promise<BatchLaunchResult>;
+  onFolderLaunchProgress: (listener: (progress: FolderLaunchProgress) => void) => () => void;
+  listGroupGridOrders: () => Promise<GroupGridOrder[]>;
+  reorderGroupItems: (groupId: string, itemIds: GroupGridItemId[]) => Promise<GroupGridOrder[]>;
+  moveFolder: (folderId: string, targetGroupId: string) => Promise<FolderMutationResult>;
+  moveFolderMember: (input: MoveFolderMemberInput) => Promise<FolderMutationResult>;
   listApps: () => Promise<AppEntry[]>;
   discoverImportCandidates: () => Promise<DiscoveredAppCandidate[]>;
   importDiscoveredApps: (candidateIds: string[]) => Promise<AppEntry[]>;

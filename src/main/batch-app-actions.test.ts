@@ -36,6 +36,20 @@ describe("batch app actions", () => {
     expect(results[1]).toMatchObject({ appId: "b", message: "broken" });
   });
 
+  it("can launch every folder member and reports per-app progress", async () => {
+    const progress: string[] = [];
+    const launch = vi.fn(async (): Promise<LaunchAppResult> => ({ status: "launched", apps: [] }));
+
+    const results = await launchAppsSequentially([app("a"), app("b", false)], launch, {
+      includeUnselected: true,
+      onProgress: (item) => progress.push(`${item.appId}:${item.status}`)
+    });
+
+    expect(launch).toHaveBeenCalledTimes(2);
+    expect(results.map((item) => item.appId)).toEqual(["a", "b"]);
+    expect(progress).toEqual(["a:launching", "a:launched", "b:launching", "b:launched"]);
+  });
+
   it("merges unique running PIDs for every app in the group", () => {
     const metrics: AppMetrics[] = [
       makeMetrics("a", [12, 10]),

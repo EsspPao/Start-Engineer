@@ -55,3 +55,16 @@ export function hitTestAppOrder(ids: string[], rects: AppDragRect[], draggedId: 
 
   return getReorderedIds(ids, draggedId, targetIndex);
 }
+
+export function completePreviewOrder<T extends string>(base: T[], preview: readonly string[] | undefined): T[] {
+  if (!preview?.length) return base;
+  const valid = new Set(base);
+  const ordered = preview.filter((id): id is T => valid.has(id as T));
+  const included = new Set(ordered);
+  return [...ordered, ...base.filter((id) => !included.has(id))];
+}
+
+export function reuseOrderIfEqual<T extends string>(previous: T[] | undefined, next: T[]): T[] {
+  if (!previous || previous.length !== next.length) return next;
+  return previous.every((id, index) => id === next[index]) ? previous : next;
+}

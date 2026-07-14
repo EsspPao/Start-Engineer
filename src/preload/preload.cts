@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
-import type { AppEntry, FocusWindowHints, GroupInput, GroupUpdateInput, SnapshotMode, StartEngineerApi, UpdateAppInput, UpdatePreferencesInput, WindowAction } from "../shared/types.js";
+import type { AppEntry, AppFolderInput, AppFolderUpdateInput, FocusWindowHints, FolderLaunchProgress, GroupGridItemId, GroupInput, GroupUpdateInput, MoveFolderMemberInput, SnapshotMode, StartEngineerApi, UpdateAppInput, UpdatePreferencesInput, WindowAction } from "../shared/types.js";
 
 const api: StartEngineerApi = {
   listGroups: () => ipcRenderer.invoke("groups:list"),
@@ -7,6 +7,20 @@ const api: StartEngineerApi = {
   updateGroup: (input: GroupUpdateInput) => ipcRenderer.invoke("groups:update", input),
   reorderGroups: (groupIds: string[]) => ipcRenderer.invoke("groups:reorder", groupIds),
   removeGroup: (groupId: string, targetGroupId: string) => ipcRenderer.invoke("groups:remove", groupId, targetGroupId),
+  listFolders: () => ipcRenderer.invoke("folders:list"),
+  createFolder: (input: AppFolderInput) => ipcRenderer.invoke("folders:create", input),
+  updateFolder: (input: AppFolderUpdateInput) => ipcRenderer.invoke("folders:update", input),
+  removeFolder: (id: string) => ipcRenderer.invoke("folders:remove", id),
+  launchFolder: (id: string) => ipcRenderer.invoke("folders:launch", id),
+  onFolderLaunchProgress: (listener: (progress: FolderLaunchProgress) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, progress: FolderLaunchProgress) => listener(progress);
+    ipcRenderer.on("folders:launch-progress", handler);
+    return () => ipcRenderer.removeListener("folders:launch-progress", handler);
+  },
+  listGroupGridOrders: () => ipcRenderer.invoke("groupGrid:list"),
+  reorderGroupItems: (groupId: string, itemIds: GroupGridItemId[]) => ipcRenderer.invoke("groupGrid:reorder", groupId, itemIds),
+  moveFolder: (folderId: string, targetGroupId: string) => ipcRenderer.invoke("folders:move", folderId, targetGroupId),
+  moveFolderMember: (input: MoveFolderMemberInput) => ipcRenderer.invoke("folders:moveMember", input),
   listApps: () => ipcRenderer.invoke("apps:list"),
   discoverImportCandidates: () => ipcRenderer.invoke("apps:discoverImportCandidates"),
   importDiscoveredApps: (candidateIds: string[]) => ipcRenderer.invoke("apps:importDiscovered", candidateIds),

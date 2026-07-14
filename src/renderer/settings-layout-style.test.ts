@@ -15,4 +15,11 @@ describe("settings page layout styles", () => {
     expect(styles).toMatch(/\.group-manager\s*\{[^}]*overflow:\s*visible/i);
     expect(styles).not.toMatch(/\.group-manager\s*\{[^}]*overflow:\s*auto/i);
   });
+
+  it("groups application shortcuts into compact scan-friendly sections", () => {
+    expect(styles).toMatch(/\.shortcut-sections\s*\{[^}]*gap:\s*12px/i);
+    expect(styles).toMatch(/\.shortcut-help-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2,minmax\(0,1fr\)\)/i);
+    expect(styles).toMatch(/\.shortcut-section-groups\s+\.shortcut-help-grid\s*\{[^}]*grid-template-columns:\s*repeat\(3,minmax\(0,1fr\)\)/i);
+    expect(styles).toMatch(/\.shortcut-help-row\s*\{[^}]*min-height:\s*42px/i);
+  });
 });
