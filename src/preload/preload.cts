@@ -45,6 +45,7 @@ const api: StartEngineerApi = {
   killApp: (id: string) => ipcRenderer.invoke("apps:kill", id),
   killFolderApps: (folderId: string) => ipcRenderer.invoke("folders:killApps", folderId),
   killGroupApps: (groupId: string) => ipcRenderer.invoke("groups:killApps", groupId),
+  killAllApps: () => ipcRenderer.invoke("apps:killAll"),
   removeApp: (id: string) => ipcRenderer.invoke("apps:remove", id),
   killProcessGroup: (input: { name: string; pids: number[] }) => ipcRenderer.invoke("processes:killGroup", input),
   showItemInFolder: (path: string) => ipcRenderer.invoke("shell:showItemInFolder", path),

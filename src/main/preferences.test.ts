@@ -5,6 +5,8 @@ describe("preferences", () => {
   it("normalizes constrained UI layout preferences", () => {
     expect(normalizePreferences({
       uiLayout: {
+        uiScale: 114,
+        backgroundColor: "#EAF2FF",
         cardSize: "large",
         gridDensity: "relaxed",
         sidebarWidth: "narrow",
@@ -16,6 +18,8 @@ describe("preferences", () => {
         showSearchBar: true
       }
     }).uiLayout).toEqual({
+      uiScale: 114,
+      backgroundColor: "#EAF2FF",
       cardSize: "large",
       gridDensity: "relaxed",
       sidebarWidth: "narrow",

@@ -6,7 +6,8 @@ describe("themeOptions", () => {
     const wallpaper = themeOptions.find((theme) => theme.id === "wallpaper");
 
     expect(wallpaper?.name).toBe("Wallpaper Glass");
-    expect(wallpaper?.description).toContain("壁纸融合");
+    expect(wallpaper?.description).toContain("壁纸");
     expect(wallpaper?.title).toContain("窗口背景透出壁纸");
+    expect(themeOptions.find((theme) => theme.id === "system")?.description).toContain("Fluent");
   });
 });

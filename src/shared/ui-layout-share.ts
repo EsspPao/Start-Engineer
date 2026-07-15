@@ -5,6 +5,8 @@ export type UiLayoutShareDecodeResult =
   | { ok: false; reason: "invalid-prefix" | "unsupported-version" | "invalid-payload" };
 
 export const defaultUiLayoutPreferences: UiLayoutPreferences = {
+  uiScale: 100,
+  backgroundColor: "",
   cardSize: "medium",
   gridDensity: "standard",
   sidebarWidth: "standard",
@@ -24,12 +26,25 @@ const sidebarWidths = new Set<UiSidebarWidth>(["narrow", "standard", "wide"]);
 const brandIconSizes = new Set<UiBrandIconSize>(["standard", "large"]);
 const backgroundTones = new Set<UiBackgroundTone>(["default", "aurora", "graphite", "mist"]);
 
+function normalizeUiScale(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.round(Math.min(125, Math.max(80, value)))
+    : defaultUiLayoutPreferences.uiScale;
+}
+
+function normalizeBackgroundColor(value: unknown) {
+  if (value === "") return "";
+  return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value) ? value.toUpperCase() : "";
+}
+
 function pickSetValue<T extends string>(value: unknown, allowed: Set<T>, fallback: T): T {
   return typeof value === "string" && allowed.has(value as T) ? value as T : fallback;
 }
 
 export function normalizeUiLayoutPreferences(raw: Partial<UiLayoutPreferences> | null | undefined): UiLayoutPreferences {
   return {
+    uiScale: normalizeUiScale(raw?.uiScale),
+    backgroundColor: normalizeBackgroundColor(raw?.backgroundColor),
     cardSize: pickSetValue(raw?.cardSize, cardSizes, defaultUiLayoutPreferences.cardSize),
     gridDensity: pickSetValue(raw?.gridDensity, gridDensities, defaultUiLayoutPreferences.gridDensity),
     sidebarWidth: pickSetValue(raw?.sidebarWidth, sidebarWidths, defaultUiLayoutPreferences.sidebarWidth),

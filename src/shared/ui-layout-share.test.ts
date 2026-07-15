@@ -4,6 +4,8 @@ import { decodeUiLayoutShareCode, encodeUiLayoutShareCode, normalizeUiLayoutPref
 describe("UI layout share codes", () => {
   it("encodes only constrained UI preferences and decodes them back", () => {
     const code = encodeUiLayoutShareCode({
+      uiScale: 112,
+      backgroundColor: "#DDEEFF",
       cardSize: "large",
       gridDensity: "compact",
       sidebarWidth: "wide",
@@ -20,6 +22,8 @@ describe("UI layout share codes", () => {
     expect(decodeUiLayoutShareCode(code)).toEqual({
       ok: true,
       preferences: {
+        uiScale: 112,
+        backgroundColor: "#DDEEFF",
         cardSize: "large",
         gridDensity: "compact",
         sidebarWidth: "wide",
@@ -35,6 +39,8 @@ describe("UI layout share codes", () => {
 
   it("normalizes invalid or missing layout values to safe defaults", () => {
     expect(normalizeUiLayoutPreferences({
+      uiScale: 500,
+      backgroundColor: "javascript:alert(1)",
       cardSize: "giant",
       gridDensity: "dense",
       sidebarWidth: "wide",
@@ -42,6 +48,8 @@ describe("UI layout share codes", () => {
       backgroundTone: "script",
       showRunningStatus: false
     } as never)).toEqual({
+      uiScale: 125,
+      backgroundColor: "",
       cardSize: "medium",
       gridDensity: "standard",
       sidebarWidth: "wide",

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AppEntry, AppMetrics, KillAppResult } from "../shared/types";
-import { applyKillAppResult, killAppResultHasMetrics } from "./kill-app-result";
+import { applyKillAppResult, killAppResultHasMetrics, killAppResultHasRunningStatuses } from "./kill-app-result";
 
 const app = (id: string): AppEntry => ({
   id,
@@ -44,5 +44,16 @@ describe("kill app result", () => {
 
     expect(killAppResultHasMetrics(result)).toBe(false);
     expect(applyKillAppResult(result)).toEqual({ apps: result });
+  });
+
+  it("uses lightweight running statuses without waiting for a full metrics scan", () => {
+    const result: KillAppResult = {
+      apps: [app("steam")],
+      runningStatuses: [{ appId: "steam", isRunning: false, pids: [] }]
+    };
+
+    expect(killAppResultHasMetrics(result)).toBe(false);
+    expect(killAppResultHasRunningStatuses(result)).toBe(true);
+    expect(applyKillAppResult(result)).toEqual(result);
   });
 });

@@ -17,6 +17,7 @@ import type {
   AppMetrics,
   AppPreferences,
   AppPreferencesState,
+  AppRunningStatus,
   BatchKillResult,
   KillAppResult,
   BatchLaunchResult,
@@ -41,7 +42,7 @@ import { defaultPreferences, normalizePreferences, resolveLoginExecutable } from
 import { validateShortcut } from "../shared/global-shortcut.js";
 import { terminatePids } from "./process-termination.js";
 import { resolveUiTheme, themeUsesMica } from "../shared/theme.js";
-import { collectGroupTermination, launchAppsSequentially } from "./batch-app-actions.js";
+import { launchAppsSequentially } from "./batch-app-actions.js";
 import { administratorRestartRequired, buildRestartRequest, shouldContinueAfterAdministratorRelaunchAttempt, shouldDetectAdministratorSynchronously, shouldRequestAdministratorRelaunch } from "./administrator-launch.js";
 import { migrateLegacyUserData } from "./user-data-migration.js";
 import { searchEverything as runEverythingSearch } from "./everything-search.js";
@@ -920,7 +921,7 @@ try {
 
 async function getRunningPids(pids: number[]) {
   const candidates = new Set(pids);
-  return (await getProcessSnapshots()).filter((process) => candidates.has(process.pid)).map((process) => process.pid);
+  return parseTasklistCsv(await getTasklistOutput()).filter((process) => candidates.has(process.pid)).map((process) => process.pid);
 }
 
 async function getProcessSnapshots(): Promise<ProcessSnapshot[]> {
@@ -1305,8 +1306,8 @@ async function launchConfiguredApp(id: string, options: { waitForAssociation?: b
   const entry = getApp(id);
   if (!entry) return { status: "failed", apps: loadApps(), errorCode: 2, message: "未找到该应用配置。" };
 
-  const currentMetrics = (await metricsSnapshot()).find((item) => item.appId === id);
-  if (currentMetrics?.isRunning) return { status: "alreadyRunning", apps: loadApps() };
+  const currentStatus = (await getManagedRunningStatus()).find((item) => item.appId === id);
+  if (currentStatus?.isRunning) return { status: "alreadyRunning", apps: loadApps() };
   if (!entry.executablePath || !existsSync(entry.executablePath)) {
     return { status: "failed", apps: loadApps(), errorCode: 2, message: "程序路径不存在，请重新选择启动程序。" };
   }
@@ -1321,6 +1322,33 @@ async function launchConfiguredApp(id: string, options: { waitForAssociation?: b
 
   const nextApps = await saveLaunchedPidAndTrack(id, launchResult.pid, options.waitForAssociation === true);
   return { ...launchResult, apps: nextApps };
+}
+
+async function terminateManagedApps(entries: AppEntry[]): Promise<BatchKillResult> {
+  const before: AppRunningStatus[] = await getManagedRunningStatus();
+  const beforeByApp = new Map(before.map((status) => [status.appId, status]));
+  const targets = entries.filter((entry) => beforeByApp.get(entry.id)?.isRunning);
+  const pids = [...new Set(targets.flatMap((entry) => beforeByApp.get(entry.id)?.pids ?? []))].sort((a, b) => a - b);
+
+  for (const entry of targets) {
+    const blockedReason = getTerminationBlockReason(`${entry.processName || ""}.exe`, beforeByApp.get(entry.id)?.pids ?? []);
+    if (blockedReason) throw new Error(`${entry.name}：${blockedReason}`);
+  }
+
+  if (pids.length) {
+    await terminatePids(pids, { runNormal: runTaskkill, runElevated: runElevatedTaskkill, getRunningPids, assumeRunning: true });
+  }
+
+  const runningStatuses: AppRunningStatus[] = await getManagedRunningStatus();
+  const afterByApp = new Map(runningStatuses.map((status) => [status.appId, status]));
+  const results = targets.map((entry) => afterByApp.get(entry.id)?.isRunning
+    ? { appId: entry.id, name: entry.name, status: "restarted" as const, message: "应用进程仍在运行，可能已被后台服务重新启动。" }
+    : { appId: entry.id, name: entry.name, status: "terminated" as const });
+  const stoppedIds = new Set(results.filter((item) => item.status === "terminated").map((item) => item.appId));
+  for (const id of stoppedIds) runtimeAssociatedPids.delete(id);
+  const nextApps = loadApps().map((item) => stoppedIds.has(item.id) ? { ...item, launchedPid: undefined } : item);
+  saveApps(nextApps);
+  return { apps: nextApps, results, runningStatuses };
 }
 
 function registerIpc() {
@@ -1357,7 +1385,7 @@ function registerIpc() {
     if (!folder) throw new Error("文件夹不存在");
     const results = await launchAppsSequentially(
       folder.appIds.map(getApp).filter((item): item is AppEntry => Boolean(item)),
-      (entry) => launchConfiguredApp(entry.id, { waitForAssociation: true }),
+      (entry) => launchConfiguredApp(entry.id),
       {
         onProgress: (progress) => event.sender.send("folders:launch-progress", { folderId: id, ...progress } satisfies FolderLaunchProgress)
       }
@@ -1525,34 +1553,7 @@ function registerIpc() {
     return nextApps;
   });
 
-  ipcMain.handle("apps:launch", async (_event, id: string) => {
-    const entry = getApp(id);
-    if (!entry) {
-      return { status: "failed", apps: loadApps(), errorCode: 2, message: "未找到该应用配置。" } satisfies LaunchAppResult;
-    }
-
-    const currentMetrics = (await metricsSnapshot()).find((item) => item.appId === id);
-    if (currentMetrics?.isRunning) {
-      return { status: "alreadyRunning", apps: loadApps() } satisfies LaunchAppResult;
-    }
-
-    if (!entry.executablePath || !existsSync(entry.executablePath)) {
-      return { status: "failed", apps: loadApps(), errorCode: 2, message: "程序路径不存在，请重新选择启动程序。" } satisfies LaunchAppResult;
-    }
-
-    const workingDirectory = entry.workingDirectory || dirname(entry.executablePath);
-    if (!existsSync(workingDirectory)) {
-      return { status: "failed", apps: loadApps(), errorCode: 267, message: "应用配置的工作目录无效。" } satisfies LaunchAppResult;
-    }
-
-    const launchResult = await launchExecutable(entry);
-    if (launchResult.status !== "launched") {
-      return { ...launchResult, apps: loadApps() } satisfies LaunchAppResult;
-    }
-
-    const nextApps = await saveLaunchedPidAndTrack(id, launchResult.pid, true);
-    return { ...launchResult, apps: nextApps } satisfies LaunchAppResult;
-  });
+  ipcMain.handle("apps:launch", (_event, id: string) => launchConfiguredApp(id));
 
   ipcMain.handle("apps:focusWindow", async (_event, id: string, hints?: FocusWindowHints) => {
     const entry = getApp(id);
@@ -1579,83 +1580,27 @@ function registerIpc() {
   });
 
   ipcMain.handle("apps:kill", async (_event, id: string) => {
-    const metrics = (await buildRuntimeSnapshot("managed", true)).metrics.find((item) => item.appId === id);
-    const pids = metrics?.pids ?? [];
     const entry = getApp(id);
     if (!entry) throw new Error("未找到该应用配置");
-    const blockedReason = getTerminationBlockReason(`${entry?.processName || ""}.exe`, pids);
-    if (blockedReason) {
-      throw new Error(blockedReason);
-    }
-    await terminatePids(pids, { runNormal: runTaskkill, runElevated: runElevatedTaskkill, getRunningPids });
-
-    const refreshed = await buildRuntimeSnapshot("managed", true);
-    const refreshedMetrics = refreshed.metrics.find((item) => item.appId === id);
-    if (refreshedMetrics?.isRunning) throw new Error("应用进程仍在运行，可能已被后台服务重新启动");
-
-    runtimeAssociatedPids.delete(id);
-    const nextApps = loadApps().map((item) => (item.id === id ? { ...item, launchedPid: undefined } : item));
-    saveApps(nextApps);
-    return { apps: nextApps, metrics: refreshed.metrics } satisfies KillAppResult;
+    const result = await terminateManagedApps([entry]);
+    const failed = result.results.find((item) => item.status !== "terminated");
+    if (failed) throw new Error(failed.message || "应用进程仍在运行，可能已被后台服务重新启动");
+    return { apps: result.apps, runningStatuses: result.runningStatuses } satisfies KillAppResult;
   });
 
   ipcMain.handle("folders:killApps", async (_event, folderId: string) => {
     const folder = loadFolders().find((item) => item.id === folderId);
     if (!folder) throw new Error("合并应用卡片不存在。");
     const memberIds = new Set(folder.appIds);
-    const folderApps = loadApps().filter((item) => memberIds.has(item.id));
-    const snapshot = await buildRuntimeSnapshot("managed", true);
-    const targets = collectGroupTermination(folderApps, snapshot.metrics);
-
-    for (const entry of targets.apps) {
-      const metric = snapshot.metrics.find((item) => item.appId === entry.id);
-      const blockedReason = getTerminationBlockReason(`${entry.processName || ""}.exe`, metric?.pids ?? []);
-      if (blockedReason) throw new Error(`${entry.name}：${blockedReason}`);
-    }
-
-    if (targets.pids.length) {
-      await terminatePids(targets.pids, { runNormal: runTaskkill, runElevated: runElevatedTaskkill, getRunningPids });
-    }
-
-    const refreshed = await buildRuntimeSnapshot("managed", true);
-    const refreshedByApp = new Map(refreshed.metrics.map((metric) => [metric.appId, metric]));
-    const results = targets.apps.map((entry) => refreshedByApp.get(entry.id)?.isRunning
-      ? { appId: entry.id, name: entry.name, status: "restarted" as const, message: "应用进程仍在运行，可能已被后台服务重新启动。" }
-      : { appId: entry.id, name: entry.name, status: "terminated" as const });
-    const stoppedIds = new Set(results.filter((item) => item.status === "terminated").map((item) => item.appId));
-    for (const id of stoppedIds) runtimeAssociatedPids.delete(id);
-    const nextApps = loadApps().map((item) => stoppedIds.has(item.id) ? { ...item, launchedPid: undefined } : item);
-    saveApps(nextApps);
-    return { apps: nextApps, results } satisfies BatchKillResult;
+    return terminateManagedApps(loadApps().filter((item) => memberIds.has(item.id)));
   });
 
   ipcMain.handle("groups:killApps", async (_event, groupId: string) => {
     if (!loadAppGroups().some((group) => group.id === groupId)) throw new Error("分组不存在。");
-    const groupApps = loadApps().filter((item) => item.groupId === groupId);
-    const snapshot = await buildRuntimeSnapshot("managed", true);
-    const targets = collectGroupTermination(groupApps, snapshot.metrics);
-
-    for (const entry of targets.apps) {
-      const metric = snapshot.metrics.find((item) => item.appId === entry.id);
-      const blockedReason = getTerminationBlockReason(`${entry.processName || ""}.exe`, metric?.pids ?? []);
-      if (blockedReason) throw new Error(`${entry.name}：${blockedReason}`);
-    }
-
-    if (targets.pids.length) {
-      await terminatePids(targets.pids, { runNormal: runTaskkill, runElevated: runElevatedTaskkill, getRunningPids });
-    }
-
-    const refreshed = await buildRuntimeSnapshot("managed", true);
-    const refreshedByApp = new Map(refreshed.metrics.map((metric) => [metric.appId, metric]));
-    const results = targets.apps.map((entry) => refreshedByApp.get(entry.id)?.isRunning
-      ? { appId: entry.id, name: entry.name, status: "restarted" as const, message: "应用进程仍在运行，可能已被后台服务重新启动。" }
-      : { appId: entry.id, name: entry.name, status: "terminated" as const });
-    const stoppedIds = new Set(results.filter((item) => item.status === "terminated").map((item) => item.appId));
-    for (const id of stoppedIds) runtimeAssociatedPids.delete(id);
-    const nextApps = loadApps().map((item) => stoppedIds.has(item.id) ? { ...item, launchedPid: undefined } : item);
-    saveApps(nextApps);
-    return { apps: nextApps, results } satisfies BatchKillResult;
+    return terminateManagedApps(loadApps().filter((item) => item.groupId === groupId));
   });
+
+  ipcMain.handle("apps:killAll", () => terminateManagedApps(loadApps()));
 
   ipcMain.handle("apps:remove", (_event, id: string) => {
     const entry = getApp(id);

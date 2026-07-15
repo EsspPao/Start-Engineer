@@ -2,6 +2,7 @@ export type ProcessTerminationDependencies = {
   runNormal: (args: string[]) => Promise<void>;
   runElevated: (args: string[]) => Promise<void>;
   getRunningPids: (pids: number[]) => Promise<number[]>;
+  assumeRunning?: boolean;
 };
 
 export function normalizePids(pids: number[]) {
@@ -16,7 +17,7 @@ export async function terminatePids(pids: number[], dependencies: ProcessTermina
   const candidates = normalizePids(pids);
   if (!candidates.length) return { elevated: false };
 
-  const running = await dependencies.getRunningPids(candidates);
+  const running = dependencies.assumeRunning ? candidates : await dependencies.getRunningPids(candidates);
   if (!running.length) return { elevated: false };
 
   const args = buildTaskkillArgs(running);

@@ -46,17 +46,25 @@ describe("app card styles", () => {
     for (const status of ["queued", "launching", "waiting", "launched", "alreadyRunning", "failed"]) {
       expect(styles).toContain(`.folder-member-launch.${status}`);
     }
-    expect(styles).toMatch(/\.folder-member-launch\.queued > i,\s*\.folder-member-launch\.launching > i,\s*\.folder-member-launch\.waiting > i\s*\{[^}]*border-radius:\s*50%;/i);
+    expect(styles).toMatch(/\.folder-member-launch\.queued > i,\s*\.folder-member-launch\.launching > i,\s*\.folder-member-launch\.waiting > i,\s*\.folder-member-launch\.closing > i\s*\{[^}]*border-radius:\s*50%;/i);
     expect(styles).not.toMatch(/\.folder-member-launch\.queued > i\s*\{[^}]*dashed/i);
     expect(styles).toMatch(/folder-member-spin\s+900ms\s+linear\s+infinite/i);
     expect(styles).toContain("folder-batch-active");
+    expect(styles).toContain(".closing-overlay i");
   });
 
   it("distinguishes partially running folders and emphasizes group actions", () => {
     expect(styles).toMatch(/\.folder-running-status\.partial\s+\.running-dot\s*\{[^}]*conic-gradient\(#22c55e var\(--folder-running-progress/i);
     expect(styles).toContain(".folder-member-launch.member-running");
-    expect(styles).toMatch(/\.group-actions\s+\.group-add-action[\s\S]*?height:\s*46px/i);
-    expect(styles).toMatch(/\.group-actions\s+\.group-close-action[\s\S]*?background:\s*color-mix\(in srgb,#fff1f3/i);
+    expect(styles).toMatch(/\.group-actions\s+\.group-add-action[\s\S]*?height:\s*44px/i);
+    expect(styles).toMatch(/\.group-actions\s+\.group-close-action[\s\S]*?background:\s*color-mix\(in srgb,var\(--liquid-button-glass\)/i);
+  });
+
+  it("keeps process icons on a neutral holder instead of a full colored tile", () => {
+    expect(styles).toMatch(/\.process-icon\s*\{[^}]*width:\s*38px;[^}]*height:\s*38px;[^}]*background:\s*color-mix\(/i);
+    expect(styles).toMatch(/\.process-icon\.has-image img\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;/i);
+    expect(styles).toMatch(/\.process-icon-fallback\s*\{[^}]*width:\s*27px;[^}]*height:\s*27px;[^}]*background:\s*linear-gradient/i);
+    expect(styles).not.toMatch(/\.process-icon\s*\{[^}]*background:\s*linear-gradient/i);
   });
 
   it("applies a constrained liquid glass material to buttons without changing global focus behavior", () => {

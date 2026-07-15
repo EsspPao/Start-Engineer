@@ -75,6 +75,7 @@ describe("GroupPage", () => {
     expect(html).not.toContain('class="app-check"');
     expect(html).toContain('class="launch group-add-action"');
     expect(html).toContain('class="ghost group-close group-close-action"');
+    expect(html.indexOf("关闭全部")).toBeLessThan(html.indexOf("添加应用"));
   });
 
   it("renders an immediate launching state for apps being started", () => {
@@ -98,6 +99,30 @@ describe("GroupPage", () => {
 
     expect(html).toContain('class="launching-overlay"');
     expect(html).toContain("启动中");
+  });
+
+  it("renders an immediate closing state while a running app is being stopped", () => {
+    const html = renderToStaticMarkup(createElement(GroupPage, {
+      apps: [makeApp("running", true)],
+      launchingAppIds: new Set(["running"]),
+      selectedAppId: "",
+      invalidAppIds: new Set<string>(),
+      runningCount: 1,
+      showAppNames: true,
+      onSelectApp: vi.fn(),
+      onFocusApp: vi.fn(),
+      onLaunchApp: vi.fn(),
+      onLaunchingFeedback: vi.fn(),
+      onCloseAll: vi.fn(),
+      onAdd: vi.fn(),
+      onContextMenu: vi.fn(),
+      onPointerDown: vi.fn(),
+      onRequestClose: vi.fn(),
+    }));
+
+    expect(html).toContain("closing-overlay");
+    expect(html).toContain("关闭中");
+    expect(html).toContain('aria-busy="true"');
   });
 
   it("can hide app names while keeping accessible labels", () => {
@@ -216,6 +241,32 @@ describe("UnifiedGroupPage", () => {
 });
 
 describe("ProcessPage", () => {
+  it("uses a neutral icon holder for real icons and a compact fallback tile", () => {
+    const baseProcess = {
+      pid: 42, pids: [42], processCount: 1, name: "Demo.exe", exePaths: [], cpuPercent: 0,
+      memoryBytes: 0, diskBytesPerSecond: 0, isManagedApp: false, canTerminate: true
+    };
+    const html = renderToStaticMarkup(createElement(ProcessPage, {
+      processes: [
+        { ...baseProcess, name: "Real.exe", iconDataUrl: "data:image/png;base64,icon" },
+        { ...baseProcess, pid: 43, pids: [43], name: "Fallback.exe" }
+      ],
+      loading: false,
+      lockedProcessName: "",
+      sortKey: "cpuPercent",
+      sortDirection: "desc",
+      changeSort: vi.fn(),
+      filter: "all",
+      setFilter: vi.fn(),
+      onContextMenu: vi.fn(),
+    }));
+
+    expect(html).toContain('class="process-icon has-image ');
+    expect(html).toContain('class="process-icon fallback ');
+    expect(html).toContain('class="process-icon-fallback"');
+    expect(html).toContain(">FA<");
+  });
+
   it("can render managed apps as the selected process filter", () => {
     const html = renderToStaticMarkup(createElement(ProcessPage, {
       processes: [],

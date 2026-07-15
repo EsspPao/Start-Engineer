@@ -95,6 +95,8 @@ export type UiSidebarWidth = "narrow" | "standard" | "wide";
 export type UiBrandIconSize = "standard" | "large";
 export type UiBackgroundTone = "default" | "aurora" | "graphite" | "mist";
 export type UiLayoutPreferences = {
+  uiScale: number;
+  backgroundColor: string;
   cardSize: UiCardSize;
   gridDensity: UiGridDensity;
   sidebarWidth: UiSidebarWidth;
@@ -211,11 +213,13 @@ export type BatchKillItemResult = {
 export type BatchKillResult = {
   apps: AppEntry[];
   results: BatchKillItemResult[];
+  runningStatuses?: AppRunningStatus[];
 };
 
 export type KillAppResult = {
   apps: AppEntry[];
-  metrics: AppMetrics[];
+  metrics?: AppMetrics[];
+  runningStatuses?: AppRunningStatus[];
 };
 
 export type FocusAppWindowResult = {
@@ -336,6 +340,7 @@ export type StartEngineerApi = {
   killApp: (id: string) => Promise<KillAppResult | AppEntry[]>;
   killFolderApps: (folderId: string) => Promise<BatchKillResult>;
   killGroupApps: (groupId: string) => Promise<BatchKillResult>;
+  killAllApps: () => Promise<BatchKillResult>;
   removeApp: (id: string) => Promise<AppEntry[]>;
   killProcessGroup: (input: { name: string; pids: number[] }) => Promise<void>;
   showItemInFolder: (path: string) => Promise<void>;

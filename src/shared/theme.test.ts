@@ -3,7 +3,7 @@ import { resolveUiTheme, themeUsesMica } from "./theme.js";
 
 describe("theme resolution", () => {
   it("maps the system theme to Utility in light mode and Midnight in dark mode", () => {
-    expect(resolveUiTheme("system", false)).toBe("utility");
+    expect(resolveUiTheme("system", false)).toBe("fluent");
     expect(resolveUiTheme("system", true)).toBe("midnight");
   });
 

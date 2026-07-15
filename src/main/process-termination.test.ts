@@ -16,6 +16,20 @@ describe("process termination", () => {
     expect(runElevated).not.toHaveBeenCalled();
   });
 
+  it("can skip the redundant initial probe when PIDs came from a fresh task list", async () => {
+    const runNormal = vi.fn(async () => undefined);
+    const getRunningPids = vi.fn().mockResolvedValueOnce([]);
+
+    await expect(terminatePids([10], {
+      runNormal,
+      runElevated: vi.fn(),
+      getRunningPids,
+      assumeRunning: true
+    })).resolves.toEqual({ elevated: false });
+    expect(runNormal).toHaveBeenCalledTimes(1);
+    expect(getRunningPids).toHaveBeenCalledTimes(1);
+  });
+
   it("requests elevation once when processes remain", async () => {
     const runNormal = vi.fn(async () => { throw new Error("Access is denied"); });
     const runElevated = vi.fn(async () => undefined);

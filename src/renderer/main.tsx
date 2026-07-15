@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { createPortal } from "react-dom";
 import { createRoot } from "react-dom/client";
 import type { AppEntry, AppFolder, AppGroup, AppKeyboardShortcutId, AppMetrics, AppPreferencesState, AppWindowInfo, DiscoveredAppCandidate, EverythingSearchResult, FocusAppWindowResult, FocusWindowHints, FolderLaunchVisualStatus, GroupGridItemId, GroupGridOrder, GroupInput, InstallableAppCandidate, InternalSearchResult, ProcessInfo, SearchDependencyStatus, SearchProvider, SectionId, StartEngineerApi, UiLayoutPreferences, UiTheme, UpdateAppInput, UpdatePreferencesInput, WallpaperGlassIntensity } from "../shared/types";
-import { defaultUiLayoutPreferences } from "../shared/ui-layout-share";
+import { defaultUiLayoutPreferences, encodeUiLayoutShareCode } from "../shared/ui-layout-share";
 import { defaultKeyboardShortcuts } from "../main/preferences";
 import { GroupPage, ProcessPage, UnifiedGroupPage } from "./pages";
 import { resolveAppKeyboardAction } from "./app-card-interaction";
@@ -25,7 +25,7 @@ import { resolveSearchResultAction } from "./search-results-selection";
 import { droppedExePaths, dropNoticeForResult, targetDropGroupId } from "./dropped-files";
 import { appSectionApps, mergeAllAppsOrder, navigationSectionIds } from "./section-apps";
 import { groupSortPreviewPosition } from "./drag-preview-position";
-import { applyKillAppResult, killAppResultHasMetrics } from "./kill-app-result";
+import { applyKillAppResult, killAppResultHasMetrics, killAppResultHasRunningStatuses } from "./kill-app-result";
 import { applyRunningStatusToMetrics } from "./running-status";
 import { FAST_RUNNING_STATUS_INTERVAL_MS } from "./fast-running-status";
 import { WallpaperGlassIntensityControl, WallpaperGlassVariantControl } from "./theme-settings";
@@ -136,6 +136,7 @@ const fallbackApi: StartEngineerApi = {
   killApp: async () => ({ apps: [], metrics: [] }),
   killFolderApps: electronOnly,
   killGroupApps: electronOnly,
+  killAllApps: electronOnly,
   removeApp: async () => [],
   killProcessGroup: async () => electronOnly(),
   showItemInFolder: async () => electronOnly(),
@@ -305,6 +306,7 @@ function App() {
     if (!confirmed.length) return;
     setFolderLaunchStatuses((current) => ({ ...current, ...Object.fromEntries(confirmed.map((id) => [id, "launched" as const])) }));
     for (const id of confirmed) {
+      launchingAppIdsRef.current.delete(id);
       const timer = folderLaunchClearTimers.current.get(id);
       if (timer) window.clearTimeout(timer);
       folderLaunchClearTimers.current.set(id, window.setTimeout(() => {
@@ -316,6 +318,7 @@ function App() {
         folderLaunchClearTimers.current.delete(id);
       }, 4200));
     }
+    setLaunchingAppIds(new Set(launchingAppIdsRef.current));
   }, [folderLaunchStatuses, metrics]);
 
   const refreshRuntimeData = useCallback(async (mode: "full" | "managed" = "full", force = false) => {
@@ -502,9 +505,18 @@ function App() {
     }
   }, [activeSection, refreshRuntimeData]);
 
+  const setAppsClosing = useCallback((ids: string[], closing: boolean) => {
+    for (const id of ids) {
+      if (closing) launchingAppIdsRef.current.add(id);
+      else launchingAppIdsRef.current.delete(id);
+    }
+    setLaunchingAppIds(new Set(launchingAppIdsRef.current));
+  }, []);
+
   const closeApp = useCallback(async (appId: string) => {
     setError("");
     let refreshedByKill = false;
+    setAppsClosing([appId], true);
     try {
       const result = await api().killApp(appId);
       const next = applyKillAppResult(result);
@@ -513,14 +525,19 @@ function App() {
         setMetrics(next.metrics);
         refreshedByKill = killAppResultHasMetrics(result);
       }
+      if (next.runningStatuses) {
+        setMetrics((current) => applyRunningStatusToMetrics(current, next.runningStatuses!));
+        refreshedByKill = killAppResultHasRunningStatuses(result);
+      }
     } catch (reason) {
       setError(cleanErrorMessage(reason, "结束应用失败"));
     } finally {
       if (!refreshedByKill) {
         await refreshRuntimeData(activeSection === "processes" ? "full" : "managed", true);
       }
+      setAppsClosing([appId], false);
     }
-  }, [activeSection, refreshRuntimeData]);
+  }, [activeSection, refreshRuntimeData, setAppsClosing]);
 
   const requestCloseApp = useCallback((app: RuntimeApp) => setConfirm({
     title: "结束应用进程",
@@ -530,19 +547,24 @@ function App() {
   }), [closeApp]);
 
   const closeFolderApps = useCallback(async (folderId: string) => {
+    const memberIds = folders.find((folder) => folder.id === folderId)?.appIds.filter((id) => runtimeApps.find((app) => app.id === id)?.metrics.isRunning) ?? [];
+    setAppsClosing(memberIds, true);
     try {
       setError("");
       const result = await api().killFolderApps(folderId);
       setApps(result.apps);
-      await refreshRuntimeData(activeSection === "processes" ? "full" : "managed", true);
+      if (result.runningStatuses) setMetrics((current) => applyRunningStatusToMetrics(current, result.runningStatuses!));
+      else await refreshRuntimeData(activeSection === "processes" ? "full" : "managed", true);
       const stopped = result.results.filter((item) => item.status === "terminated").length;
       const remaining = result.results.filter((item) => item.status !== "terminated");
       setNotice(`已关闭 ${stopped} 个应用`);
       if (remaining.length) setError(remaining.map((item) => `${item.name}：${item.message || "结束失败"}`).join("；"));
     } catch (reason) {
       setError(cleanErrorMessage(reason, "结束卡片内应用失败"));
+    } finally {
+      setAppsClosing(memberIds, false);
     }
-  }, [activeSection, refreshRuntimeData]);
+  }, [activeSection, folders, refreshRuntimeData, runtimeApps, setAppsClosing]);
 
   const requestCloseFolder = useCallback((folderId: string) => {
     const folder = folders.find((item) => item.id === folderId);
@@ -1226,6 +1248,8 @@ function App() {
     const appName = runtimeApps.find((app) => app.id === id)?.name ?? "应用";
     launchingAppIdsRef.current.add(id);
     setLaunchingAppIds(new Set(launchingAppIdsRef.current));
+    setFolderLaunchStatuses((current) => ({ ...current, [id]: "launching" }));
+    let waitingForRuntime = false;
     try {
       setError("");
       setNotice(buildLaunchFeedbackMessage("starting", appName));
@@ -1250,15 +1274,42 @@ function App() {
         return next;
       });
       setNotice(buildLaunchFeedbackMessage(result.status, appName));
-      if (result.status === "launched" || result.status === "alreadyRunning") {
-        await refreshRuntimeData(activeSection === "processes" ? "full" : "managed", true);
+      if (result.status === "launched") {
+        waitingForRuntime = true;
+        setFolderLaunchStatuses((current) => ({ ...current, [id]: "waiting" }));
+        const previousTimer = folderLaunchClearTimers.current.get(id);
+        if (previousTimer) window.clearTimeout(previousTimer);
+        folderLaunchClearTimers.current.set(id, window.setTimeout(() => {
+          launchingAppIdsRef.current.delete(id);
+          setLaunchingAppIds(new Set(launchingAppIdsRef.current));
+          setFolderLaunchStatuses((current) => {
+            const next = { ...current };
+            delete next[id];
+            return next;
+          });
+          folderLaunchClearTimers.current.delete(id);
+          setNotice(`${appName} 已收到启动请求，仍在等待运行状态`);
+        }, 60000));
+        void api().getManagedRunningStatus()
+          .then((statuses) => setMetrics((current) => applyRunningStatusToMetrics(current, statuses)))
+          .catch(() => undefined);
+      } else if (result.status === "alreadyRunning") {
+        const statuses = await api().getManagedRunningStatus();
+        setMetrics((current) => applyRunningStatusToMetrics(current, statuses));
       }
     } catch (reason) {
       setNotice("");
       setError(cleanErrorMessage(reason, "启动失败，请检查程序路径和启动参数。"));
     } finally {
-      launchingAppIdsRef.current.delete(id);
-      setLaunchingAppIds(new Set(launchingAppIdsRef.current));
+      if (!waitingForRuntime) {
+        launchingAppIdsRef.current.delete(id);
+        setLaunchingAppIds(new Set(launchingAppIdsRef.current));
+        setFolderLaunchStatuses((current) => {
+          const next = { ...current };
+          delete next[id];
+          return next;
+        });
+      }
     }
   };
   const launchFolderWithFeedback = async (folderId: string) => {
@@ -1282,7 +1333,9 @@ function App() {
       setFolderLaunchStatuses((current) => ({ ...current, ...Object.fromEntries(result.results.map((item) => [item.appId, item.status === "launched" ? "waiting" : item.status])) }));
       const failed = result.results.filter((item) => item.status === "failed");
       if (failed.length) setError(`${failed.length} 个应用启动失败`);
-      await refreshRuntimeData(activeSection === "processes" ? "full" : "managed", true);
+      void api().getManagedRunningStatus()
+        .then((statuses) => setMetrics((current) => applyRunningStatusToMetrics(current, statuses)))
+        .catch(() => undefined);
       for (const item of result.results) {
         const delay = item.status === "launched" ? 60000 : item.status === "failed" ? 8000 : 4200;
         folderLaunchClearTimers.current.set(item.appId, window.setTimeout(() => {
@@ -1418,63 +1471,64 @@ function App() {
   const handleLaunchingFeedback = (app: RuntimeApp) => {
     setNotice(buildLaunchFeedbackMessage("starting", app.name));
   };
-  const requestCloseGroupApps = async () => {
+  const requestCloseGroupApps = () => {
+    setError("");
     if (isAllAppsSection) {
-      try {
-        setError("");
-        const snapshot = await api().getRuntimeSnapshot("managed", true);
-        setApps(snapshot.apps);
-        setMetrics(snapshot.metrics);
-        const runningIds = new Set(snapshot.metrics.filter((metric) => metric.isRunning).map((metric) => metric.appId));
-        const runningApps = snapshot.apps.filter((app) => runningIds.has(app.id));
-        if (!runningApps.length) {
-          setNotice("没有运行中的已添加应用");
-          return;
-        }
-        setConfirm({
-          title: "关闭全部已添加应用",
-          message: `将结束 ${runningApps.length} 个应用：${runningApps.map((app) => app.name).join("、")}。是否继续？`,
-          confirmLabel: "关闭全部",
-          onConfirm: async () => {
-            for (const app of runningApps) await api().killApp(app.id);
-            await refreshRuntimeData("managed", true);
-            setNotice(`已关闭 ${runningApps.length} 个应用`);
-          }
-        });
-      } catch (reason) {
-        setError(cleanErrorMessage(reason, "读取运行状态失败"));
-      }
-      return;
-    }
-    if (!activeGroup || activeGroup.isSystem) return;
-    try {
-      setError("");
-      const snapshot = await api().getRuntimeSnapshot("managed", true);
-      setApps(snapshot.apps);
-      setMetrics(snapshot.metrics);
-      const runningIds = new Set(snapshot.metrics.filter((metric) => metric.isRunning).map((metric) => metric.appId));
-      const runningApps = snapshot.apps.filter((app) => app.groupId === activeGroup.id && runningIds.has(app.id));
+      const runningApps = runtimeApps.filter((app) => app.metrics.isRunning);
       if (!runningApps.length) {
-        setNotice("当前分组没有运行中的应用");
+        setNotice("没有运行中的已添加应用");
         return;
       }
       setConfirm({
-        title: "关闭当前分组全部应用",
+        title: "关闭全部已添加应用",
         message: `将结束 ${runningApps.length} 个应用：${runningApps.map((app) => app.name).join("、")}。是否继续？`,
         confirmLabel: "关闭全部",
         onConfirm: async () => {
+          const ids = runningApps.map((app) => app.id);
+          setAppsClosing(ids, true);
+          try {
+            const result = await api().killAllApps();
+            setApps(result.apps);
+            if (result.runningStatuses) setMetrics((current) => applyRunningStatusToMetrics(current, result.runningStatuses!));
+            else await refreshRuntimeData("managed", true);
+            const stopped = result.results.filter((item) => item.status === "terminated").length;
+            const remaining = result.results.filter((item) => item.status !== "terminated");
+            setNotice(`已关闭 ${stopped} 个应用`);
+            if (remaining.length) setError(remaining.map((item) => `${item.name}：${item.message || "结束失败"}`).join("；"));
+          } finally {
+            setAppsClosing(ids, false);
+          }
+        }
+      });
+      return;
+    }
+    if (!activeGroup || activeGroup.isSystem) return;
+    const runningApps = runtimeApps.filter((app) => app.groupId === activeGroup.id && app.metrics.isRunning);
+    if (!runningApps.length) {
+      setNotice("当前分组没有运行中的应用");
+      return;
+    }
+    setConfirm({
+      title: "关闭当前分组全部应用",
+      message: `将结束 ${runningApps.length} 个应用：${runningApps.map((app) => app.name).join("、")}。是否继续？`,
+      confirmLabel: "关闭全部",
+      onConfirm: async () => {
+        const ids = runningApps.map((app) => app.id);
+        setAppsClosing(ids, true);
+        try {
           const result = await api().killGroupApps(activeGroup.id);
           setApps(result.apps);
-          await refreshRuntimeData("managed", true);
+          if (result.runningStatuses) setMetrics((current) => applyRunningStatusToMetrics(current, result.runningStatuses!));
+          else await refreshRuntimeData("managed", true);
           const stopped = result.results.filter((item) => item.status === "terminated").length;
           const remaining = result.results.filter((item) => item.status !== "terminated");
           setNotice(`已关闭 ${stopped} 个应用`);
           if (remaining.length) setError(remaining.map((item) => `${item.name}：${item.message || "结束失败"}`).join("；"));
+        } finally {
+          setAppsClosing(ids, false);
         }
-      });
-    } catch (reason) {
-      setError(cleanErrorMessage(reason, "读取分组运行状态失败"));
-    }
+      }
+    });
   };
   const editApp = (app: AppEntry) => setEdit({ id: app.id, name: app.name, executablePath: app.executablePath, launchArgs: app.launchArgs ?? "" });
   const runKeyboardAppAction = useCallback((app: RuntimeApp, command: "activate" | "menu" | "edit", menuPosition?: { x: number; y: number }) => {
@@ -1631,7 +1685,7 @@ function App() {
   }, [activeGridItemOrder, activeSection, appGroups, closeMenu, confirm, displayedApps, edit, expandedFolderId, groupDelete, groupEdit, importCandidates.length, isAllAppsSection, isAppSection, menu, preferences.keyboardShortcuts, query, runKeyboardAppAction, runtimeApps, searchPanelOpen, selectedAppId, selectedGridItemId]);
 
   return (
-    <main className={`app-shell drag-region ${fileDropActive ? "file-drop-active" : ""}`} style={themeAttributes.wallpaperStyle as React.CSSProperties} data-theme={themeAttributes.theme} data-wallpaper-intensity={themeAttributes.wallpaperIntensity} data-wallpaper-variant={themeAttributes.wallpaperVariant} data-ui-card-size={preferences.uiLayout.cardSize} data-ui-grid-density={preferences.uiLayout.gridDensity} data-ui-sidebar-width={preferences.uiLayout.sidebarWidth} data-ui-brand-icon-size={preferences.uiLayout.brandIconSize} data-ui-background-tone={preferences.uiLayout.backgroundTone} data-ui-show-running-status={preferences.uiLayout.showRunningStatus ? "true" : "false"} data-ui-show-search-bar={preferences.uiLayout.showSearchBar ? "true" : "false"} data-ui-show-batch-actions={preferences.uiLayout.showBatchActions ? "true" : "false"} onPointerDown={closeFloatingUi} onDragEnter={handleFileDragEnter} onDragOver={handleFileDragOver} onDragLeave={handleFileDragLeave} onDrop={handleFileDrop}>
+    <main className={`app-shell drag-region ${fileDropActive ? "file-drop-active" : ""}`} style={{ ...themeAttributes.wallpaperStyle, "--ui-scale": preferences.uiLayout.uiScale / 100, "--ui-scale-width": `${10000 / preferences.uiLayout.uiScale}vw`, "--ui-scale-height": `${10000 / preferences.uiLayout.uiScale}vh`, "--ui-background-color": preferences.uiLayout.backgroundColor || "transparent" } as React.CSSProperties} data-theme={themeAttributes.theme} data-wallpaper-intensity={themeAttributes.wallpaperIntensity} data-wallpaper-variant={themeAttributes.wallpaperVariant} data-ui-card-size={preferences.uiLayout.cardSize} data-ui-grid-density={preferences.uiLayout.gridDensity} data-ui-sidebar-width={preferences.uiLayout.sidebarWidth} data-ui-brand-icon-size={preferences.uiLayout.brandIconSize} data-ui-background-tone={preferences.uiLayout.backgroundTone} data-ui-custom-background={preferences.uiLayout.backgroundColor ? "true" : "false"} data-ui-show-running-status={preferences.uiLayout.showRunningStatus ? "true" : "false"} data-ui-show-search-bar={preferences.uiLayout.showSearchBar ? "true" : "false"} data-ui-show-batch-actions={preferences.uiLayout.showBatchActions ? "true" : "false"} onPointerDown={closeFloatingUi} onDragEnter={handleFileDragEnter} onDragOver={handleFileDragOver} onDragLeave={handleFileDragLeave} onDrop={handleFileDrop}>
       <aside className="sidebar no-drag">
         <div className="brand-icon" aria-hidden="true"><BrandLogo /></div>
         <nav className="nav">
@@ -1860,6 +1914,8 @@ function SettingsPage({ apps, groups, preferences, onPreferencesChange, onWallpa
   const [savingPreference, setSavingPreference] = useState<"startup" | "close" | "shortcut" | "theme" | "layout" | "wallpaperIntensity" | "wallpaperVariant" | "administrator" | "search" | "runningSort" | "appNames" | null>(null);
   const [recordingShortcut, setRecordingShortcut] = useState(false);
   const [shortcutMessage, setShortcutMessage] = useState("");
+  const [layoutEditing, setLayoutEditing] = useState(false);
+  const [layoutShareCode, setLayoutShareCode] = useState("");
   const [administratorActionMessage, setAdministratorActionMessage] = useState("");
   const [dependencyStatus, setDependencyStatus] = useState<SearchDependencyStatus>({ state: "missing" });
   const setPreferences = (next: AppPreferencesState) => { void onPreferencesChange({ everythingCliPath: next.everythingCliPath }); };
@@ -2029,13 +2085,16 @@ function SettingsPage({ apps, groups, preferences, onPreferencesChange, onWallpa
     const uiLayout = { ...preferences.uiLayout, ...input };
     void savePreference("layout", { uiLayout, showAppNames: uiLayout.showAppNames });
   };
+  const changeUiScale = (value: number) => saveLayoutPreference({ uiScale: Math.min(125, Math.max(80, Math.round(value))) });
   const copyLayoutShareCode = () => {
-    void api().exportUiLayoutShareCode().then((code) => api().writeClipboardText(code)).then(() => setShortcutMessage("界面分享码已复制")).catch((reason) => setShortcutMessage(cleanErrorMessage(reason, "复制分享码失败")));
+    const code = encodeUiLayoutShareCode(preferences.uiLayout);
+    setLayoutShareCode(code);
+    void api().writeClipboardText(code).then(() => setShortcutMessage("界面分享码已复制")).catch((reason) => setShortcutMessage(cleanErrorMessage(reason, "复制分享码失败")));
   };
   const importLayoutShareCode = () => {
-    const code = window.prompt("粘贴界面分享码");
+    const code = layoutShareCode.trim() || window.prompt("粘贴界面分享码")?.trim();
     if (!code) return;
-    void api().importUiLayoutShareCode(code).then((next) => { setShortcutMessage("界面已导入"); return onPreferencesChange({ uiLayout: next.uiLayout, showAppNames: next.uiLayout.showAppNames }); }).catch((reason) => setShortcutMessage(cleanErrorMessage(reason, "导入分享码失败")));
+    void api().importUiLayoutShareCode(code).then((next) => { setLayoutShareCode(code); setShortcutMessage("界面已导入"); return onPreferencesChange({ uiLayout: next.uiLayout, showAppNames: next.uiLayout.showAppNames }); }).catch((reason) => setShortcutMessage(cleanErrorMessage(reason, "导入分享码失败")));
   };
   const selectTheme = async (theme: UiTheme) => {
     if (theme === preferences.uiTheme || savingPreference !== null) return;
@@ -2058,7 +2117,8 @@ function SettingsPage({ apps, groups, preferences, onPreferencesChange, onWallpa
     void savePreference("shortcut", { globalShortcut: validation.accelerator, globalShortcutEnabled: true });
   };
   const themePicker = (
-    <section className="theme-panel">
+    <section className="theme-panel theme-presets">
+      <header className="theme-subheading"><span><strong>主题预设</strong><small>快速切换整套视觉风格</small></span></header>
       <div className="theme-grid" role="radiogroup" aria-label="界面主题">
         {themeOptions.map((theme) => (
           <button
@@ -2082,19 +2142,40 @@ function SettingsPage({ apps, groups, preferences, onPreferencesChange, onWallpa
   );
   const layoutOption = <T extends string,>(label: string, value: T, current: T, onClick: (value: T) => void) => <button className={current === value ? "selected" : ""} disabled={savingPreference !== null} onClick={() => onClick(value)}>{label}</button>;
   const layoutEditor = (
-    <section className="theme-panel layout-editor">
-      <div className="preference-grid">
+    <section className={`theme-panel layout-editor ${layoutEditing ? "editing" : ""}`}>
+      <div className="layout-editor-heading">
+        <span><strong>界面编辑器</strong><small>{preferences.uiLayout.uiScale}% · {preferences.uiLayout.backgroundColor || "跟随主题背景"}</small></span>
+        <button className={layoutEditing ? "ghost selected" : "launch"} onClick={() => setLayoutEditing((value) => !value)}>{layoutEditing ? "完成" : "编辑界面"}</button>
+      </div>
+      {layoutEditing ? <>
+        <div className="layout-workbench">
+          <div className="layout-preview" title="滚动鼠标滚轮调整界面比例" onWheel={(event) => { event.preventDefault(); changeUiScale(preferences.uiLayout.uiScale + (event.deltaY < 0 ? 2 : -2)); }}>
+            <div className="layout-preview-shell" style={{ transform: `scale(${preferences.uiLayout.uiScale / 100})`, background: preferences.uiLayout.backgroundColor || undefined }}><i /><span><b /><b /><b /></span></div>
+            <output>{preferences.uiLayout.uiScale}%</output>
+          </div>
+          <div className="layout-primary-controls">
+            <div className="layout-control-block">
+              <header><span><strong>界面比例</strong><small>80% - 125%</small></span><output>{preferences.uiLayout.uiScale}%</output></header>
+              <div className="scale-control"><button title="缩小界面" aria-label="缩小界面" onClick={() => changeUiScale(preferences.uiLayout.uiScale - 2)}>−</button><input aria-label="界面比例" type="range" min="80" max="125" step="1" value={preferences.uiLayout.uiScale} onChange={(event) => changeUiScale(Number(event.target.value))} /><button title="放大界面" aria-label="放大界面" onClick={() => changeUiScale(preferences.uiLayout.uiScale + 2)}>+</button></div>
+            </div>
+            <div className="layout-control-block">
+              <header><span><strong>背景颜色</strong><small>{preferences.uiLayout.backgroundColor || "使用主题默认颜色"}</small></span>{preferences.uiLayout.backgroundColor ? <button className="layout-color-reset" onClick={() => saveLayoutPreference({ backgroundColor: "" })}>跟随主题</button> : null}</header>
+              <div className="color-control"><label className="color-picker" style={{ background: preferences.uiLayout.backgroundColor || "#EAF2FF" }}><input aria-label="选择背景颜色" type="color" value={preferences.uiLayout.backgroundColor || "#EAF2FF"} onChange={(event) => saveLayoutPreference({ backgroundColor: event.target.value.toUpperCase() })} /></label>{["#EAF2FF", "#F5F5F7", "#E9F7F5", "#F2ECFF", "#172033", "#0B111A"].map((color) => <button key={color} className={preferences.uiLayout.backgroundColor === color ? "selected" : ""} style={{ background: color }} title={color} aria-label={`背景颜色 ${color}`} onClick={() => saveLayoutPreference({ backgroundColor: color })} />)}</div>
+            </div>
+          </div>
+        </div>
+        <div className="preference-grid layout-detail-grid">
         <div className="preference-row"><span><strong>卡片大小</strong><small>调整应用卡片的整体尺寸。</small></span><div className="preference-options">{layoutOption("小", "small", preferences.uiLayout.cardSize, (value) => saveLayoutPreference({ cardSize: value }))}{layoutOption("中", "medium", preferences.uiLayout.cardSize, (value) => saveLayoutPreference({ cardSize: value }))}{layoutOption("大", "large", preferences.uiLayout.cardSize, (value) => saveLayoutPreference({ cardSize: value }))}</div></div>
         <div className="preference-row"><span><strong>网格密度</strong><small>控制应用之间的留白。</small></span><div className="preference-options">{layoutOption("紧凑", "compact", preferences.uiLayout.gridDensity, (value) => saveLayoutPreference({ gridDensity: value }))}{layoutOption("标准", "standard", preferences.uiLayout.gridDensity, (value) => saveLayoutPreference({ gridDensity: value }))}{layoutOption("宽松", "relaxed", preferences.uiLayout.gridDensity, (value) => saveLayoutPreference({ gridDensity: value }))}</div></div>
         <div className="preference-row"><span><strong>侧栏宽度</strong><small>调整左侧导航区域宽度。</small></span><div className="preference-options">{layoutOption("窄", "narrow", preferences.uiLayout.sidebarWidth, (value) => saveLayoutPreference({ sidebarWidth: value }))}{layoutOption("标准", "standard", preferences.uiLayout.sidebarWidth, (value) => saveLayoutPreference({ sidebarWidth: value }))}{layoutOption("宽", "wide", preferences.uiLayout.sidebarWidth, (value) => saveLayoutPreference({ sidebarWidth: value }))}</div></div>
         <div className="preference-row"><span><strong>顶部图标</strong><small>控制左上角标识大小。</small></span><div className="preference-options">{layoutOption("标准", "standard", preferences.uiLayout.brandIconSize, (value) => saveLayoutPreference({ brandIconSize: value }))}{layoutOption("大", "large", preferences.uiLayout.brandIconSize, (value) => saveLayoutPreference({ brandIconSize: value }))}</div></div>
-        <div className="preference-row"><span><strong>背景色调</strong><small>选择受约束的背景色。</small></span><div className="preference-options">{layoutOption("默认", "default", preferences.uiLayout.backgroundTone, (value) => saveLayoutPreference({ backgroundTone: value }))}{layoutOption("极光", "aurora", preferences.uiLayout.backgroundTone, (value) => saveLayoutPreference({ backgroundTone: value }))}{layoutOption("石墨", "graphite", preferences.uiLayout.backgroundTone, (value) => saveLayoutPreference({ backgroundTone: value }))}{layoutOption("雾蓝", "mist", preferences.uiLayout.backgroundTone, (value) => saveLayoutPreference({ backgroundTone: value }))}</div></div>
         <div className="preference-row"><span><strong>显示应用名称</strong><small>主界面卡片显示名称。</small></span><button className={`setting-switch ${preferences.uiLayout.showAppNames ? "enabled" : ""}`} role="switch" aria-checked={preferences.uiLayout.showAppNames} disabled={savingPreference !== null} onClick={() => saveLayoutPreference({ showAppNames: !preferences.uiLayout.showAppNames })}><i /></button></div>
         <div className="preference-row"><span><strong>显示搜索栏</strong><small>隐藏后仍可用设置重新打开。</small></span><button className={`setting-switch ${preferences.uiLayout.showSearchBar ? "enabled" : ""}`} role="switch" aria-checked={preferences.uiLayout.showSearchBar} disabled={savingPreference !== null} onClick={() => saveLayoutPreference({ showSearchBar: !preferences.uiLayout.showSearchBar })}><i /></button></div>
         <div className="preference-row"><span><strong>显示运行状态</strong><small>控制卡片右上角运行绿点。</small></span><button className={`setting-switch ${preferences.uiLayout.showRunningStatus ? "enabled" : ""}`} role="switch" aria-checked={preferences.uiLayout.showRunningStatus} disabled={savingPreference !== null} onClick={() => saveLayoutPreference({ showRunningStatus: !preferences.uiLayout.showRunningStatus })}><i /></button></div>
         <div className="preference-row"><span><strong>显示底部操作</strong><small>控制底部添加应用和关闭全部操作。</small></span><button className={`setting-switch ${preferences.uiLayout.showBatchActions ? "enabled" : ""}`} role="switch" aria-checked={preferences.uiLayout.showBatchActions} disabled={savingPreference !== null} onClick={() => saveLayoutPreference({ showBatchActions: !preferences.uiLayout.showBatchActions })}><i /></button></div>
-        <div className="preference-row"><span><strong>界面分享码</strong><small>只分享布局偏好，不包含应用路径。</small>{shortcutMessage ? <em>{shortcutMessage}</em> : null}</span><div className="administrator-controls"><button className="shortcut-reset" onClick={copyLayoutShareCode}>复制分享码</button><button className="shortcut-reset" onClick={importLayoutShareCode}>导入</button></div></div>
-      </div>
+        </div>
+        <div className="layout-share-panel"><span><strong>界面分享码</strong><small>不包含应用和本地路径</small>{shortcutMessage ? <em>{shortcutMessage}</em> : null}</span><input aria-label="界面分享码" value={layoutShareCode} placeholder="SEUI 分享码" onChange={(event) => setLayoutShareCode(event.target.value)} /><div><button className="shortcut-reset" onClick={importLayoutShareCode}>导入</button><button className="launch" onClick={copyLayoutShareCode}>生成并复制</button></div></div>
+      </> : <div className="layout-editor-summary"><div className="layout-summary-scale"><b>{preferences.uiLayout.uiScale}</b><span>%</span></div><div className="layout-summary-swatch" style={{ background: preferences.uiLayout.backgroundColor || "linear-gradient(135deg,#dff5fb,#eee7fb)" }} /><span>{preferences.uiLayout.backgroundColor ? "自定义背景" : "主题背景"}</span></div>}
     </section>
   );
   const app = appDrag ?? { grabOffsetX: 0, grabOffsetY: 0 };

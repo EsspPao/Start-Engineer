@@ -4,6 +4,8 @@
 
 请以后续实际代码为准，尤其是 `src/shared/types.ts`、`src/main/main.ts`、`src/renderer/main.tsx`、`src/main/window-manager.ts`、`native/window-focus-helper/Program.cs`。本文只把代码中已经存在的能力写为“当前能力”；尚未落地的设想会明确放在“风险 / 建议 / 路线图”中。
 
+最后核对日期：`2026-07-16`。当前基线已通过 TypeScript 类型检查和完整 Vitest 测试（61 个测试文件、262 项测试），Windows 安装版与便携版输出到 `release`。
+
 ## 1. 项目定位与当前状态
 
 Start Engineer 当前是一个 Windows 桌面启动台与进程监控工具，正在从“个人应用分组启动器”演进为“桌面启动台 / 任务栏辅助入口”。项目面向 Windows 10/11，使用 Electron + React + TypeScript 实现，并带有一个 Windows-only C# 窗口聚焦 helper。
@@ -12,16 +14,17 @@ Start Engineer 当前是一个 Windows 桌面启动台与进程监控工具，�
 
 - 按用户分组管理应用。
 - 系统分组包括 `进程`、`已添加应用`、`设置`。
-- `已添加应用` 是聚合视图，按 `executablePath` 去重显示全部已添加应用，并有独立排序和独立一键启动勾选状态。
+- `已添加应用` 是聚合视图，按 `executablePath` 去重显示全部已添加应用，并保存独立排序。
 - 添加、修改、移动、删除应用。
 - 支持通过文件选择器、搜索候选、拖入 `.exe` 添加应用。
 - 搜索框可搜索已添加应用、本机可添加应用、安全下载入口；没有应用结果时才显示 Everything 文件兜底结果。
 - 支持首次启动扫描开始菜单和桌面快捷方式，并提供候选导入。
-- 应用卡片支持鼠标和键盘操作：选择、启动、唤起、右键菜单、重命名、一键启动勾选。
-- 支持方向键 / WASD 网格导航，Enter 执行主操作，Space 切换一键启动勾选，Esc 分层退出。
-- 支持 `Ctrl+W/S`、`Ctrl+ArrowUp/Down` 相邻切换分组，`Ctrl+1/2/3` 直达第 1/2/3 个用户应用分组。
-- 支持一键启动当前视图中勾选的应用。
-- 支持关闭单个应用、关闭当前视图运行应用、结束进程页中的进程组。
+- 应用卡片支持鼠标和键盘操作：选择、启动、唤起、右键菜单、编辑和拖拽排序。
+- 支持将应用拖到另一个应用或既有多应用卡片中；成员应用从外层网格隐藏，多应用卡片与普通卡片统一排序并可跨分组移动。
+- 多应用卡片支持单击原位放大、双击或 Enter 启动全部成员；成员可从放大卡片拖回外层、转移到其他卡片或移动到其他分组。
+- 支持方向键 / WASD 网格导航，Enter 执行主操作，Esc 分层退出。
+- 应用内快捷键可以录制、冲突校验、立即生效和恢复全部默认；默认支持相邻分组切换及 `Ctrl+1` 到 `Ctrl+9` 直达前九个用户分组。
+- 支持关闭单个应用、一次关闭多应用卡片成员、关闭当前视图或全部运行应用、结束进程页中的进程组。
 - 支持进程监控页，默认显示已管理应用，可切换全部进程。
 - 支持运行状态识别，运行指标包含 `matchedPids`、`associatedPids`、`matchedProcessNames`、`matchedPaths`。
 - 支持同一程序出现在多个用户分组时同步运行绿点。
@@ -32,9 +35,9 @@ Start Engineer 当前是一个 Windows 桌面启动台与进程监控工具，�
 - 支持可选管理员模式和按目标权限重启；冷启动 UAC 拒绝时不继续普通启动。
 - 支持窗口大小和位置记忆。
 - 支持 Splash Window，降低双击 EXE 后的空白等待感。
-- 支持多主题，包括 `Fluent`、`Midnight`、`Modern Utility`、`Refined Glass`、`Wallpaper Glass` 和跟随系统。
+- 支持经过独立视觉重做的 `Apple Gallery`、`Fluent Workspace`、`Midnight Control`、`Modern Utility`、`Refined Glass`、`Wallpaper Glass` 和跟随系统主题。
 - `Wallpaper Glass` 支持深色/浅色变体和 0-100 数值融合强度，滑条拖动时实时预览。
-- 支持受约束 UI 编辑：卡片大小、网格密度、侧栏宽度、顶部图标大小、背景色调、是否显示名称/搜索栏/运行状态/批量按钮。
+- 支持受约束 UI 编辑：整体缩放、自定义背景色、卡片大小、网格密度、侧栏宽度、顶部图标大小、背景色调，以及名称/搜索栏/运行状态/底部操作的显示开关。
 - 支持 UI 分享码 `seui:v1:...` 导入导出。
 - 支持应用卡片拖拽排序、拖到侧栏移动分组，以及设置页分组拖拽排序。
 
@@ -69,7 +72,7 @@ Start Engineer 当前是一个 Windows 桌面启动台与进程监控工具，�
 - 关闭运行应用：绿灯 hover / focus 后变为红色 X。
 - 启动中：卡片遮罩 + spinner。
 - 路径疑似失效：红色警告角标。
-- 一键启动勾选：左上角勾选圆点。
+- 多应用卡片部分运行：右上角半亮状态灯；全部运行时显示完整绿色状态灯。
 - 当前选中：卡片蓝色高亮。
 - 可添加搜索结果：右侧 `+`。
 - 已添加搜索结果：右侧 `✓`。
@@ -246,7 +249,7 @@ D:\Code\Start Engineer
 - 托盘。
 - 自定义窗口控制。
 - 配置读写。
-- 应用、分组、偏好 IPC。
+- 应用、分组、多应用卡片、混合网格顺序和偏好 IPC。
 - 应用启动。
 - 应用关闭和批量关闭。
 - 进程快照采集。
@@ -285,6 +288,7 @@ D:\Code\Start Engineer
 - 确认弹窗。
 - 设置页折叠面板。
 - 拖拽排序和移动分组。
+- 多应用卡片创建、放大、成员迁移和混合网格排序。
 - 外部 `.exe` 文件拖放添加。
 - 应用启动/关闭反馈。
 - 主题属性和 UI layout 属性写入 `document.documentElement.dataset`。
@@ -333,6 +337,8 @@ Smoke 模式使用临时目录：
 
 - `apps.json`：应用列表。
 - `groups.json`：用户分组。
+- `folders.json`：多应用卡片及其成员顺序。
+- `group-grid-order.json`：普通应用与多应用卡片的混合网格顺序。
 - `preferences.json`：偏好设置。
 - `icons\*.png`：应用图标缓存。
 - `dependencies\everything\`：自管 Everything / ES 依赖。
@@ -356,10 +362,9 @@ Smoke 模式使用临时目录：
 注意：
 
 - `all-apps` 不是普通用户分组，但当前实现允许在该视图内拖拽排序，排序保存到 `preferences.allAppsView.orderedAppIds`。
-- `all-apps` 内的一键启动勾选独立保存到 `preferences.allAppsView.launchSelectedAppIds`，不会影响同一应用在用户分组里的 `launchSelected`。
 - `all-apps` 会先应用独立排序，再按归一化后的 `executablePath` 去重；同一个 exe 出现在多个用户分组时只显示一个代表卡片。
 - 如果 `preferences.allAppsView.orderedAppIds` 指向某个重复副本，该副本会优先作为 `all-apps` 中的显示代表。
-- `Ctrl+1/2/3` 只跳转用户应用分组，不跳系统聚合分组。
+- 分组直达快捷键只跳转用户应用分组，不跳系统聚合分组；默认覆盖 `Ctrl+1` 到 `Ctrl+9`，实际绑定读取用户偏好。
 
 ### 4.4 AppEntry 当前字段
 
@@ -381,15 +386,19 @@ Smoke 模式使用临时目录：
 - `launchedPid`
 - `processAliases`
 - `associatedPids`
-- `launchSelected`
 
 注意：
 
 - `associatedPids` 已存在于类型中，但当前代码主要用 `runtimeAssociatedPids` 做运行期关联 PID，避免把复杂启动器的临时子进程永久污染到配置。
-- `launchSelected` 是用户分组内的“一键启动勾选”，不等于当前选中卡片。
-- `all-apps` 的一键启动勾选不写回 `AppEntry.launchSelected`。
 
-### 4.5 AppPreferences 当前字段
+### 4.5 AppFolder 与混合网格顺序
+
+- `AppFolder` 保存 `id`、`groupId`、`name`、有序 `appIds` 和 `order`。
+- `GroupGridItemId` 使用 `app:<id>` 或 `folder:<id>`，让普通应用与多应用卡片共享同一套排序。
+- `GroupGridOrder` 按分组保存混合项目顺序；主进程会清理失效 ID、重复成员和不足两个成员的卡片。
+- 多应用卡片跨分组移动时，卡片及全部成员原子迁移；成员移出后只剩一个成员时自动解散。
+
+### 4.6 AppPreferences 当前字段
 
 当前偏好包括：
 
@@ -404,6 +413,7 @@ Smoke 模式使用临时目录：
 - `searchProvider`
 - `sortRunningAppsFirst`
 - `showAppNames`
+- `keyboardShortcuts`
 - `uiLayout`
 - `allAppsView`
 - `firstRunImportCompleted`
@@ -417,7 +427,7 @@ Smoke 模式使用临时目录：
 - `closeBehavior: "tray"`
 - `globalShortcutEnabled: true`
 - `globalShortcut: "Ctrl+Shift+Space"`
-- `uiTheme: "utility"`
+- `uiTheme: "apple"`
 - `wallpaperGlassIntensity: 55`
 - `wallpaperGlassVariant: "dark"`
 - `runAsAdministrator: false`
@@ -425,11 +435,13 @@ Smoke 模式使用临时目录：
 - `sortRunningAppsFirst: true`
 - `showAppNames: false`
 - `uiLayout: defaultUiLayoutPreferences`
-- `allAppsView: { orderedAppIds: [], launchSelectedAppIds: [] }`
+- `allAppsView: { orderedAppIds: [] }`
 - `firstRunImportCompleted: false`
 
 `uiLayout` 当前字段：
 
+- `uiScale: number`，归一化范围 80-125。
+- `backgroundColor: string`，为空时使用主题背景，否则为六位十六进制颜色。
 - `cardSize: "small" | "medium" | "large"`
 - `gridDensity: "compact" | "standard" | "relaxed"`
 - `sidebarWidth: "narrow" | "standard" | "wide"`
@@ -444,6 +456,7 @@ Smoke 模式使用临时目录：
 
 - `wallpaperGlassIntensity` 已是 0-100 数值。旧字符串 `"weak" | "medium" | "strong"` 仅作为迁移兼容输入。
 - 顶层 `showAppNames` 仍保留用于兼容；实际 UI layout 控制看 `uiLayout.showAppNames`。
+- `keyboardShortcuts` 按独立命令保存规范化按键列表；用户录制会完整替换该命令旧绑定，并在保存后立即更新运行时匹配。
 
 ## 5. 当前功能实现分析
 
@@ -480,7 +493,7 @@ Smoke 模式使用临时目录：
 - 搜索本机候选并添加到当前/默认应用分组。
 - 拖入 `.exe` 自动添加到当前/默认应用分组。
 - 修改启动程序。
-- 编辑启动参数和工作目录。
+- 编辑名称、启动程序和启动参数；历史 `workingDirectory` 字段继续兼容，但当前编辑弹窗不提供独立工作目录控件。
 - 移动分组。
 - 删除应用。
 - 应用卡片拖拽排序。
@@ -517,24 +530,27 @@ Smoke 模式使用临时目录：
 - 启动中应用：
   - 单击：选中。
   - Enter / 双击：轻提示，不重复启动。
-- 一键启动勾选：
-  - 左上角圆点独立按钮，点击或 Space 切换。
 - 关闭运行应用：
   - 右上角运行状态灯 hover/focus 后显示红色 X。
   - 点击 X 触发关闭确认。
   - 点击 X 会阻止冒泡，避免触发卡片选择/启动/唤起。
+- 多应用卡片：
+  - 单击：经过短暂单双击判定后，从原位置平滑放大。
+  - 双击 / Enter：顺序启动全部未运行成员，并跳过已运行成员。
+  - 部分运行和全部运行使用不同状态灯；状态灯 hover/focus 后可一次关闭全部运行成员。
+  - 启动中、等待运行确认、失败和关闭中均通过成员图标上的统一环形动画或状态反馈表达。
 
 键盘能力：
 
-- 方向键 / WASD 按网格几何关系移动选择，而不是简单数组顺序。
-- Enter 复用现有主操作：启动或唤起。
-- Space 切换当前选中应用是否加入一键启动。
+- 方向键 / WASD 按统一混合网格的几何关系移动选择，普通应用和多应用卡片都可成为当前项。
+- Enter 复用现有主操作：普通卡片启动/唤起，多应用卡片启动全部成员。
 - Esc 关闭浮层、搜索、菜单或取消当前选中。
 - Menu 键 / Shift+F10 打开当前应用菜单。
 - F2 重命名当前应用。
-- `Ctrl+F` / `Ctrl+K` 聚焦搜索框并阻止浏览器默认查找。
-- `Ctrl+W/S`、`Ctrl+ArrowUp/Down` 切换相邻 section。
-- `Ctrl+1/2/3` 跳转第 1/2/3 个用户应用分组。
+- 默认 `Ctrl+F` 聚焦搜索框并阻止浏览器默认查找。
+- 默认 `Ctrl+W/S`、`Ctrl+ArrowUp/Down` 切换相邻 section。
+- 默认 `Ctrl+1` 到 `Ctrl+9` 跳转前九个用户应用分组。
+- 所有上述应用内命令都从 `preferences.keyboardShortcuts` 解析；设置页双击按键值即可录制新绑定，保存后立即覆盖旧绑定。
 
 输入保护：
 
@@ -555,8 +571,10 @@ Smoke 模式使用临时目录：
 启动后处理：
 
 - 记录启动 PID。
-- 延迟刷新运行快照。
+- 立即返回启动请求结果，并在后台等待真实运行状态，避免把进程识别耗时阻塞在点击响应上。
+- 渲染层先显示启动中状态，再根据进度事件和运行状态轮询切换到等待、成功或失败；慢启动应用最长保留约 60 秒可见反馈。
 - 尝试学习本次启动 PID 派生出的同目录子进程，写入运行期关联 PID。
+- 多应用卡片批量启动会逐成员发送进度，折叠卡片和放大视图共享同一状态源。
 
 风险：
 
@@ -642,9 +660,11 @@ C# helper 当前职责：
 当前能力：
 
 - 单应用关闭。
-- 当前视图运行应用批量关闭。
+- 多应用卡片成员批量关闭。
+- 当前分组及全部已管理运行应用批量关闭。
 - 进程页结束进程组。
 - 批量 PID 去重。
+- 结束多个无关应用时并行执行，减少串行等待。
 - 危险进程保护。
 - Start Engineer 自身进程保护。
 - 普通 `taskkill /T /F` 失败后按需 UAC。
@@ -652,7 +672,8 @@ C# helper 当前职责：
 
 近期优化点：
 
-- 关闭后的运行状态反馈轮询已调快，用于缩短绿灯熄灭延迟。
+- 关闭请求会立即进入“关闭中”视觉状态，并使用主进程返回的实时运行状态继续更新卡片，不必等待下一轮完整快照。
+- 关闭前先做轻量 `tasklist` 存活检查，已退出的 PID 不再进入较慢的终止流程。
 - 关闭流程仍以真实运行状态为准，不默认“先熄灭再确认后台情况”。
 
 风险：
@@ -775,12 +796,13 @@ Everything 兜底：
 
 当前主题：
 
-- `fluent`
-- `midnight`
-- `utility`
-- `glass`
-- `wallpaper`
-- `system`
+- `apple`：Apple Gallery，黑白画廊与克制蓝色焦点，也是当前默认主题。
+- `fluent`：Fluent Workspace，冷灰工作台与 Windows 蓝色焦点。
+- `midnight`：Midnight Control，近黑控制台与青绿状态提示。
+- `utility`：Modern Utility，深色工具栏、冷白画布与自然强调。
+- `glass`：Refined Glass，清透中性玻璃与多色状态层级。
+- `wallpaper`：Wallpaper Glass，让桌面壁纸成为视觉主体。
+- `system`：跟随 Windows，浅色映射到 Fluent Workspace，深色映射到 Midnight Control。
 
 Wallpaper Glass：
 
@@ -794,15 +816,18 @@ Wallpaper Glass：
 
 受约束 UI 编辑：
 
-- 当前不是自由画布编辑器，而是受约束的设置项组合。
-- 可调卡片大小、网格密度、侧栏宽度、顶部图标大小、背景色调、显示应用名称、显示搜索栏、显示运行状态、显示批量按钮。
+- 当前不是任意拖放控件的自由画布，而是保证布局稳定的实时编辑模式。
+- 可用滚轮、滑条或步进按钮调整整体 UI 比例（80%-125%），并实时预览。
+- 可使用颜色选择器设置自定义背景色，也可恢复主题背景。
+- 可调卡片大小、网格密度、侧栏宽度、顶部图标大小、背景色调、显示应用名称、显示搜索栏、显示运行状态、显示底部操作。
 - 这些设置写入 `preferences.uiLayout`。
 
 UI 分享码：
 
 - 编码前缀：`seui:v1:`
 - 实现文件：`src/shared/ui-layout-share.ts`
-- 分享码只包含受约束 UI layout，不包含应用列表、路径、分组、壁纸文件或隐私数据。
+- 分享码包含规范化后的 UI layout，包括整体缩放和自定义背景色；不包含应用列表、路径、分组、壁纸文件或隐私数据。
+- 设置页支持生成、复制、粘贴预览和导入；导入成功后立即应用同一套界面配置。
 - 导入失败原因包括 `invalid-prefix`、`unsupported-version`、`invalid-payload`。
 
 设计风险：
@@ -823,9 +848,10 @@ UI 分享码：
 - 开机启动。
 - 关闭行为。
 - 全局快捷键。
+- 可录制的应用内快捷键和恢复全部默认。
 - 管理员模式。
 - 运行应用置顶。
-- 受约束 UI 编辑和分享码导入导出。
+- 实时 UI 编辑、自定义背景色和分享码导入导出。
 - 搜索提供方。
 - Wallpaper Glass 变体和强度。
 - Everything 依赖状态/准备。
@@ -1057,8 +1083,12 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
   - 普通用户分组排序。
   - `executablePath` 去重是否仍保留用户拖拽排序指定的代表副本。
   - `preferences.allAppsView.orderedAppIds`。
-  - `preferences.allAppsView.launchSelectedAppIds`。
-  - 一键启动和关闭全部。
+  - 关闭全部与实时运行状态是否一致。
+- 修改多应用卡片时要同时检查：
+  - `folders.json` 和 `group-grid-order.json` 的归一化。
+  - 普通应用与多应用卡片的混合排序及跨分组移动。
+  - 成员拖出、转移、自动解散和重复成员清理。
+  - 单击放大、双击/Enter 批量启动、部分运行状态和批量关闭。
 - 修改偏好时同步：
   - `src/main/preferences.ts`
   - `src/shared/types.ts`
@@ -1097,9 +1127,9 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 - `D:\Code\Start Engineer\scripts\build-window-helper.mjs`
   - `dotnet publish` helper 到 `dist-native/window-focus-helper/win-x64`。
 - `D:\Code\Start Engineer\src\shared\types.ts`
-  - 应用、分组、系统 section、偏好、运行快照、搜索、批量操作和 preload API 类型。
+  - 应用、分组、多应用卡片、混合网格、偏好、运行快照、搜索、批量操作和 preload API 类型。
 - `D:\Code\Start Engineer\src\shared\ui-layout-share.ts`
-  - 受约束 UI layout 默认值、归一化、分享码编码/解码。
+  - UI layout 默认值、缩放与背景色归一化、分享码编码/解码。
 - `D:\Code\Start Engineer\src\main\main.ts`
   - 主进程总入口和 IPC 注册。
 - `D:\Code\Start Engineer\src\main\runtime-monitor.ts`
@@ -1129,13 +1159,13 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 - `D:\Code\Start Engineer\src\renderer\main.tsx`
   - 渲染层状态、轮询、搜索、菜单、设置、导入、拖拽和操作反馈。
 - `D:\Code\Start Engineer\src\renderer\section-apps.ts`
-  - 普通分组和 `all-apps` 聚合视图的应用列表、排序和勾选辅助。
+  - 普通分组和 `all-apps` 聚合视图的应用列表、去重和排序辅助。
 - `D:\Code\Start Engineer\src\renderer\keyboard-navigation.ts`
-  - 应用网格键盘导航和分组快捷键判断。
+  - 应用网格键盘导航、按键规范化和可配置命令匹配辅助。
 - `D:\Code\Start Engineer\src\renderer\pages.tsx`
   - 进程页和分组页组件。
 - `D:\Code\Start Engineer\src\renderer\styles.css`
-  - 全局布局、应用卡片、设置页、多主题、Wallpaper Glass、受约束 UI layout 样式。
+  - 全局布局、应用/多应用卡片、启动关闭反馈、设置页、多主题、Wallpaper Glass 和 UI 编辑样式。
 - `D:\Code\Start Engineer\src\renderer\startup-schedule.ts`
   - 启动后延迟任务和进程页预热时机。
 - `D:\Code\Start Engineer\scripts\smoke.mjs`
@@ -1143,6 +1173,6 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 
 ## 13. 当前结论
 
-Start Engineer 已经不只是一个简单启动器。当前代码已经具备应用分组、聚合应用视图、首次导入、搜索添加、拖放添加、可安装应用安全入口、运行监控、批量操作、Everything 兜底搜索、托盘、全局快捷键、管理员模式、Splash、受约束 UI 编辑、UI 分享码、Wallpaper Glass、native 窗口 helper 和窗口唤起诊断等较完整的桌面应用能力。
+Start Engineer 已经不只是一个简单启动器。当前代码已经具备应用分组、多应用卡片与混合网格、聚合应用视图、首次导入、搜索添加、拖放添加、可安装应用安全入口、运行监控、实时批量操作反馈、Everything 兜底搜索、托盘、可配置应用内快捷键、全局快捷键、管理员模式、Splash、实时 UI 编辑、UI 分享码、六套独立主题、Wallpaper Glass、native 窗口 helper 和窗口唤起诊断等较完整的桌面应用能力。
 
 下一阶段最重要的不是继续堆新入口，而是把“运行中应用单击唤起窗口”这条主路径做稳、做快，并降低后台监控成本。只要窗口唤起、运行识别和关闭反馈可靠，Start Engineer 才能真正承担“桌面启动台 / 任务栏辅助入口”的角色。随后再拆分大型控制器、整理设置页信息架构、补齐发布能力，项目会明显更接近可公开发布的状态。
