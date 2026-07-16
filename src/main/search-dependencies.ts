@@ -3,6 +3,7 @@ import { get } from "node:https";
 import { execFile } from "node:child_process";
 import { dirname, join } from "node:path";
 import type { AppPreferences, SearchDependencyStatus } from "../shared/types.js";
+import { runNativeHelper } from "./native-helper.js";
 
 export const EVERYTHING_PORTABLE_URL = "https://www.voidtools.com/Everything-1.4.1.1032.x64.zip";
 export const EVERYTHING_ES_URL = "https://www.voidtools.com/ES-1.1.0.30.x64.zip";
@@ -91,11 +92,20 @@ export function downloadFile(url: string, target: string, onProgress?: (download
   });
 }
 
-export function expandZip(zipPath: string, destination: string): Promise<void> {
+function expandZipWithPowerShell(zipPath: string, destination: string): Promise<void> {
   mkdirSync(destination, { recursive: true });
   return new Promise((resolve, reject) => {
     execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `Expand-Archive -LiteralPath '${zipPath.replace(/'/g, "''")}' -DestinationPath '${destination.replace(/'/g, "''")}' -Force`], { windowsHide: true }, (error) => error ? reject(error) : resolve());
   });
+}
+
+export async function expandZip(zipPath: string, destination: string): Promise<void> {
+  mkdirSync(destination, { recursive: true });
+  try {
+    await runNativeHelper("extract", { zipPath, destination }, 120_000);
+  } catch {
+    await expandZipWithPowerShell(zipPath, destination);
+  }
 }
 
 export function clearTempDependencyDir(userDataPath: string) {

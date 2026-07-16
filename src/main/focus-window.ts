@@ -1,8 +1,6 @@
-import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
 import type { AppEntry, AppMetrics } from "../shared/types.js";
+import { runNativeHelper } from "./native-helper.js";
 import type { ProcessSnapshot } from "./runtime-monitor.js";
 
 export type PowerShellRunner = (script: string) => Promise<string>;
@@ -77,36 +75,8 @@ const uniqueStrings = (values: string[]) => [...new Set(values.map((value) => va
 const weChatProcessNames = ["Weixin", "WeChat", "WeChatAppEx", "WeChatBrowser", "WeChatUtility"];
 const weChatTitleKeywords = ["微信", "WeChat", "Weixin"];
 const weChatClassKeywords = ["WeChat", "Weixin", "ChatWnd"];
-const appRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
-const packagedResourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
-const windowFocusHelperPath = () => {
-  if (process.platform !== "win32") return "";
-  const packaged = packagedResourcesPath ? join(packagedResourcesPath, "window-focus-helper", "win-x64", "window-focus-helper.exe") : "";
-  if (packaged && existsSync(packaged)) return packaged;
-  return join(appRoot, "dist-native", "window-focus-helper", "win-x64", "window-focus-helper.exe");
-};
-
 export function runWindowFocusHelper(command: WindowFocusHelperCommand, payload: unknown): Promise<string> {
-  const executable = windowFocusHelperPath();
-  if (!executable || !existsSync(executable)) {
-    return Promise.reject(new Error("window focus helper unavailable"));
-  }
-
-  return new Promise((resolve, reject) => {
-    const child = execFile(
-      executable,
-      [command],
-      { windowsHide: true, maxBuffer: 1024 * 1024 * 20 },
-      (error, stdout, stderr) => {
-        if (error) {
-          reject(new Error(`${String(stderr || error.message).trim()}${error.code !== undefined ? ` (exit ${error.code})` : ""}`));
-          return;
-        }
-        resolve(stdout);
-      }
-    );
-    child.stdin?.end(JSON.stringify(payload));
-  });
+  return runNativeHelper(command, payload);
 }
 
 export function isWeChatLikeApp(app: AppEntry) {

@@ -56,6 +56,7 @@ import { addDroppedExecutablesToApps } from "./dropped-apps.js";
 import { buildManagedRunningStatus, parseTasklistCsv } from "./managed-running-status.js";
 import { decodeUiLayoutShareCode, encodeUiLayoutShareCode } from "../shared/ui-layout-share.js";
 import { getInstallableAppById, searchInstallableApps } from "./installable-apps.js";
+import { NativeRuntimeHost, normalizeNativeLaunchResult, normalizeNativeSnapshots, runNativeHelper, runNativeHelperSync, type NativeLaunchRequest, type NativeLaunchResult } from "./native-helper.js";
 
 const isDev = process.env.VITE_DEV_SERVER_URL !== undefined;
 const appRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -75,6 +76,8 @@ const groupGridPath = () => join(app.getPath("userData"), "group-grid-order.json
 const preferencesPath = () => join(app.getPath("userData"), "preferences.json");
 const iconCacheDir = () => join(app.getPath("userData"), "icons");
 const processIconCache = new Map<string, string>();
+const nativeRuntime = new NativeRuntimeHost();
+let nativeRuntimeFallbackWarned = false;
 const protectedProcessNames = new Set([
   "system",
   "system idle process",
@@ -111,6 +114,10 @@ let discoveryCandidatesCache: DiscoveredAppCandidate[] = [];
 
 function detectAdministratorPrivileges() {
   if (process.platform !== "win32") return false;
+  try {
+    const result = JSON.parse(runNativeHelperSync("is-elevated", {}, 5000)) as { isElevated?: boolean };
+    if (typeof result.isElevated === "boolean") return result.isElevated;
+  } catch { /* Fall back to PowerShell when the packaged helper is unavailable. */ }
   try {
     const result = execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", "[Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)"], { encoding: "utf8", windowsHide: true, timeout: 5000 });
     return result.trim().toLowerCase() === "true";
@@ -329,21 +336,58 @@ function powershellEncoded(script: string) {
   return Buffer.from(script, "utf16le").toString("base64");
 }
 
-function launchRestartRequest(request: ReturnType<typeof buildRestartRequest>) {
+function restartLaunchRequest(request: ReturnType<typeof buildRestartRequest>): NativeLaunchRequest {
+  return {
+    executablePath: request.executablePath,
+    workingDirectory: dirname(request.executablePath),
+    arguments: request.args,
+    elevated: request.elevated
+  };
+}
+
+function ensureNativeLaunchSucceeded(result: NativeLaunchResult) {
+  if (result.ok) return;
+  if (result.errorCode === 1223) throw Object.assign(new Error("管理员授权已取消"), { code: "ELEVATION_CANCELLED" });
+  throw new Error(launchErrorMessage(result.errorCode));
+}
+
+function nativeHelperWasUnavailable(reason: unknown) {
+  return reason instanceof Error && /native helper unavailable/i.test(reason.message);
+}
+
+function launchRestartWithPowerShell(request: ReturnType<typeof buildRestartRequest>) {
+  const payload = Buffer.from(JSON.stringify(request), "utf8").toString("base64");
+  const script = `$request = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${payload}')) | ConvertFrom-Json\nStart-Process -FilePath ([string]$request.executablePath) -ArgumentList ([string[]]$request.args) -Verb RunAs -ErrorAction Stop`;
+  return new Promise<void>((resolve, reject) => {
+    execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", powershellEncoded(script)], { windowsHide: true }, (error) => error ? reject(new Error("管理员授权已取消或启动失败")) : resolve());
+  });
+}
+
+async function launchRestartRequest(request: ReturnType<typeof buildRestartRequest>) {
   if (request.elevated) {
-    const payload = Buffer.from(JSON.stringify(request), "utf8").toString("base64");
-    const script = `$request = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${payload}')) | ConvertFrom-Json\nStart-Process -FilePath ([string]$request.executablePath) -ArgumentList ([string[]]$request.args) -Verb RunAs -ErrorAction Stop`;
-    return new Promise<void>((resolve, reject) => {
-      execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", powershellEncoded(script)], { windowsHide: true }, (error) => error ? reject(new Error("管理员授权已取消或启动失败")) : resolve());
-    });
+    let raw: string;
+    try {
+      raw = await runNativeHelper("launch", restartLaunchRequest(request), 120_000);
+    } catch (reason) {
+      if (nativeHelperWasUnavailable(reason)) return launchRestartWithPowerShell(request);
+      throw reason;
+    }
+    ensureNativeLaunchSucceeded(normalizeNativeLaunchResult(JSON.parse(raw)));
+    return;
   }
 
   const child = spawn("explorer.exe", [request.executablePath, ...request.args], { detached: true, stdio: "ignore", windowsHide: true });
   child.unref();
-  return Promise.resolve();
 }
 
 function launchElevatedSynchronously(request: ReturnType<typeof buildRestartRequest>) {
+  try {
+    const result = normalizeNativeLaunchResult(JSON.parse(runNativeHelperSync("launch", restartLaunchRequest(request), 120_000)));
+    ensureNativeLaunchSucceeded(result);
+    return;
+  } catch (reason) {
+    if (reason instanceof Error && ("code" in reason || !/unavailable|timed out|invalid/i.test(reason.message))) throw reason;
+  }
   const payload = Buffer.from(JSON.stringify(request), "utf8").toString("base64");
   const script = `$request = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${payload}')) | ConvertFrom-Json\nStart-Process -FilePath ([string]$request.executablePath) -ArgumentList ([string[]]$request.args) -Verb RunAs -ErrorAction Stop`;
   execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", powershellEncoded(script)], { windowsHide: true, timeout: 120000 });
@@ -634,6 +678,12 @@ function shortcutSearchRoots() {
 async function discoverShortcuts(): Promise<ShortcutInfo[]> {
   const roots = shortcutSearchRoots();
   if (!roots.length) return [];
+  try {
+    const output = (await runNativeHelper("shortcuts", { roots }, 30_000)).trim();
+    if (!output) return [];
+    const parsed = JSON.parse(output) as ShortcutInfo[] | ShortcutInfo;
+    return Array.isArray(parsed) ? parsed : [parsed];
+  } catch { /* Fall back to WScript.Shell through PowerShell. */ }
   const payload = Buffer.from(JSON.stringify(roots), "utf16le").toString("base64");
   const script = `
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
@@ -674,6 +724,12 @@ async function discoveryShortcuts(force = false) {
 async function resolveShortcutFiles(paths: string[], source: ShortcutSource): Promise<ShortcutInfo[]> {
   const validPaths = [...new Set(paths.filter((item) => item.toLowerCase().endsWith(".lnk") && existsSync(item)))];
   if (!validPaths.length) return [];
+  try {
+    const output = (await runNativeHelper("shortcuts", { paths: validPaths, source }, 15_000)).trim();
+    if (!output) return [];
+    const parsed = JSON.parse(output) as ShortcutInfo[] | ShortcutInfo;
+    return Array.isArray(parsed) ? parsed : [parsed];
+  } catch { /* Fall back to WScript.Shell through PowerShell. */ }
   const payload = Buffer.from(JSON.stringify(validPaths), "utf16le").toString("base64");
   const script = `
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
@@ -897,7 +953,7 @@ function runTaskkill(args: string[]): Promise<void> {
   });
 }
 
-async function runElevatedTaskkill(args: string[]) {
+async function runElevatedTaskkillWithPowerShell(args: string[]) {
   const encodedArgs = Buffer.from(JSON.stringify(args), "utf8").toString("base64");
   const script = `
 $arguments = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encodedArgs}')) | ConvertFrom-Json
@@ -919,12 +975,34 @@ try {
   }
 }
 
+async function runElevatedTaskkill(args: string[]) {
+  let value: unknown;
+  try {
+    value = JSON.parse(await runNativeHelper("launch", {
+      executablePath: join(process.env.SystemRoot || "C:\\Windows", "System32", "taskkill.exe"),
+      workingDirectory: join(process.env.SystemRoot || "C:\\Windows", "System32"),
+      arguments: args,
+      elevated: true,
+      waitForExit: true
+    } satisfies NativeLaunchRequest, 120_000));
+  } catch (reason) {
+    if (nativeHelperWasUnavailable(reason)) return runElevatedTaskkillWithPowerShell(args);
+    throw reason;
+  }
+  const result = normalizeNativeLaunchResult(value);
+  if (!result.ok) {
+    if (result.errorCode === 1223) throw Object.assign(new Error("已取消管理员授权，未能结束应用进程"), { code: "ELEVATION_CANCELLED" });
+    throw new Error(`管理员结束进程失败${result.errorCode ? `（错误 ${result.errorCode}）` : ""}`);
+  }
+  if (result.exitCode && result.exitCode !== 0) throw new Error(`taskkill exited with code ${result.exitCode}`);
+}
+
 async function getRunningPids(pids: number[]) {
   const candidates = new Set(pids);
   return parseTasklistCsv(await getTasklistOutput()).filter((process) => candidates.has(process.pid)).map((process) => process.pid);
 }
 
-async function getProcessSnapshots(): Promise<ProcessSnapshot[]> {
+async function getPowerShellProcessSnapshots(): Promise<ProcessSnapshot[]> {
   const script = `
 $processes = Get-Process | Select-Object Id,ProcessName,CPU,WorkingSet64
 $cim = Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,ExecutablePath,ReadTransferCount,WriteTransferCount
@@ -955,6 +1033,36 @@ $rows | ConvertTo-Json -Compress
   return Array.isArray(parsed) ? parsed : [parsed];
 }
 
+function nativeSnapshotRequest(mode: SnapshotMode) {
+  if (mode === "full") return { mode };
+  const apps = loadApps();
+  const managedNames = [...new Set(apps.flatMap((entry) => [
+    entry.processName,
+    basename(entry.executablePath),
+    ...(entry.processAliases ?? [])
+  ]).map((value) => value.trim()).filter(Boolean))];
+  const managedPids = [...new Set(apps.flatMap((entry) => [
+    entry.launchedPid,
+    ...(entry.associatedPids ?? []),
+    ...(runtimeAssociatedPids.get(entry.id) ?? [])
+  ]).filter((pid): pid is number => typeof pid === "number" && Number.isSafeInteger(pid) && pid > 0))];
+  return { mode, managedNames, managedPids };
+}
+
+async function getProcessSnapshots(mode: SnapshotMode = "full"): Promise<ProcessSnapshot[]> {
+  try {
+    const snapshots = normalizeNativeSnapshots(await nativeRuntime.request("snapshot", nativeSnapshotRequest(mode), 5000));
+    nativeRuntimeFallbackWarned = false;
+    return snapshots;
+  } catch (reason) {
+    if (!nativeRuntimeFallbackWarned) {
+      nativeRuntimeFallbackWarned = true;
+      console.warn(`[native-runtime] process snapshot unavailable; falling back to PowerShell; reason=${reason instanceof Error ? reason.message : String(reason)}`);
+    }
+    return getPowerShellProcessSnapshots();
+  }
+}
+
 function getTasklistOutput(): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile("tasklist.exe", ["/FO", "CSV", "/NH"], { windowsHide: true, maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
@@ -979,6 +1087,14 @@ function fallbackIconDataUrl(seed: string) {
 }
 
 async function getShellIcon(executablePath: string) {
+  try {
+    const output = await runNativeHelper("icon", { path: executablePath, pixelSize: APP_ICON_TARGET_SIZE }, 15_000);
+    const result = JSON.parse(output) as { ok?: boolean; pngBase64?: string };
+    if (result.ok && result.pngBase64) {
+      const image = nativeImage.createFromBuffer(Buffer.from(result.pngBase64, "base64"));
+      if (!image.isEmpty()) return image;
+    }
+  } catch { /* Fall back to the existing PowerShell/WPF extractor. */ }
   const encodedPath = Buffer.from(executablePath, "utf16le").toString("base64");
   const script = `
 Add-Type -AssemblyName PresentationCore
@@ -1167,8 +1283,6 @@ async function showExeDialog(title: string) {
   return result.canceled || result.filePaths.length === 0 ? undefined : result.filePaths[0];
 }
 
-type NativeLaunchResult = { ok: boolean; pid?: number; errorCode?: number; detail?: string };
-
 function launchErrorMessage(errorCode?: number) {
   if (errorCode === 2 || errorCode === 3) return "程序或工作目录不存在。";
   if (errorCode === 5) return "没有权限启动该程序。";
@@ -1176,7 +1290,13 @@ function launchErrorMessage(errorCode?: number) {
   return "启动失败，请检查程序路径和启动参数。";
 }
 
-async function launchExecutable(entry: AppEntry): Promise<Omit<LaunchAppResult, "apps">> {
+function mapNativeLaunchResult(result: NativeLaunchResult): Omit<LaunchAppResult, "apps"> {
+  if (result.ok) return { status: "launched", pid: result.pid };
+  if (result.errorCode === 1223) return { status: "cancelled", errorCode: result.errorCode };
+  return { status: "failed", errorCode: result.errorCode, message: launchErrorMessage(result.errorCode) };
+}
+
+async function launchExecutableWithPowerShell(entry: AppEntry): Promise<Omit<LaunchAppResult, "apps">> {
   const payload = Buffer.from(JSON.stringify({
     executablePath: entry.executablePath,
     workingDirectory: entry.workingDirectory || dirname(entry.executablePath),
@@ -1214,14 +1334,25 @@ try {
 }`;
 
   const output = (await runPowerShell(script)).trim();
-  const result = JSON.parse(output) as NativeLaunchResult;
-  if (result.ok) return { status: "launched", pid: result.pid };
-  if (result.errorCode === 1223) return { status: "cancelled", errorCode: result.errorCode };
-  return {
-    status: "failed",
-    errorCode: result.errorCode,
-    message: launchErrorMessage(result.errorCode)
-  };
+  return mapNativeLaunchResult(normalizeNativeLaunchResult(JSON.parse(output)));
+}
+
+async function launchExecutable(entry: AppEntry): Promise<Omit<LaunchAppResult, "apps">> {
+  try {
+    const result = normalizeNativeLaunchResult(await nativeRuntime.request("launch", {
+      executablePath: entry.executablePath,
+      workingDirectory: entry.workingDirectory || dirname(entry.executablePath),
+      argumentLine: entry.launchArgs?.trim() || ""
+    } satisfies NativeLaunchRequest));
+    return mapNativeLaunchResult(result);
+  } catch (reason) {
+    if (nativeHelperWasUnavailable(reason)) {
+      console.warn("[native-runtime] launch helper unavailable; falling back to PowerShell");
+      return launchExecutableWithPowerShell(entry);
+    }
+    console.warn(`[native-runtime] launch response failed without automatic retry; reason=${reason instanceof Error ? reason.message : String(reason)}`);
+    return { status: "failed", message: "启动服务暂时无响应，请稍后重试。" };
+  }
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -1748,7 +1879,7 @@ if (handedOffToAdministrator || !hasSingleInstanceLock) {
   app.quit();
 } else {
   app.on("second-instance", showMainWindow);
-  app.on("before-quit", () => { isQuitting = true; globalShortcut.unregisterAll(); registeredShortcut = ""; });
+  app.on("before-quit", () => { isQuitting = true; nativeRuntime.stop(); globalShortcut.unregisterAll(); registeredShortcut = ""; });
   app.whenReady().then(async () => {
     registerIpc();
     const preferences = loadPreferences();

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { AppEntry } from "../shared/types.js";
+import type { AppEntry, SnapshotMode } from "../shared/types.js";
 import { RuntimeMonitor, type ProcessSnapshot } from "./runtime-monitor.js";
 
 const app: AppEntry = {
@@ -12,12 +12,20 @@ const process = (overrides: Partial<ProcessSnapshot> = {}): ProcessSnapshot => (
   memoryBytes: 100, readBytes: 10, writeBytes: 20, ...overrides
 });
 
-const createMonitor = (collect: () => Promise<ProcessSnapshot[]>, now = () => 1000) => new RuntimeMonitor({
+const createMonitor = (collect: (mode: SnapshotMode) => Promise<ProcessSnapshot[]>, now = () => 1000) => new RuntimeMonitor({
   collect, loadApps: () => [app], resolveIcon: async () => "icon",
   getTerminationBlockReason: () => undefined, processorCount: 2, ttlMs: 800, now
 });
 
 describe("RuntimeMonitor", () => {
+  it("forwards managed and full modes to the process collector", async () => {
+    const collect = vi.fn(async (_mode: SnapshotMode) => [process()]);
+    const monitor = createMonitor(collect);
+    await monitor.getSnapshot("managed", true);
+    await monitor.getSnapshot("full", true);
+    expect(collect.mock.calls.map(([mode]) => mode)).toEqual(["managed", "full"]);
+  });
+
   it("shares one collection across concurrent requests", async () => {
     let resolve!: (value: ProcessSnapshot[]) => void;
     const collect = vi.fn(() => new Promise<ProcessSnapshot[]>((done) => { resolve = done; }));

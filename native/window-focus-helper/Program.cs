@@ -1,5 +1,7 @@
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Runtime.InteropServices;
+using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -13,6 +15,7 @@ var options = new JsonSerializerOptions
 try
 {
     var command = args.FirstOrDefault()?.Trim().ToLowerInvariant();
+    if (command == "runtime") return await RuntimeServer.Run(options);
     var input = Console.In.ReadToEnd();
     switch (command)
     {
@@ -28,8 +31,42 @@ try
             Console.Write(JsonSerializer.Serialize(WindowFocuser.Focus(request), options));
             return 0;
         }
+        case "launch":
+        {
+            var request = JsonSerializer.Deserialize<LaunchRequest>(input, options) ?? new LaunchRequest();
+            Console.Write(JsonSerializer.Serialize(ProcessLauncher.Launch(request), options));
+            return 0;
+        }
+        case "is-elevated":
+            Console.Write(JsonSerializer.Serialize(PrivilegeDetector.GetStatus(), options));
+            return 0;
+        case "snapshot":
+        {
+            var request = JsonSerializer.Deserialize<SnapshotRequest>(input, options) ?? new SnapshotRequest();
+            Console.Write(JsonSerializer.Serialize(ProcessCollector.Collect(request), options));
+            return 0;
+        }
+        case "extract":
+        {
+            var request = JsonSerializer.Deserialize<ExtractRequest>(input, options) ?? new ExtractRequest();
+            ArchiveExtractor.Extract(request);
+            Console.Write(JsonSerializer.Serialize(new { ok = true }, options));
+            return 0;
+        }
+        case "shortcuts":
+        {
+            var request = JsonSerializer.Deserialize<ShortcutRequest>(input, options) ?? new ShortcutRequest();
+            Console.Write(JsonSerializer.Serialize(ShortcutResolver.Resolve(request), options));
+            return 0;
+        }
+        case "icon":
+        {
+            var request = JsonSerializer.Deserialize<IconRequest>(input, options) ?? new IconRequest();
+            Console.Write(JsonSerializer.Serialize(ShellIconExtractor.Extract(request), options));
+            return 0;
+        }
         default:
-            Console.Error.WriteLine("Usage: window-focus-helper.exe scan|focus");
+            Console.Error.WriteLine("Usage: window-focus-helper.exe scan|focus|launch|is-elevated|snapshot|extract|shortcuts|icon|runtime");
             return 2;
     }
 }
@@ -93,6 +130,464 @@ internal sealed record FocusResult
     public int ForegroundPid { get; init; }
     public int TargetPid { get; init; }
     public bool Visible { get; init; }
+}
+
+internal sealed record LaunchRequest
+{
+    public string ExecutablePath { get; init; } = "";
+    public string WorkingDirectory { get; init; } = "";
+    public string ArgumentLine { get; init; } = "";
+    public string[] Arguments { get; init; } = [];
+    public bool Elevated { get; init; }
+    public bool WaitForExit { get; init; }
+}
+
+internal sealed record NativeLaunchResult
+{
+    public bool Ok { get; init; }
+    public int Pid { get; init; }
+    public int ErrorCode { get; init; }
+    public int? ExitCode { get; init; }
+    public string? Detail { get; init; }
+}
+
+internal sealed record PrivilegeStatus
+{
+    public bool IsElevated { get; init; }
+}
+
+internal sealed record ProcessSnapshotRow
+{
+    public int Pid { get; init; }
+    public int ParentPid { get; init; }
+    public string Name { get; init; } = "";
+    public string Path { get; init; } = "";
+    public double CpuSeconds { get; init; }
+    public long MemoryBytes { get; init; }
+    public long ReadBytes { get; init; }
+    public long WriteBytes { get; init; }
+}
+
+internal sealed record SnapshotRequest
+{
+    public string Mode { get; init; } = "full";
+    public string[] ManagedNames { get; init; } = [];
+    public int[] ManagedPids { get; init; } = [];
+}
+
+internal sealed record ExtractRequest
+{
+    public string ZipPath { get; init; } = "";
+    public string Destination { get; init; } = "";
+}
+
+internal sealed record ShortcutRoot
+{
+    public string Path { get; init; } = "";
+    public string Source { get; init; } = "";
+}
+
+internal sealed record ShortcutRequest
+{
+    public ShortcutRoot[] Roots { get; init; } = [];
+    public string[] Paths { get; init; } = [];
+    public string Source { get; init; } = "";
+}
+
+internal sealed record ShortcutResult
+{
+    public string Name { get; init; } = "";
+    public string TargetPath { get; init; } = "";
+    public string ShortcutPath { get; init; } = "";
+    public string WorkingDirectory { get; init; } = "";
+    public string LaunchArgs { get; init; } = "";
+    public string IconPath { get; init; } = "";
+    public string Source { get; init; } = "";
+}
+
+internal sealed record IconRequest
+{
+    public string Path { get; init; } = "";
+    public int PixelSize { get; init; } = 256;
+}
+
+internal sealed record IconResult
+{
+    public bool Ok { get; init; }
+    public string PngBase64 { get; init; } = "";
+}
+
+internal sealed record RuntimeRequest
+{
+    public long Id { get; init; }
+    public string Command { get; init; } = "";
+    public JsonElement Payload { get; init; }
+}
+
+internal static class RuntimeServer
+{
+    public static async Task<int> Run(JsonSerializerOptions options)
+    {
+        while (await Console.In.ReadLineAsync() is { } line)
+        {
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            long id = 0;
+            try
+            {
+                var request = JsonSerializer.Deserialize<RuntimeRequest>(line, options) ?? throw new InvalidOperationException("Invalid runtime request");
+                id = request.Id;
+                object result = request.Command.Trim().ToLowerInvariant() switch
+                {
+                    "launch" => ProcessLauncher.Launch(request.Payload.Deserialize<LaunchRequest>(options) ?? new LaunchRequest()),
+                    "is-elevated" => PrivilegeDetector.GetStatus(),
+                    "snapshot" => ProcessCollector.Collect(request.Payload.Deserialize<SnapshotRequest>(options) ?? new SnapshotRequest()),
+                    "ping" => new { ready = true },
+                    _ => throw new InvalidOperationException($"Unsupported runtime command: {request.Command}")
+                };
+                Console.WriteLine(JsonSerializer.Serialize(new { id, ok = true, result }, options));
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(JsonSerializer.Serialize(new { id, ok = false, error = ex.Message }, options));
+            }
+            await Console.Out.FlushAsync();
+        }
+        return 0;
+    }
+}
+
+internal static class PrivilegeDetector
+{
+    public static PrivilegeStatus GetStatus()
+    {
+        using var identity = WindowsIdentity.GetCurrent();
+        var principal = new WindowsPrincipal(identity);
+        return new PrivilegeStatus { IsElevated = principal.IsInRole(WindowsBuiltInRole.Administrator) };
+    }
+}
+
+internal static class ArchiveExtractor
+{
+    public static void Extract(ExtractRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.ZipPath) || !File.Exists(request.ZipPath)) throw new FileNotFoundException("Archive does not exist", request.ZipPath);
+        if (string.IsNullOrWhiteSpace(request.Destination)) throw new InvalidOperationException("Archive destination is required");
+        Directory.CreateDirectory(request.Destination);
+        ZipFile.ExtractToDirectory(request.ZipPath, request.Destination, true);
+    }
+}
+
+internal static class ShortcutResolver
+{
+    public static List<ShortcutResult> Resolve(ShortcutRequest request)
+    {
+        var candidates = new List<(string Path, string Source)>();
+        foreach (var root in request.Roots)
+        {
+            if (string.IsNullOrWhiteSpace(root.Path) || !Directory.Exists(root.Path)) continue;
+            try
+            {
+                var options = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, ReturnSpecialDirectories = false };
+                candidates.AddRange(Directory.EnumerateFiles(root.Path, "*.lnk", options).Select(path => (path, root.Source)));
+            }
+            catch { }
+        }
+        candidates.AddRange(request.Paths.Where(path => path.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase) && File.Exists(path)).Select(path => (path, request.Source)));
+
+        var shellType = Type.GetTypeFromProgID("WScript.Shell") ?? throw new InvalidOperationException("WScript.Shell is unavailable");
+        var shell = Activator.CreateInstance(shellType) ?? throw new InvalidOperationException("Could not create WScript.Shell");
+        try
+        {
+            var results = new List<ShortcutResult>();
+            foreach (var candidate in candidates.DistinctBy(item => item.Path, StringComparer.OrdinalIgnoreCase))
+            {
+                object? shortcut = null;
+                try
+                {
+                    shortcut = shellType.InvokeMember("CreateShortcut", System.Reflection.BindingFlags.InvokeMethod, null, shell, [candidate.Path]);
+                    if (shortcut is null) continue;
+                    var shortcutType = shortcut.GetType();
+                    string Read(string property) => Convert.ToString(shortcutType.InvokeMember(property, System.Reflection.BindingFlags.GetProperty, null, shortcut, null)) ?? "";
+                    var targetPath = Read("TargetPath");
+                    if (string.IsNullOrWhiteSpace(targetPath)) continue;
+                    results.Add(new ShortcutResult
+                    {
+                        Name = System.IO.Path.GetFileNameWithoutExtension(candidate.Path),
+                        TargetPath = targetPath,
+                        ShortcutPath = candidate.Path,
+                        WorkingDirectory = Read("WorkingDirectory"),
+                        LaunchArgs = Read("Arguments"),
+                        IconPath = Read("IconLocation"),
+                        Source = candidate.Source
+                    });
+                }
+                catch { }
+                finally
+                {
+                    if (shortcut is not null && Marshal.IsComObject(shortcut)) _ = Marshal.FinalReleaseComObject(shortcut);
+                }
+            }
+            return results;
+        }
+        finally
+        {
+            if (Marshal.IsComObject(shell)) _ = Marshal.FinalReleaseComObject(shell);
+        }
+    }
+}
+
+internal static class ShellIconExtractor
+{
+    public static IconResult Extract(IconRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Path) || !File.Exists(request.Path)) throw new FileNotFoundException("Icon source does not exist", request.Path);
+        var iid = typeof(NativeMethods.IShellItemImageFactory).GUID;
+        var result = NativeMethods.SHCreateItemFromParsingName(request.Path, IntPtr.Zero, ref iid, out var factory);
+        if (result != 0) Marshal.ThrowExceptionForHR(result);
+        if (factory is null) throw new InvalidOperationException("Shell icon factory is unavailable");
+        var bitmapHandle = IntPtr.Zero;
+        try
+        {
+            var size = Math.Clamp(request.PixelSize, 32, 512);
+            result = factory.GetImage(new NativeMethods.NativeSize { Width = size, Height = size }, 0x00000004, out bitmapHandle);
+            if (result != 0 || bitmapHandle == IntPtr.Zero) Marshal.ThrowExceptionForHR(result);
+            using var bitmap = System.Drawing.Image.FromHbitmap(bitmapHandle);
+            using var stream = new MemoryStream();
+            bitmap.Save(stream, System.Drawing.Imaging.ImageFormat.Png);
+            return new IconResult { Ok = true, PngBase64 = Convert.ToBase64String(stream.ToArray()) };
+        }
+        finally
+        {
+            if (bitmapHandle != IntPtr.Zero) _ = NativeMethods.DeleteObject(bitmapHandle);
+            if (Marshal.IsComObject(factory)) _ = Marshal.FinalReleaseComObject(factory);
+        }
+    }
+}
+
+internal static class ProcessLauncher
+{
+    public static NativeLaunchResult Launch(LaunchRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.ExecutablePath))
+        {
+            return Failure(2, "Executable path is required");
+        }
+
+        var executablePath = Path.GetFullPath(request.ExecutablePath);
+        var workingDirectory = string.IsNullOrWhiteSpace(request.WorkingDirectory)
+            ? Path.GetDirectoryName(executablePath) ?? Environment.CurrentDirectory
+            : Path.GetFullPath(request.WorkingDirectory);
+        if (!File.Exists(executablePath)) return Failure(2, "Executable does not exist");
+        if (!Directory.Exists(workingDirectory)) return Failure(267, "Working directory does not exist");
+
+        var arguments = request.ArgumentLine.Trim();
+        if (arguments.Length == 0 && request.Arguments.Length > 0)
+        {
+            arguments = string.Join(" ", request.Arguments.Select(QuoteArgument));
+        }
+
+        return request.Elevated
+            ? LaunchElevated(executablePath, workingDirectory, arguments, request.WaitForExit)
+            : LaunchNormal(executablePath, workingDirectory, arguments, request.WaitForExit);
+    }
+
+    private static NativeLaunchResult LaunchNormal(string executablePath, string workingDirectory, string arguments, bool waitForExit)
+    {
+        var startup = new NativeMethods.StartupInfo { Size = Marshal.SizeOf<NativeMethods.StartupInfo>() };
+        var commandLine = new StringBuilder(QuoteArgument(executablePath));
+        if (arguments.Length > 0) commandLine.Append(' ').Append(arguments);
+        if (!NativeMethods.CreateProcess(executablePath, commandLine, IntPtr.Zero, IntPtr.Zero, false, 0x00000400, IntPtr.Zero, workingDirectory, ref startup, out var processInfo))
+        {
+            return Failure(Marshal.GetLastWin32Error(), "CreateProcessW failed");
+        }
+
+        try
+        {
+            return Success(unchecked((int)processInfo.ProcessId), processInfo.ProcessHandle, waitForExit);
+        }
+        finally
+        {
+            if (processInfo.ThreadHandle != IntPtr.Zero) _ = NativeMethods.CloseHandle(processInfo.ThreadHandle);
+            if (processInfo.ProcessHandle != IntPtr.Zero) _ = NativeMethods.CloseHandle(processInfo.ProcessHandle);
+        }
+    }
+
+    private static NativeLaunchResult LaunchElevated(string executablePath, string workingDirectory, string arguments, bool waitForExit)
+    {
+        var info = new NativeMethods.ShellExecuteInfo
+        {
+            Size = Marshal.SizeOf<NativeMethods.ShellExecuteInfo>(),
+            Mask = 0x00000040 | 0x00000100,
+            Verb = "runas",
+            File = executablePath,
+            Parameters = arguments,
+            Directory = workingDirectory,
+            Show = 1
+        };
+        if (!NativeMethods.ShellExecuteEx(ref info))
+        {
+            return Failure(Marshal.GetLastWin32Error(), "ShellExecuteExW failed");
+        }
+
+        try
+        {
+            var pid = info.ProcessHandle == IntPtr.Zero ? 0 : unchecked((int)NativeMethods.GetProcessId(info.ProcessHandle));
+            return Success(pid, info.ProcessHandle, waitForExit);
+        }
+        finally
+        {
+            if (info.ProcessHandle != IntPtr.Zero) _ = NativeMethods.CloseHandle(info.ProcessHandle);
+        }
+    }
+
+    private static NativeLaunchResult Success(int pid, IntPtr processHandle, bool waitForExit)
+    {
+        int? exitCode = null;
+        if (waitForExit && processHandle != IntPtr.Zero)
+        {
+            _ = NativeMethods.WaitForSingleObject(processHandle, uint.MaxValue);
+            if (NativeMethods.GetExitCodeProcess(processHandle, out var rawExitCode)) exitCode = unchecked((int)rawExitCode);
+        }
+        return new NativeLaunchResult { Ok = true, Pid = pid, ExitCode = exitCode };
+    }
+
+    private static NativeLaunchResult Failure(int errorCode, string detail) => new()
+    {
+        Ok = false,
+        ErrorCode = errorCode,
+        Detail = detail
+    };
+
+    private static string QuoteArgument(string value)
+    {
+        if (value.Length > 0 && !value.Any(char.IsWhiteSpace) && !value.Contains('"')) return value;
+        var result = new StringBuilder("\"");
+        var backslashes = 0;
+        foreach (var character in value)
+        {
+            if (character == '\\')
+            {
+                backslashes++;
+                continue;
+            }
+            if (character == '"')
+            {
+                result.Append('\\', backslashes * 2 + 1).Append('"');
+                backslashes = 0;
+                continue;
+            }
+            result.Append('\\', backslashes).Append(character);
+            backslashes = 0;
+        }
+        result.Append('\\', backslashes * 2).Append('"');
+        return result.ToString();
+    }
+}
+
+internal static class ProcessCollector
+{
+    public static List<ProcessSnapshotRow> Collect(SnapshotRequest request)
+    {
+        var entries = SnapshotEntries();
+        var selected = SelectEntries(entries, request);
+        var rows = new List<ProcessSnapshotRow>(selected.Count);
+        foreach (var entry in selected)
+        {
+            if (entry.Pid <= 0) continue;
+            var path = "";
+            double cpuSeconds = 0;
+            long memoryBytes = 0;
+            long readBytes = 0;
+            long writeBytes = 0;
+            var handle = NativeMethods.OpenProcess(0x1000, false, unchecked((uint)entry.Pid));
+            if (handle != IntPtr.Zero)
+            {
+                try
+                {
+                    var pathBuilder = new StringBuilder(32768);
+                    var pathLength = pathBuilder.Capacity;
+                    if (NativeMethods.QueryFullProcessImageName(handle, 0, pathBuilder, ref pathLength)) path = pathBuilder.ToString();
+                    if (NativeMethods.GetProcessTimes(handle, out _, out _, out var kernelTime, out var userTime))
+                    {
+                        cpuSeconds = (kernelTime.Value + userTime.Value) / 10_000_000d;
+                    }
+                    var memory = new NativeMethods.ProcessMemoryCounters { Size = (uint)Marshal.SizeOf<NativeMethods.ProcessMemoryCounters>() };
+                    if (NativeMethods.GetProcessMemoryInfo(handle, ref memory, memory.Size)) memoryBytes = ClampToLong(memory.WorkingSetSize.ToUInt64());
+                    if (NativeMethods.GetProcessIoCounters(handle, out var io))
+                    {
+                        readBytes = ClampToLong(io.ReadTransferCount);
+                        writeBytes = ClampToLong(io.WriteTransferCount);
+                    }
+                }
+                finally
+                {
+                    _ = NativeMethods.CloseHandle(handle);
+                }
+            }
+            rows.Add(new ProcessSnapshotRow
+            {
+                Pid = entry.Pid,
+                ParentPid = entry.ParentPid,
+                Name = Path.GetFileNameWithoutExtension(entry.Name),
+                Path = path,
+                CpuSeconds = cpuSeconds,
+                MemoryBytes = memoryBytes,
+                ReadBytes = readBytes,
+                WriteBytes = writeBytes
+            });
+        }
+        return rows;
+    }
+
+    private static List<SnapshotEntry> SelectEntries(Dictionary<int, SnapshotEntry> entries, SnapshotRequest request)
+    {
+        if (!request.Mode.Equals("managed", StringComparison.OrdinalIgnoreCase)) return entries.Values.ToList();
+        var names = request.ManagedNames.Select(NormalizeName).Where(value => value.Length > 0).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var selectedPids = request.ManagedPids.Where(pid => pid > 0).ToHashSet();
+        foreach (var entry in entries.Values)
+        {
+            if (names.Contains(NormalizeName(entry.Name))) selectedPids.Add(entry.Pid);
+        }
+        var changed = true;
+        while (changed)
+        {
+            changed = false;
+            foreach (var entry in entries.Values)
+            {
+                if (!selectedPids.Contains(entry.ParentPid) || selectedPids.Contains(entry.Pid)) continue;
+                selectedPids.Add(entry.Pid);
+                changed = true;
+            }
+        }
+        return entries.Values.Where(entry => selectedPids.Contains(entry.Pid)).ToList();
+    }
+
+    private static Dictionary<int, SnapshotEntry> SnapshotEntries()
+    {
+        var result = new Dictionary<int, SnapshotEntry>();
+        var snapshot = NativeMethods.CreateToolhelp32Snapshot(0x00000002, 0);
+        if (snapshot == new IntPtr(-1)) throw new InvalidOperationException($"CreateToolhelp32Snapshot failed: {Marshal.GetLastWin32Error()}");
+        try
+        {
+            var row = new NativeMethods.ProcessEntry32 { Size = (uint)Marshal.SizeOf<NativeMethods.ProcessEntry32>() };
+            if (!NativeMethods.Process32First(snapshot, ref row)) return result;
+            do
+            {
+                var pid = unchecked((int)row.ProcessId);
+                result[pid] = new SnapshotEntry(pid, unchecked((int)row.ParentProcessId), row.ExeFile ?? "");
+                row.Size = (uint)Marshal.SizeOf<NativeMethods.ProcessEntry32>();
+            } while (NativeMethods.Process32Next(snapshot, ref row));
+        }
+        finally
+        {
+            _ = NativeMethods.CloseHandle(snapshot);
+        }
+        return result;
+    }
+
+    private static long ClampToLong(ulong value) => value > long.MaxValue ? long.MaxValue : (long)value;
+    private static string NormalizeName(string value) => Path.GetFileNameWithoutExtension(value).Trim().ToLowerInvariant();
+    private sealed record SnapshotEntry(int Pid, int ParentPid, string Name);
 }
 
 internal static class WindowScanner
@@ -493,6 +988,124 @@ internal static partial class NativeMethods
         public int Bottom;
     }
 
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct StartupInfo
+    {
+        public int Size;
+        public string? Reserved;
+        public string? Desktop;
+        public string? Title;
+        public int X;
+        public int Y;
+        public int XSize;
+        public int YSize;
+        public int XCountChars;
+        public int YCountChars;
+        public int FillAttribute;
+        public int Flags;
+        public short ShowWindow;
+        public short Reserved2;
+        public IntPtr Reserved2Pointer;
+        public IntPtr StandardInput;
+        public IntPtr StandardOutput;
+        public IntPtr StandardError;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct ProcessInformation
+    {
+        public IntPtr ProcessHandle;
+        public IntPtr ThreadHandle;
+        public uint ProcessId;
+        public uint ThreadId;
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct ShellExecuteInfo
+    {
+        public int Size;
+        public uint Mask;
+        public IntPtr Window;
+        public string? Verb;
+        public string? File;
+        public string? Parameters;
+        public string? Directory;
+        public int Show;
+        public IntPtr Instance;
+        public IntPtr IdList;
+        public string? Class;
+        public IntPtr ClassKey;
+        public uint HotKey;
+        public IntPtr IconOrMonitor;
+        public IntPtr ProcessHandle;
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct ProcessEntry32
+    {
+        public uint Size;
+        public uint Usage;
+        public uint ProcessId;
+        public IntPtr DefaultHeapId;
+        public uint ModuleId;
+        public uint Threads;
+        public uint ParentProcessId;
+        public int PriorityClassBase;
+        public uint Flags;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
+        public string ExeFile;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct FileTime
+    {
+        public uint LowDateTime;
+        public uint HighDateTime;
+        public long Value => ((long)HighDateTime << 32) | LowDateTime;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct ProcessMemoryCounters
+    {
+        public uint Size;
+        public uint PageFaultCount;
+        public UIntPtr PeakWorkingSetSize;
+        public UIntPtr WorkingSetSize;
+        public UIntPtr QuotaPeakPagedPoolUsage;
+        public UIntPtr QuotaPagedPoolUsage;
+        public UIntPtr QuotaPeakNonPagedPoolUsage;
+        public UIntPtr QuotaNonPagedPoolUsage;
+        public UIntPtr PagefileUsage;
+        public UIntPtr PeakPagefileUsage;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct IoCounters
+    {
+        public ulong ReadOperationCount;
+        public ulong WriteOperationCount;
+        public ulong OtherOperationCount;
+        public ulong ReadTransferCount;
+        public ulong WriteTransferCount;
+        public ulong OtherTransferCount;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct NativeSize
+    {
+        public int Width;
+        public int Height;
+    }
+
+    [ComImport]
+    [Guid("bcc18b79-ba16-442f-80c4-8a59c30c463b")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IShellItemImageFactory
+    {
+        [PreserveSig]
+        int GetImage(NativeSize size, uint flags, out IntPtr bitmap);
+    }
+
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
@@ -555,6 +1168,54 @@ internal static partial class NativeMethods
 
     [LibraryImport("kernel32.dll", EntryPoint = "OpenProcess")]
     public static partial IntPtr OpenProcess(uint access, [MarshalAs(UnmanagedType.Bool)] bool inheritHandle, uint processId);
+
+    [DllImport("kernel32.dll", EntryPoint = "CreateProcessW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool CreateProcess(string applicationName, StringBuilder commandLine, IntPtr processAttributes, IntPtr threadAttributes, [MarshalAs(UnmanagedType.Bool)] bool inheritHandles, uint creationFlags, IntPtr environment, string currentDirectory, ref StartupInfo startupInfo, out ProcessInformation processInformation);
+
+    [DllImport("shell32.dll", EntryPoint = "ShellExecuteExW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool ShellExecuteEx(ref ShellExecuteInfo executeInfo);
+
+    [LibraryImport("kernel32.dll")]
+    public static partial uint GetProcessId(IntPtr process);
+
+    [LibraryImport("kernel32.dll")]
+    public static partial uint WaitForSingleObject(IntPtr handle, uint milliseconds);
+
+    [LibraryImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool GetExitCodeProcess(IntPtr process, out uint exitCode);
+
+    [LibraryImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool GetProcessTimes(IntPtr process, out FileTime creationTime, out FileTime exitTime, out FileTime kernelTime, out FileTime userTime);
+
+    [LibraryImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool GetProcessIoCounters(IntPtr process, out IoCounters counters);
+
+    [DllImport("psapi.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetProcessMemoryInfo(IntPtr process, ref ProcessMemoryCounters counters, uint size);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    public static partial IntPtr CreateToolhelp32Snapshot(uint flags, uint processId);
+
+    [DllImport("kernel32.dll", EntryPoint = "Process32FirstW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool Process32First(IntPtr snapshot, ref ProcessEntry32 entry);
+
+    [DllImport("kernel32.dll", EntryPoint = "Process32NextW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool Process32Next(IntPtr snapshot, ref ProcessEntry32 entry);
+
+    [DllImport("shell32.dll", EntryPoint = "SHCreateItemFromParsingName", CharSet = CharSet.Unicode, PreserveSig = true)]
+    public static extern int SHCreateItemFromParsingName(string path, IntPtr bindContext, ref Guid iid, [MarshalAs(UnmanagedType.Interface)] out IShellItemImageFactory factory);
+
+    [LibraryImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool DeleteObject(IntPtr handle);
 
     [LibraryImport("kernel32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

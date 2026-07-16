@@ -4,7 +4,7 @@
 
 请以后续实际代码为准，尤其是 `src/shared/types.ts`、`src/main/main.ts`、`src/renderer/main.tsx`、`src/main/window-manager.ts`、`native/window-focus-helper/Program.cs`。本文只把代码中已经存在的能力写为“当前能力”；尚未落地的设想会明确放在“风险 / 建议 / 路线图”中。
 
-最后核对日期：`2026-07-16`。当前基线已通过 TypeScript 类型检查和完整 Vitest 测试（61 个测试文件、262 项测试），Windows 安装版与便携版输出到 `release`。
+最后核对日期：`2026-07-16`。当前基线已通过 TypeScript 类型检查和完整 Vitest 测试（62 个测试文件、266 项测试），Windows 安装版与便携版输出到 `release`。
 
 ## 1. 项目定位与当前状态
 
@@ -213,6 +213,7 @@ D:\Code\Start Engineer
       user-data-migration.ts
       config-migration.ts
       icon-cache.ts
+      native-helper.ts
     preload\
       preload.cts
     renderer\
@@ -559,7 +560,7 @@ Smoke 模式使用临时目录：
 
 ### 5.4 应用启动
 
-主进程通过 PowerShell `Start-Process` 启动应用，支持：
+主进程优先通过常驻 Windows native helper 的 `CreateProcessW` 启动应用，helper 不可用时才回退到 PowerShell `Start-Process`，支持：
 
 - 可执行文件路径。
 - 工作目录。
@@ -694,8 +695,8 @@ C# helper 当前职责：
 当前设计：
 
 - `SnapshotMode = "full" | "managed"`。
-- `managed` 只返回应用和指标。
-- `full` 返回应用、指标、聚合进程列表。
+- `managed` 通过原生 Toolhelp/Win32 采集已管理应用、已知 PID 及其子进程，只返回应用和指标。
+- `full` 通过同一常驻 helper 采集完整进程资源，再返回应用、指标和聚合进程列表。
 - 约 800ms TTL。
 - single-flight：`full` 不复用 managed-only 采集；managed 可以复用 full。
 - 进程页刷新频率高于应用页/设置页。
@@ -706,20 +707,21 @@ C# helper 当前职责：
 
 采集来源：
 
-- PowerShell `Get-Process`
-- PowerShell / CIM `Win32_Process`
+- 常驻 `window-focus-helper.exe runtime` JSON Lines 协议。
+- `CreateToolhelp32Snapshot`、`QueryFullProcessImageNameW`、`GetProcessTimes`、`GetProcessMemoryInfo`、`GetProcessIoCounters`。
+- helper 缺失、崩溃、超时或协议异常时，才回退到 PowerShell `Get-Process` + CIM `Win32_Process`。
 
 风险：
 
-- PowerShell + CIM 成本高。
+- helper 故障后的 PowerShell + CIM 回退成本仍高，若频繁出现应优先修 helper，而不是长期运行在回退模式。
 - 全进程快照在低性能机器上可能慢。
 - 进程路径可能读不到。
 - CPU/磁盘速率需要两次采样，首次为 0 属正常。
 
 建议：
 
-- 中期考虑长期运行 helper 或 native Windows 采集模块。
-- 对应用页只采已管理应用相关 PID。
+- 记录 managed/full 原生采集耗时和 fallback 次数，建立性能基线。
+- 保持应用页仅采已管理应用相关 PID，避免功能回归成全量轮询。
 - 增加“低功耗监控”或“进程页手动刷新”高级选项。
 
 ### 5.8 搜索、添加和 Everything 兜底
@@ -882,24 +884,29 @@ UI 分享码：
 - 不点击托盘。
 - 不把 Codex safe activation 扩大成通用 relaunch。
 
-### 6.2 PowerShell 依赖仍偏重
+### 6.2 PowerShell 已降级为故障回退
 
-当前以下能力仍依赖 PowerShell：
+本节原问题已按三阶段完成主要改造：
 
-- 启动应用。
-- 采集进程信息。
-- 窗口聚焦 helper 缺失时 fallback。
-- 权限检测。
-- 部分图标/系统能力 fallback。
+- 第一阶段：普通应用启动改用 `CreateProcessW`；管理员启动和管理员 `taskkill` 改用 `ShellExecuteExW`；管理员状态改由 .NET Windows Identity 判断。
+- 第二阶段：新增由 Electron 托管的常驻 native runtime helper，使用 JSON Lines 复用进程；应用页的 `managed` 快照只采已管理应用、已知 PID 和子进程。
+- 第三阶段：进程页 `full` 快照改用 Win32 完整采集；ZIP 解压改用 `ZipFile`，开始菜单快捷方式改用原生 COM，高分辨率 Shell 图标改由 helper 提取。
 
-风险：
+当前正常路径不再周期性创建 PowerShell 进程。仍保留 PowerShell 的位置：
 
-- 启动慢。
-- 编码问题。
-- 执行策略/安全软件干扰。
-- Windows PowerShell 与 PowerShell 7 行为差异。
+- native helper 明确缺失且请求尚未送达时的启动、权限和管理员任务回退。
+- 无副作用的进程快照在 helper 崩溃、超时或协议异常时可直接回退；启动请求送达后若响应丢失，不自动二次启动，避免产生重复实例。
+- 窗口扫描/聚焦 helper 失败时的兼容回退。
+- Shell 图标原生提取失败后的 WPF 回退。
+- 快捷方式 COM 解析失败和 ZIP 原生解压失败后的低频回退。
 
-建议优先把进程采集和启动/权限辅助逐步迁移到 native helper 或长期运行 service。
+常驻 helper 由 Electron 主进程管理，退出应用时同步结束；请求超时或进程异常退出会拒绝当前请求，下次请求自动重新创建 helper。没有安装 Windows Service，因此安装版和便携版保持一致，也不会额外扩大权限范围。
+
+后续关注点：
+
+- 记录 native/fallback 命中率和快照耗时，确认不同 Windows 版本及安全软件环境下的稳定性。
+- 对 helper 协议增加显式版本握手；当前已有 `ping`，但尚未强制校验版本。
+- PowerShell fallback 至少保留一个稳定发布周期，再根据真实故障数据决定是否进一步删除。
 
 ### 6.3 主进程和渲染入口仍偏大
 
@@ -1123,7 +1130,7 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 - `D:\Code\Start Engineer\package.json`
   - 脚本、依赖、electron-builder 配置、helper 资源、产品名和打包产物命名。
 - `D:\Code\Start Engineer\native\window-focus-helper\Program.cs`
-  - Windows 窗口扫描、过滤、评分和聚焦 helper。
+  - Windows 窗口扫描/聚焦、原生启动、权限检测、进程采集、快捷方式、图标和解压命令。
 - `D:\Code\Start Engineer\scripts\build-window-helper.mjs`
   - `dotnet publish` helper 到 `dist-native/window-focus-helper/win-x64`。
 - `D:\Code\Start Engineer\src\shared\types.ts`
@@ -1140,6 +1147,8 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
   - helper runner、PowerShell fallback、窗口阶段构造和聚焦 API。
 - `D:\Code\Start Engineer\src\main\process-termination.ts`
   - taskkill、UAC、PID 清洗和关闭验证。
+- `D:\Code\Start Engineer\src\main\native-helper.ts`
+  - native helper 路径解析、单次命令、常驻 JSON Lines 客户端、超时重启和结果归一化。
 - `D:\Code\Start Engineer\src\main\app-discovery.ts`
   - 首次导入候选和搜索可添加本机应用候选。
 - `D:\Code\Start Engineer\src\main\dropped-apps.ts`

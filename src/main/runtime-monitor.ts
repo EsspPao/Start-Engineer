@@ -19,7 +19,7 @@ type CounterSample = {
 };
 
 type RuntimeMonitorOptions = {
-  collect: () => Promise<ProcessSnapshot[]>;
+  collect: (mode: SnapshotMode) => Promise<ProcessSnapshot[]>;
   loadApps: () => AppEntry[];
   resolveIcon: (path: string, name: string) => Promise<string>;
   getTerminationBlockReason: (name: string, pids: number[]) => string | undefined;
@@ -142,7 +142,7 @@ export class RuntimeMonitor {
 
   private async collectSnapshot(mode: SnapshotMode): Promise<RuntimeSnapshot> {
     const at = this.now();
-    const snapshots = await this.options.collect();
+    const snapshots = await this.options.collect(mode);
     const activePids = new Set(snapshots.map((item) => item.pid));
     for (const pid of this.samples.keys()) {
       if (!activePids.has(pid)) this.samples.delete(pid);
