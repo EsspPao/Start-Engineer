@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { SearchResultsPanel } from "./main";
+import { SearchResultsPanel } from "./search-results-panel";
 
 const panelDefaults = {
   installableResults: [],

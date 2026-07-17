@@ -4,7 +4,7 @@
 
 请以后续实际代码为准，尤其是 `src/shared/types.ts`、`src/main/main.ts`、`src/renderer/main.tsx`、`src/main/window-manager.ts`、`native/window-focus-helper/Program.cs`。本文只把代码中已经存在的能力写为“当前能力”；尚未落地的设想会明确放在“风险 / 建议 / 路线图”中。
 
-最后核对日期：`2026-07-16`。当前基线已通过 TypeScript 类型检查和完整 Vitest 测试（62 个测试文件、266 项测试），Windows 安装版与便携版输出到 `release`。
+最后核对日期：`2026-07-18`。当前基线已通过 TypeScript 类型检查和完整 Vitest 测试（73 个测试文件、296 项测试），Windows 安装版与便携版输出到 `release`。
 
 ## 1. 项目定位与当前状态
 
@@ -197,6 +197,25 @@ D:\Code\Start Engineer
   src\
     main\
       main.ts
+      config-store.ts
+      app-service.ts
+      group-service.ts
+      launch-service.ts
+      runtime-service.ts
+      search-service.ts
+      preferences-service.ts
+      icon-service.ts
+      search-dependency-service.ts
+      administrator-service.ts
+      process-control-service.ts
+      app-window-service.ts
+      app-addition-service.ts
+      focus-hints.ts
+      ipc.ts
+      runtime-ipc.ts
+      search-ipc.ts
+      preferences-ipc.ts
+      window-ipc.ts
       runtime-monitor.ts
       window-manager.ts
       focus-window.ts
@@ -219,6 +238,21 @@ D:\Code\Start Engineer
     renderer\
       main.tsx
       pages.tsx
+      keyboard-shortcuts.tsx
+      settings-sections.tsx
+      search-results-panel.tsx
+      app-edit-dialog.tsx
+      context-menus.tsx
+      overlay-components.tsx
+      window-focus-feedback.ts
+      group-management.tsx
+      settings-page.tsx
+      ui-icons.tsx
+      use-settings-group-drag.ts
+      use-settings-preferences.ts
+      use-search-results.ts
+      use-executable-drop.ts
+      use-unified-grid-drag.ts
       styles.css
       section-apps.ts
       keyboard-navigation.ts
@@ -243,54 +277,47 @@ D:\Code\Start Engineer
 
 ### 3.3 主进程职责
 
-`src/main/main.ts` 仍是项目最大编排入口，负责：
+`src/main/main.ts` 仍是主编排入口，六轮服务拆分后已从约 1900 行降到约 335 行，当前主要负责：
 
-- Electron 生命周期。
-- Splash Window 和主窗口创建。
-- 托盘。
-- 自定义窗口控制。
-- 配置读写。
-- 应用、分组、多应用卡片、混合网格顺序和偏好 IPC。
-- 应用启动。
-- 应用关闭和批量关闭。
-- 进程快照采集。
-- Everything 搜索依赖。
-- 本机应用发现和搜索候选添加。
-- 可安装应用安全下载入口。
-- 拖入 `.exe` 添加应用。
-- UI 分享码导入导出。
-- 全局快捷键。
-- 管理员重启。
+- Electron 顶层生命周期注册。
+- 服务初始化与跨服务依赖注入。
+- 本机应用发现服务的入口编排。
 - 首次导入候选扫描。
-- 窗口背景材质和主题联动。
 
-当前虽然已经拆出不少模块，但 `main.ts` 仍然偏大。后续若继续加功能，建议优先拆成 service 层：
+已拆出的边界：
 
-- `app-service`
-- `group-service`
-- `launch-service`
-- `window-service`
-- `preferences-service`
-- `search-service`
-- `ipc-register`
+- `config-store.ts`：统一 JSON 缓存、损坏备份和默认恢复。
+- `app-service.ts`：应用配置 CRUD、分组变更和排序。
+- `group-service.ts`：分组、多应用卡片和混合网格顺序。
+- `launch-service.ts`：启动、已运行判断和子进程关联学习。
+- `runtime-service.ts`：managed/full 快照、降级、快速状态和批量终止。
+- `search-service.ts`：快捷方式发现、Everything 候选、首次导入和候选添加。
+- `preferences-service.ts`：偏好存储、快照、开机启动、全局快捷键和界面分享码。
+- `icon-service.ts`：系统图标提取、内存缓存、磁盘缓存和批量刷新。
+- `search-dependency-service.ts`：Everything 下载、解压、启动、状态和并发去重。
+- `administrator-service.ts`：权限检测、提权交接和按配置重启。
+- `process-control-service.ts`：PowerShell 命令执行、普通/提权 taskkill 和关键进程保护。
+- `app-window-service.ts`：主窗口、Splash、托盘、主题、边界保存、显示/隐藏和退出状态。
+- `app-addition-service.ts`：EXE 文件选择、拖入程序、重复过滤、图标缓存和新增应用持久化。
+- `focus-hints.ts`：窗口聚焦提示的清洗与运行指标转换。
+- `ipc.ts`：应用库相关 IPC 注册。
+- `runtime-ipc.ts`、`search-ipc.ts`、`preferences-ipc.ts`、`window-ipc.ts`：按职责分区的 IPC 注册器。
+- `ipc-contract.test.ts`：校验 preload 调用与主进程处理器一一对应、通道无重复、主到渲染事件不遗漏。
+
+`main.ts` 当前已基本达到 composition root 目标，后续重点应转向渲染入口；主进程只继续做小范围的依赖组装整理，不再为了行数制造细碎服务。
 
 ### 3.4 渲染层职责
 
-`src/renderer/main.tsx` 是渲染层主控制器，负责：
+`src/renderer/main.tsx` 是渲染层组合入口。当前已迁出完整设置页、设置偏好控制器、设置页分组拖拽、搜索请求状态机、外部 EXE 拖入、统一网格拖拽、快捷键设置、搜索结果、应用编辑、右键菜单、通用弹层、分组管理组件和通用图标，但以下职责仍然集中：
 
 - 加载分组、应用、偏好。
 - 系统 section 和用户 section 切换。
-- 首次导入弹层。
 - 运行快照轮询。
 - 进程页后台预热。
-- 搜索框、搜索候选、Everything 兜底和安装入口。
+- 搜索结果动作与搜索框焦点恢复。
 - 键盘导航和焦点恢复。
-- 右键菜单。
-- 确认弹窗。
-- 设置页折叠面板。
-- 拖拽排序和移动分组。
-- 多应用卡片创建、放大、成员迁移和混合网格排序。
-- 外部 `.exe` 文件拖放添加。
+- 旧聚合视图应用卡片拖拽排序和移动分组。
+- 多应用卡片放大和启动反馈；统一网格拖拽、成员迁移和混合排序已迁入独立 hook。
 - 应用启动/关闭反馈。
 - 主题属性和 UI layout 属性写入 `document.documentElement.dataset`。
 
@@ -304,7 +331,7 @@ D:\Code\Start Engineer
 - `GroupPage`
 - `AllAppsPage` 或聚合视图 hook
 - `ProcessPage`
-- `SettingsPage`
+- `SettingsPage`（已完成）
 - `SearchPanel`
 - `ContextMenus`
 - `Dialogs`
@@ -910,7 +937,18 @@ UI 分享码：
 
 ### 6.3 主进程和渲染入口仍偏大
 
-`main.ts` 和 `main.tsx` 都承担过多职责。短期可继续开发，但每加一个功能都会提高回归风险。建议在下一轮大型功能前做结构性拆分。
+前六轮结构性拆分已经落地：
+
+- `main.ts` 从约 1900 行降到约 335 行；配置、应用、应用添加、分组、启动、运行时、搜索、搜索依赖、偏好、图标、管理员、进程控制和应用窗口均有独立服务。
+- IPC 已按 `library / runtime / search / preferences / window` 分区注册，入口不再直接注册处理器。
+- IPC 契约测试会检查 preload 与全部注册器的调用/事件通道，并阻止重复注册。
+- `main.tsx` 已迁出完整设置页、偏好编辑、搜索请求、外部 EXE 拖入和统一网格拖拽等控制器，当前约 1478 行；相较本轮开始约 1835 行进一步减少约 19%。
+
+剩余风险：
+
+- `main.ts` 已只保留顶层 Electron 生命周期、服务组装和 IPC 注册器调用，主进程拆分目标基本达成。
+- `main.tsx` 当前主要剩余运行快照轮询、启动/关闭应用动作、键盘导航和旧聚合视图拖拽；下一轮应优先提取 `useRuntimePolling` 与 `useAppActions`，不再继续拆分已经稳定的设置页。
+- 服务之间目前使用构造参数和闭包注入，后续新增跨服务能力时应避免重新直接导入全局状态。
 
 ### 6.4 默认偏好与产品决策存在差异
 
@@ -977,16 +1015,40 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 
 目标：降低回归风险。
 
-建议拆分：
+已完成：
 
 - `config-store.ts`
 - `app-service.ts`
 - `group-service.ts`
 - `launch-service.ts`
 - `runtime-service.ts`
-- `window-service.ts`
 - `search-service.ts`
+- `preferences-service.ts`
+- `icon-service.ts`
+- `search-dependency-service.ts`
+- `administrator-service.ts`
 - `ipc.ts`
+- `runtime-ipc.ts`
+- `search-ipc.ts`
+- `preferences-ipc.ts`
+- `window-ipc.ts`
+
+现有 `window-manager.ts` 继续处理外部应用窗口，`app-window-service.ts` 负责 Start Engineer 自身窗口，两者职责已分开。
+
+本轮完成：
+
+- 已增加 IPC 契约测试，避免重复注册和遗漏 preload 契约。
+- 已将窗口、托盘、主题和边界保存迁入 `app-window-service.ts`。
+- 已将 taskkill/native helper/PowerShell 提权终止适配迁入 `process-control-service.ts`。
+- `main.ts` 当前仅保留 Electron 顶层生命周期、服务创建和 IPC 注册器调用。
+
+下一轮建议：
+
+- 应用添加、拖入程序和 EXE 文件选择已迁入 `app-addition-service.ts`。
+- 设置页分组排序与跨组拖拽已迁入 `use-settings-group-drag.ts`。
+- 完整设置页及偏好编辑已迁入 `settings-page.tsx` 与 `use-settings-preferences.ts`。
+- 搜索请求、外部 EXE 拖入和统一网格拖拽分别迁入独立 hook，并由边界测试防止职责回流。
+- 下一步优先拆分运行快照轮询和应用启动/关闭动作；旧聚合视图拖拽在移除旧视图时一并删除，不与统一网格状态机强行合并。
 
 ### 7.4 设置页信息架构重整
 
@@ -1138,7 +1200,31 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 - `D:\Code\Start Engineer\src\shared\ui-layout-share.ts`
   - UI layout 默认值、缩放与背景色归一化、分享码编码/解码。
 - `D:\Code\Start Engineer\src\main\main.ts`
-  - 主进程总入口和 IPC 注册。
+  - Electron 生命周期、窗口创建、服务装配、进程终止适配和应用添加编排。
+- `D:\Code\Start Engineer\src\main\config-store.ts`
+  - JSON 配置缓存、规范化、损坏备份和默认恢复。
+- `D:\Code\Start Engineer\src\main\app-service.ts`
+  - 应用配置读写、编辑、分组迁移、排序和删除。
+- `D:\Code\Start Engineer\src\main\group-service.ts`
+  - 用户分组、多应用卡片、成员迁移和混合网格顺序。
+- `D:\Code\Start Engineer\src\main\launch-service.ts`
+  - 原生应用启动、PowerShell 回退、运行判断和启动后进程关联。
+- `D:\Code\Start Engineer\src\main\runtime-service.ts`
+  - managed/full 采集、RuntimeMonitor 装配、快速状态与批量终止。
+- `D:\Code\Start Engineer\src\main\search-service.ts`
+  - 本机快捷方式、Everything 候选、首次导入和候选添加。
+- `D:\Code\Start Engineer\src\main\preferences-service.ts`
+  - 偏好存储、有效状态快照、开机启动、全局快捷键和界面分享码。
+- `D:\Code\Start Engineer\src\main\icon-service.ts`
+  - 系统图标提取、进程图标缓存、应用图标磁盘缓存和刷新。
+- `D:\Code\Start Engineer\src\main\search-dependency-service.ts`
+  - Everything 搜索依赖状态、下载、解压、启动、失败清理和并发去重。
+- `D:\Code\Start Engineer\src\main\administrator-service.ts`
+  - 管理员权限检测、native/PowerShell 提权适配和按配置重启。
+- `D:\Code\Start Engineer\src\main\ipc.ts`
+  - 应用库相关 IPC 注册。
+- `D:\Code\Start Engineer\src\main\runtime-ipc.ts`、`search-ipc.ts`、`preferences-ipc.ts`、`window-ipc.ts`
+  - 运行时、搜索、偏好和窗口相关 IPC 注册。
 - `D:\Code\Start Engineer\src\main\runtime-monitor.ts`
   - 进程采集结果聚合、应用匹配、运行指标、进程页数据。
 - `D:\Code\Start Engineer\src\main\window-manager.ts`

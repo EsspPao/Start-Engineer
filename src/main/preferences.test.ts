@@ -56,6 +56,7 @@ describe("preferences", () => {
       uiTheme: "system",
       wallpaperGlassIntensity: 82,
       wallpaperGlassVariant: "light",
+      wallpaperBackground: defaultPreferences.wallpaperBackground,
       runAsAdministrator: false,
       searchProvider: "internal",
       sortRunningAppsFirst: false,
@@ -114,6 +115,11 @@ describe("preferences", () => {
     expect(normalizePreferences({ wallpaperGlassVariant: "dark" }).wallpaperGlassVariant).toBe("dark");
     expect(normalizePreferences({ wallpaperGlassVariant: "light" }).wallpaperGlassVariant).toBe("light");
     expect(normalizePreferences({ wallpaperGlassVariant: "auto" as "dark" }).wallpaperGlassVariant).toBe("dark");
+  });
+
+  it("normalizes wallpaper position, fit and dimming", () => {
+    expect(normalizePreferences({ wallpaperBackground: { fit: "contain", focusX: 12.6, focusY: 105, dim: -4 } }).wallpaperBackground).toEqual({ fit: "contain", focusX: 13, focusY: 100, dim: 0 });
+    expect(normalizePreferences({ wallpaperBackground: { fit: "stretch" as "cover", focusX: Number.NaN, focusY: 20, dim: 35 } }).wallpaperBackground).toEqual({ fit: "cover", focusX: 50, focusY: 20, dim: 35 });
   });
 
   it("uses the original portable executable for login startup", () => {

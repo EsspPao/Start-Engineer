@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { AppEntry, AppGroup, AppMetrics } from "../shared/types";
-import { GroupManagerItem } from "./main";
+import { GroupManagerItem } from "./group-management";
 
 type RuntimeApp = AppEntry & { metrics: AppMetrics };
 

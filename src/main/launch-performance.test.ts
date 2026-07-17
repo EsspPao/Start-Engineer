@@ -1,19 +1,48 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { AppEntry } from "../shared/types";
+import { LaunchService } from "./launch-service";
 
-const source = readFileSync(join(process.cwd(), "src/main/main.ts"), "utf8");
+const app: AppEntry = {
+  id: "demo", name: "Demo", category: "工具", groupId: "tools",
+  executablePath: process.execPath, processName: "node", accent: "#fff"
+};
 
 describe("fast application launch", () => {
-  it("uses the lightweight task list before launch and learns child processes in the background", () => {
-    const launchStart = source.indexOf("async function launchConfiguredApp");
-    const launchEnd = source.indexOf("async function terminateManagedApps", launchStart);
-    const launchSource = source.slice(launchStart, launchEnd);
+  it("checks the lightweight running status before invoking the native launcher", async () => {
+    const request = vi.fn(async () => ({ ok: true }));
+    const service = new LaunchService({
+      nativeRuntime: { request } as never,
+      runPowerShell: vi.fn(),
+      loadApps: () => [app],
+      saveApps: (apps) => apps,
+      getApp: () => app,
+      getManagedRunningStatus: async () => [{ appId: app.id, isRunning: true, pids: [42] }],
+      getProcessSnapshots: async () => [],
+      buildRuntimeSnapshot: async () => ({ apps: [app], metrics: [], processes: [] }),
+      runtimeAssociatedPids: new Map()
+    });
 
-    expect(launchSource).toContain("getManagedRunningStatus()");
-    expect(launchSource).not.toContain("metricsSnapshot()");
-    expect(launchSource).toContain("saveLaunchedPidAndTrack(id, launchResult.pid, options.waitForAssociation === true)");
-    expect(source).toContain('ipcMain.handle("apps:launch", (_event, id: string) => launchConfiguredApp(id))');
-    expect(source).toContain("(entry) => launchConfiguredApp(entry.id)");
+    await expect(service.launch(app.id)).resolves.toMatchObject({ status: "alreadyRunning" });
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("returns after native launch without waiting for child association when no pid is reported", async () => {
+    const request = vi.fn(async () => ({ ok: true }));
+    const saveApps = vi.fn((apps: AppEntry[]) => apps);
+    const service = new LaunchService({
+      nativeRuntime: { request } as never,
+      runPowerShell: vi.fn(),
+      loadApps: () => [app],
+      saveApps,
+      getApp: () => app,
+      getManagedRunningStatus: async () => [{ appId: app.id, isRunning: false, pids: [] }],
+      getProcessSnapshots: async () => [],
+      buildRuntimeSnapshot: async () => ({ apps: [app], metrics: [], processes: [] }),
+      runtimeAssociatedPids: new Map()
+    });
+
+    await expect(service.launch(app.id)).resolves.toMatchObject({ status: "launched" });
+    expect(request).toHaveBeenCalledWith("launch", expect.objectContaining({ executablePath: process.execPath }));
+    expect(saveApps).toHaveBeenCalledOnce();
   });
 });

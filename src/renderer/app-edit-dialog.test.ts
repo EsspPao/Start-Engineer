@@ -2,7 +2,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { AppEntry, AppGroup, AppMetrics } from "../shared/types";
-import { AppContextMenu, AppEditDialog } from "./main";
+import { AppContextMenu } from "./context-menus";
+import { AppEditDialog } from "./app-edit-dialog";
 
 const metrics: AppMetrics = {
   appId: "steam",

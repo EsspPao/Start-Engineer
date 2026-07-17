@@ -89,6 +89,21 @@ export type UiTheme = FixedUiTheme | "system";
 export type SearchProvider = "everything" | "internal";
 export type WallpaperGlassIntensity = number;
 export type WallpaperGlassVariant = "dark" | "light";
+export type WallpaperBackgroundFit = "cover" | "contain";
+export type WallpaperBackgroundPreferences = {
+  fit: WallpaperBackgroundFit;
+  focusX: number;
+  focusY: number;
+  dim: number;
+};
+export type WallpaperBackgroundState = {
+  hasImage: boolean;
+  dataUrl?: string;
+  fileName?: string;
+  width?: number;
+  height?: number;
+  sizeBytes?: number;
+};
 export type UiCardSize = "small" | "medium" | "large";
 export type UiGridDensity = "compact" | "standard" | "relaxed";
 export type UiSidebarWidth = "narrow" | "standard" | "wide";
@@ -120,6 +135,7 @@ export type AppPreferences = {
   uiTheme: UiTheme;
   wallpaperGlassIntensity: WallpaperGlassIntensity;
   wallpaperGlassVariant: WallpaperGlassVariant;
+  wallpaperBackground: WallpaperBackgroundPreferences;
   runAsAdministrator: boolean;
   searchProvider: SearchProvider;
   sortRunningAppsFirst: boolean;
@@ -358,6 +374,9 @@ export type StartEngineerApi = {
   getManagedRunningStatus: () => Promise<AppRunningStatus[]>;
   getPreferences: () => Promise<AppPreferencesState>;
   updatePreferences: (input: UpdatePreferencesInput) => Promise<AppPreferencesState>;
+  getWallpaperBackground: () => Promise<WallpaperBackgroundState>;
+  pickWallpaperBackground: () => Promise<WallpaperBackgroundState | null>;
+  removeWallpaperBackground: () => Promise<WallpaperBackgroundState>;
   exportUiLayoutShareCode: () => Promise<string>;
   importUiLayoutShareCode: (code: string) => Promise<AppPreferencesState>;
   restartWithConfiguredPrivileges: () => Promise<void>;

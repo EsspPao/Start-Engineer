@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { SettingsCollapsibleSection } from "./main";
+import { SettingsCollapsibleSection } from "./settings-sections";
 
 describe("SettingsCollapsibleSection", () => {
   it("is compact and does not render its contents while collapsed", () => {
