@@ -96,6 +96,10 @@ describe("preferences", () => {
     expect(normalizePreferences({ uiTheme: "unknown" as "utility" }).uiTheme).toBe("apple");
   });
 
+  it("preserves the Clear Desktop theme", () => {
+    expect(normalizePreferences({ uiTheme: "clear" }).uiTheme).toBe("clear");
+  });
+
   it("supports Wallpaper Glass intensity as a 0-100 value with legacy migration", () => {
     expect(normalizePreferences(undefined).wallpaperGlassIntensity).toBe(55);
     expect(normalizePreferences({ wallpaperGlassIntensity: 0 }).wallpaperGlassIntensity).toBe(0);

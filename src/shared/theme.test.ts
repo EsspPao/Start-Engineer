@@ -11,6 +11,7 @@ describe("theme resolution", () => {
     expect(resolveUiTheme("fluent", true)).toBe("fluent");
     expect(resolveUiTheme("glass", false)).toBe("glass");
     expect(resolveUiTheme("wallpaper", true)).toBe("wallpaper");
+    expect(resolveUiTheme("clear", false)).toBe("clear");
   });
 
   it("only enables Mica for Fluent and Refined Glass", () => {
@@ -19,5 +20,6 @@ describe("theme resolution", () => {
     expect(themeUsesMica("utility")).toBe(false);
     expect(themeUsesMica("midnight")).toBe(false);
     expect(themeUsesMica("wallpaper")).toBe(false);
+    expect(themeUsesMica("clear")).toBe(false);
   });
 });

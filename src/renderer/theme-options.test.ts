@@ -10,4 +10,12 @@ describe("themeOptions", () => {
     expect(wallpaper?.title).toContain("窗口背景透出壁纸");
     expect(themeOptions.find((theme) => theme.id === "system")?.description).toContain("Fluent");
   });
+
+  it("includes the Clear Desktop transparent preset", () => {
+    const clear = themeOptions.find((theme) => theme.id === "clear");
+
+    expect(clear?.name).toBe("Clear Desktop");
+    expect(clear?.description).toContain("无模糊透明");
+    expect(clear?.title).toContain("TranslucentTB");
+  });
 });

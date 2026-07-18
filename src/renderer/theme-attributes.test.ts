@@ -32,6 +32,13 @@ describe("buildThemeAttributes", () => {
     });
   });
 
+  it("uses dark native controls for Clear Desktop contrast", () => {
+    expect(buildThemeAttributes({ uiTheme: "clear", wallpaperGlassIntensity: 55, wallpaperGlassVariant: "light" }, false)).toMatchObject({
+      theme: "clear",
+      colorScheme: "dark"
+    });
+  });
+
   it("clamps out-of-range wallpaper intensity values", () => {
     expect(buildThemeAttributes({ uiTheme: "wallpaper", wallpaperGlassIntensity: 140, wallpaperGlassVariant: "dark" }, false).wallpaperIntensity).toBe(100);
     expect(buildThemeAttributes({ uiTheme: "wallpaper", wallpaperGlassIntensity: -12, wallpaperGlassVariant: "dark" }, false).wallpaperIntensity).toBe(0);

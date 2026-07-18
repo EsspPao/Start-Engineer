@@ -4,7 +4,9 @@
 
 请以后续实际代码为准，尤其是 `src/shared/types.ts`、`src/main/main.ts`、`src/renderer/main.tsx`、`src/main/window-manager.ts`、`native/window-focus-helper/Program.cs`。本文只把代码中已经存在的能力写为“当前能力”；尚未落地的设想会明确放在“风险 / 建议 / 路线图”中。
 
-最后核对日期：`2026-07-18`。当前基线已通过 TypeScript 类型检查和完整 Vitest 测试（73 个测试文件、296 项测试），Windows 安装版与便携版输出到 `release`。
+最后核对日期：`2026-07-19`。本轮改动基于 `main@5b1b9d5`，当前代码已通过 TypeScript 类型检查和完整 Vitest 测试（74 个测试文件、305 项测试），Windows 安装版与便携版输出到 `release`。
+
+维护硬性约定：每次代码、配置、样式、测试或构建流程发生改动，都必须在同一提交中同步更新本文档，至少记录受影响能力、验证结果或新的维护注意事项，避免文档再次落后于实际代码。
 
 ## 1. 项目定位与当前状态
 
@@ -35,7 +37,7 @@ Start Engineer 当前是一个 Windows 桌面启动台与进程监控工具，�
 - 支持可选管理员模式和按目标权限重启；冷启动 UAC 拒绝时不继续普通启动。
 - 支持窗口大小和位置记忆。
 - 支持 Splash Window，降低双击 EXE 后的空白等待感。
-- 支持经过独立视觉重做的 `Apple Gallery`、`Fluent Workspace`、`Midnight Control`、`Modern Utility`、`Refined Glass`、`Wallpaper Glass` 和跟随系统主题。
+- 支持经过独立视觉重做的 `Apple Gallery`、`Fluent Workspace`、`Midnight Control`、`Modern Utility`、`Refined Glass`、`Wallpaper Glass`、`Clear Desktop` 和跟随系统主题。
 - `Wallpaper Glass` 支持深色/浅色变体和 0-100 数值融合强度，滑条拖动时实时预览。
 - 支持受约束 UI 编辑：整体缩放、自定义背景色、卡片大小、网格密度、侧栏宽度、顶部图标大小、背景色调，以及名称/搜索栏/运行状态/底部操作的显示开关。
 - 支持 UI 分享码 `seui:v1:...` 导入导出。
@@ -48,6 +50,8 @@ Start Engineer 当前是一个 Windows 桌面启动台与进程监控工具，�
 - `npm run build`
 - `npm run smoke`
 - `npm run package:win`
+
+`npm run package:win` 会先执行 `scripts/close-running-app.mjs`：同时通过 `tasklist` 和 PowerShell 进程查询识别安装版、便携版及临时目录中的 Start Engineer 实例，优先正常结束，必要时按 PID 强制结束；仍有高权限残留时会请求管理员权限。预检确认程序完全退出后才开始覆盖 `release` 产物，避免打包文件被占用。
 
 当前打包配置：
 
@@ -73,7 +77,7 @@ Start Engineer 当前是一个 Windows 桌面启动台与进程监控工具，�
 - 启动中：卡片遮罩 + spinner。
 - 路径疑似失效：红色警告角标。
 - 多应用卡片部分运行：右上角半亮状态灯；全部运行时显示完整绿色状态灯。
-- 当前选中：卡片蓝色高亮。
+- 当前选中：整张卡片高亮；`Clear Desktop` 使用浅色半透明圆角材质。
 - 可添加搜索结果：右侧 `+`。
 - 已添加搜索结果：右侧 `✓`。
 
@@ -821,7 +825,7 @@ Everything 兜底：
 - 候选分组是启发式，不一定准确。
 - 没有复杂软件识别数据库。
 
-### 5.10 主题、Wallpaper Glass 与 UI 分享码
+### 5.10 主题、Wallpaper Glass、Clear Desktop 与 UI 分享码
 
 当前主题：
 
@@ -831,6 +835,7 @@ Everything 兜底：
 - `utility`：Modern Utility，深色工具栏、冷白画布与自然强调。
 - `glass`：Refined Glass，清透中性玻璃与多色状态层级。
 - `wallpaper`：Wallpaper Glass，让桌面壁纸成为视觉主体。
+- `clear`：Clear Desktop，参考 TranslucentTB Clear 效果，让桌面壁纸直接透出且不使用整屏模糊。
 - `system`：跟随 Windows，浅色映射到 Fluent Workspace，深色映射到 Midnight Control。
 
 Wallpaper Glass：
@@ -842,6 +847,14 @@ Wallpaper Glass：
 - 透明窗口背景。
 - 对主要容器使用玻璃变量和 blur。
 - `prefers-reduced-transparency` 下回退为更不透明背景。
+- 当前只透出 Windows 桌面壁纸，不提供应用内图片选择、图片复制、焦点位置或遮罩编辑；此前试验性自定义壁纸链路已经撤回。
+
+Clear Desktop：
+
+- 使用 `data-theme="clear"`，移除整窗底色和整屏 blur，让 Windows 桌面壁纸直接透出。
+- 主要容器仅保留极低透明承载；搜索结果、弹窗和 Toast 等需要稳定可读性的浮层仍使用深色高不透明材质。
+- 应用卡片选中、应用卡片 hover 和侧栏当前分组统一为整块浅色半透明圆角高亮，不使用深色选中底、图标组独立高亮、蓝色指示条或侧边强调线。
+- `prefers-reduced-transparency` 下回退到不透明深色表面，保证可读性和辅助功能兼容。
 
 受约束 UI 编辑：
 
@@ -855,13 +868,13 @@ UI 分享码：
 
 - 编码前缀：`seui:v1:`
 - 实现文件：`src/shared/ui-layout-share.ts`
-- 分享码包含规范化后的 UI layout，包括整体缩放和自定义背景色；不包含应用列表、路径、分组、壁纸文件或隐私数据。
+- 分享码包含规范化后的 UI layout，包括整体缩放和自定义背景色；不包含应用列表、路径、分组或其他隐私数据。
 - 设置页支持生成、复制、粘贴预览和导入；导入成功后立即应用同一套界面配置。
 - 导入失败原因包括 `invalid-prefix`、`unsupported-version`、`invalid-payload`。
 
 设计风险：
 
-- 透明窗口和动态壁纸下，过多 blur 可能影响性能。
+- 透明窗口和桌面壁纸下，过多 blur 可能影响性能。
 - 浅色玻璃在明亮壁纸上可读性更脆弱。
 - UI 分享码未来扩展版本时必须保持兼容，不能直接破坏 `seui:v1`。
 
@@ -1170,6 +1183,7 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
   - `src/renderer/theme-options.ts`
   - `src/renderer/theme-settings.tsx`
   - `src/renderer/styles.css`
+  - `PROJECT_OPTIMIZATION.md`
 - 修改 IPC 时同步：
   - `src/shared/types.ts`
   - `src/preload/preload.cts`
@@ -1181,6 +1195,7 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
   - `scripts/build-window-helper.mjs`
   - `package.json` 的 build/package 产物
 - 每次代码改动后按项目当前约定至少执行：
+  - 同步更新 `PROJECT_OPTIMIZATION.md`，记录本次能力、风险或验证基线变化。
   - `npm run typecheck`
   - `npm test`
   - `npm run build`
@@ -1260,7 +1275,7 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 - `D:\Code\Start Engineer\src\renderer\pages.tsx`
   - 进程页和分组页组件。
 - `D:\Code\Start Engineer\src\renderer\styles.css`
-  - 全局布局、应用/多应用卡片、启动关闭反馈、设置页、多主题、Wallpaper Glass 和 UI 编辑样式。
+  - 全局布局、应用/多应用卡片、启动关闭反馈、设置页、多主题、Wallpaper Glass、Clear Desktop 和 UI 编辑样式。
 - `D:\Code\Start Engineer\src\renderer\startup-schedule.ts`
   - 启动后延迟任务和进程页预热时机。
 - `D:\Code\Start Engineer\scripts\smoke.mjs`
@@ -1268,6 +1283,6 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 
 ## 13. 当前结论
 
-Start Engineer 已经不只是一个简单启动器。当前代码已经具备应用分组、多应用卡片与混合网格、聚合应用视图、首次导入、搜索添加、拖放添加、可安装应用安全入口、运行监控、实时批量操作反馈、Everything 兜底搜索、托盘、可配置应用内快捷键、全局快捷键、管理员模式、Splash、实时 UI 编辑、UI 分享码、六套独立主题、Wallpaper Glass、native 窗口 helper 和窗口唤起诊断等较完整的桌面应用能力。
+Start Engineer 已经不只是一个简单启动器。当前代码已经具备应用分组、多应用卡片与混合网格、聚合应用视图、首次导入、搜索添加、拖放添加、可安装应用安全入口、运行监控、实时批量操作反馈、Everything 兜底搜索、托盘、可配置应用内快捷键、全局快捷键、管理员模式、Splash、实时 UI 编辑、UI 分享码、七套独立主题、Wallpaper Glass、Clear Desktop、native 窗口 helper 和窗口唤起诊断等较完整的桌面应用能力。
 
 下一阶段最重要的不是继续堆新入口，而是把“运行中应用单击唤起窗口”这条主路径做稳、做快，并降低后台监控成本。只要窗口唤起、运行识别和关闭反馈可靠，Start Engineer 才能真正承担“桌面启动台 / 任务栏辅助入口”的角色。随后再拆分大型控制器、整理设置页信息架构、补齐发布能力，项目会明显更接近可公开发布的状态。

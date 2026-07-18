@@ -38,6 +38,6 @@ export function buildThemeAttributes(preferences: Pick<AppPreferences, "uiTheme"
     wallpaperIntensity,
     wallpaperVariant,
     wallpaperStyle: buildWallpaperIntensityStyle(wallpaperIntensity, wallpaperVariant),
-    colorScheme: theme === "wallpaper" ? wallpaperVariant : theme === "midnight" ? "dark" : "light"
+    colorScheme: theme === "wallpaper" ? wallpaperVariant : theme === "midnight" || theme === "clear" ? "dark" : "light"
   };
 }

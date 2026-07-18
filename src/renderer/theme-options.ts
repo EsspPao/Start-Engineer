@@ -7,5 +7,6 @@ export const themeOptions: Array<{ id: UiTheme; name: string; description: strin
   { id: "utility", name: "Modern Utility", description: "深色工具栏、冷白画布与自然强调" },
   { id: "glass", name: "Refined Glass", description: "清透中性玻璃与多色状态层级" },
   { id: "wallpaper", name: "Wallpaper Glass", description: "中性玻璃，让桌面壁纸成为主角", title: "窗口背景透出壁纸，控件会根据明暗模式调整对比度。" },
+  { id: "clear", name: "Clear Desktop", description: "无模糊透明，让桌面壁纸直接透出", title: "参考 TranslucentTB Clear 效果：移除整屏底色与模糊，仅为交互状态保留轻量承载。" },
   { id: "system", name: "跟随 Windows", description: "浅色 Fluent，深色 Midnight" },
 ];

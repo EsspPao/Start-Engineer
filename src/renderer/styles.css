@@ -1724,6 +1724,96 @@ button { border: 0; }
 :root[data-theme="wallpaper"] .settings-collapsible { border-color: var(--line); background: var(--wallpaper-card); box-shadow: 0 10px 28px rgba(0,0,0,.16),inset 0 1px rgba(255,255,255,.1); backdrop-filter: blur(16px) saturate(106%); }
 :root[data-theme="wallpaper"] .app-card:hover { border-color: color-mix(in srgb,var(--accent) 38%,var(--line)); background: var(--wallpaper-card-hover); box-shadow: 0 16px 36px rgba(0,0,0,.22); }
 
+/* Clear Desktop: TranslucentTB-inspired clear material with no full-window tint or blur. */
+:root[data-theme="clear"] {
+  --ink: #f8fbff; --ink-soft: rgba(240,247,255,.84); --ink-muted: rgba(225,236,248,.66);
+  --accent: #79d7ff; --accent-2: #a98cff; --cyan: #62e6de; --danger: #ff7d91; --success: #5ce6a1;
+  --glass: rgba(7,12,20,.16); --glass-strong: rgba(7,12,20,.84); --glass-soft: rgba(7,12,20,.28);
+  --line: rgba(255,255,255,.2); --line-bright: rgba(255,255,255,.34);
+  --shadow-panel: inset 0 1px 0 rgba(255,255,255,.1); --shadow-float: 0 20px 54px rgba(0,0,0,.48),inset 0 1px 0 rgba(255,255,255,.14);
+  --liquid-button-border: rgba(255,255,255,.22); --liquid-button-highlight: rgba(255,255,255,.22);
+  --liquid-button-glass: rgba(7,12,20,.3); --liquid-button-glass-hover: rgba(7,12,20,.48);
+  --liquid-button-shadow: 0 8px 24px rgba(0,0,0,.2),inset 0 1px 0 rgba(255,255,255,.12);
+  --radius-window: 14px; --radius-panel: 10px; --radius-control: 8px; --radius-small: 6px;
+}
+:root[data-theme="clear"] body::after { opacity: 0; }
+:root[data-theme="clear"] .app-shell[data-ui-background-tone] { gap: 10px; background: transparent; }
+:root[data-theme="clear"] .app-shell::before,
+:root[data-theme="clear"] .sidebar::before,
+:root[data-theme="clear"] .topbar::before,
+:root[data-theme="clear"] .app-card::before { display: none; }
+:root[data-theme="clear"] .app-shell { text-shadow: 0 1px 2px rgba(0,0,0,.92),0 0 12px rgba(0,0,0,.62); }
+:root[data-theme="clear"] .sidebar,
+:root[data-theme="clear"] .topbar,
+:root[data-theme="clear"] .content { border-color: rgba(255,255,255,.12); background: rgba(7,12,20,.08); box-shadow: inset 0 1px 0 rgba(255,255,255,.08); backdrop-filter: none; }
+:root[data-theme="clear"] .card-icon,
+:root[data-theme="clear"] .folder-icon { filter: drop-shadow(0 8px 14px rgba(0,0,0,.7)); }
+:root[data-theme="clear"] .nav-button { color: var(--ink-soft); }
+:root[data-theme="clear"] .nav-button:hover,
+:root[data-theme="clear"] .menu-item:hover:not(:disabled),
+:root[data-theme="clear"] .group-manager-main:hover,
+:root[data-theme="clear"] .group-app-item:hover { color: var(--ink); background: rgba(7,12,20,.28); }
+:root[data-theme="clear"] .nav-button.active {
+  color: #fff;
+  border-color: rgba(255,255,255,.28);
+  background: rgba(255,255,255,.12);
+  box-shadow: 0 8px 22px rgba(0,0,0,.12),inset 0 1px 0 rgba(255,255,255,.18);
+  backdrop-filter: blur(10px) saturate(112%);
+}
+:root[data-theme="clear"] .nav-divider { background: linear-gradient(90deg,transparent,rgba(255,255,255,.28),transparent); box-shadow: none; }
+:root[data-theme="clear"] .app-card { border-color: transparent; background: transparent; box-shadow: none; }
+:root[data-theme="clear"] .app-card:hover {
+  border-color: rgba(255,255,255,.28);
+  background: rgba(255,255,255,.12);
+  box-shadow: 0 8px 22px rgba(0,0,0,.12),inset 0 1px 0 rgba(255,255,255,.18);
+  backdrop-filter: blur(10px) saturate(112%);
+}
+:root[data-theme="clear"] .folder-zoom-backdrop { background: rgba(7,12,20,.06); backdrop-filter: blur(6px) saturate(108%); }
+:root[data-theme="clear"] .folder-zoom-card { border-color: rgba(255,255,255,.42); background: rgba(232,242,250,.24); box-shadow: 0 24px 64px rgba(0,0,0,.2),inset 0 1px 0 rgba(255,255,255,.28); }
+:root[data-theme="clear"] .folder-zoom-card .app-card { border-color: rgba(255,255,255,.12); background: rgba(255,255,255,.055); }
+:root[data-theme="clear"] .folder-zoom-card .app-card:hover { border-color: rgba(255,255,255,.32); background: rgba(255,255,255,.14); box-shadow: 0 12px 28px rgba(0,0,0,.18),inset 0 1px 0 rgba(255,255,255,.18); }
+:root[data-theme="clear"] .preference-row,
+:root[data-theme="clear"] .theme-card,
+:root[data-theme="clear"] .group-manager-item,
+:root[data-theme="clear"] .process-table,
+:root[data-theme="clear"] .settings-collapsible,
+:root[data-theme="clear"] .import-panel { border-color: rgba(255,255,255,.16); background: rgba(7,12,20,.3); box-shadow: inset 0 1px 0 rgba(255,255,255,.1); backdrop-filter: none; }
+:root[data-theme="clear"] .theme-card:hover:not(:disabled) { border-color: rgba(121,215,255,.4); background: rgba(7,12,20,.44); box-shadow: 0 12px 30px rgba(0,0,0,.24); }
+:root[data-theme="clear"] .searchbar label,
+:root[data-theme="clear"] .preference-options,
+:root[data-theme="clear"] .segmented,
+:root[data-theme="clear"] .shortcut-recorder,
+:root[data-theme="clear"] .shortcut-reset,
+:root[data-theme="clear"] .ghost,
+:root[data-theme="clear"] .edit-dialog input,
+:root[data-theme="clear"] .edit-dialog select { color: var(--ink-soft); border-color: rgba(255,255,255,.18); background: rgba(7,12,20,.34); box-shadow: inset 0 1px 0 rgba(255,255,255,.1); }
+:root[data-theme="clear"] .searchbar label:focus-within { border-color: rgba(121,215,255,.6); background: rgba(7,12,20,.5); box-shadow: 0 0 0 3px rgba(121,215,255,.18),inset 0 1px 0 rgba(255,255,255,.12); }
+:root[data-theme="clear"] .searchbar input,
+:root[data-theme="clear"] .edit-dialog input,
+:root[data-theme="clear"] .edit-dialog select { color: var(--ink); }
+:root[data-theme="clear"] .searchbar input::placeholder { color: var(--ink-muted); }
+:root[data-theme="clear"] .window-controls button { color: var(--ink-soft); background: rgba(7,12,20,.24); }
+:root[data-theme="clear"] .window-controls button:hover { color: #fff; background: rgba(7,12,20,.48); }
+:root[data-theme="clear"] .window-controls .close:hover { background: rgba(218,53,79,.9); }
+:root[data-theme="clear"] .search-results-panel,
+:root[data-theme="clear"] .context-menu,
+:root[data-theme="clear"] .dialog,
+:root[data-theme="clear"] .toast,
+:root[data-theme="clear"] .drag-preview,
+:root[data-theme="clear"] .group-sort-preview { color: var(--ink); border-color: rgba(255,255,255,.2); background: rgba(7,12,20,.86); box-shadow: var(--shadow-float); backdrop-filter: none; }
+:root[data-theme="clear"] .toast.info { color: var(--ink-soft); border-color: rgba(255,255,255,.2); background: rgba(7,12,20,.86); }
+:root[data-theme="clear"] .process-row { border-color: rgba(255,255,255,.1); color: var(--ink-soft); }
+:root[data-theme="clear"] .process-row.virtual { background: rgba(7,12,20,.12); }
+:root[data-theme="clear"] .process-row.virtual:nth-child(even) { background: rgba(7,12,20,.2); }
+:root[data-theme="clear"] .process-row.virtual:hover { background: rgba(30,105,138,.38); }
+:root[data-theme="clear"] .process-row.header { background: rgba(7,12,20,.56); }
+:root[data-theme="clear"] .process-row.header button,
+:root[data-theme="clear"] .process-row > span { color: var(--ink-soft); }
+:root[data-theme="clear"] .preference-options button.selected,
+:root[data-theme="clear"] .segmented .selected { color: #041018; background: #8cddff; box-shadow: 0 8px 22px rgba(0,0,0,.24); text-shadow: none; }
+:root[data-theme="clear"] .modal-backdrop { background: rgba(0,0,0,.44); }
+:root[data-theme="clear"] ::-webkit-scrollbar-thumb { background: rgba(230,242,255,.3); background-clip: padding-box; }
+
 /* Theme previews mirror the rebuilt palettes. */
 .theme-apple .theme-preview { background: #f5f5f7; }
 .theme-apple .theme-preview i { background: #111113; }
@@ -1748,6 +1838,9 @@ button { border: 0; }
 .theme-wallpaper .theme-preview i { background: rgba(8,11,12,.5); }
 .theme-wallpaper .theme-preview b,.theme-wallpaper .theme-preview em { background: rgba(255,255,255,.12); }
 .theme-wallpaper .theme-preview em { box-shadow: inset 2px 0 #7dd3c7; }
+.theme-clear .theme-preview { background: radial-gradient(circle at 22% 28%,#d8f66f 0 10%,transparent 28%),radial-gradient(circle at 78% 18%,#7bcfff 0 12%,transparent 30%),linear-gradient(135deg,#315640,#7b9d7a 48%,#519ac0); }
+.theme-clear .theme-preview i,.theme-clear .theme-preview b,.theme-clear .theme-preview em { border: 1px solid rgba(255,255,255,.3); background: rgba(7,12,20,.08); }
+.theme-clear .theme-preview em { box-shadow: inset 2px 0 #79d7ff; }
 .theme-system .theme-preview { background: linear-gradient(90deg,#e9eff5 0 50%,#080b0f 50%); }
 .theme-system .theme-preview i { background: linear-gradient(90deg,#f7fafc 0 50%,#0d1115 50%); }
 .theme-system .theme-preview b { background: linear-gradient(90deg,#fff 0 50%,#10161b 50%); }
@@ -1764,6 +1857,17 @@ button { border: 0; }
 :root[data-theme] .app-card.current { border-color: var(--accent); background: color-mix(in srgb,var(--accent) 13%,var(--glass-strong)); box-shadow: 0 0 0 2px color-mix(in srgb,var(--accent) 30%,transparent),0 12px 28px color-mix(in srgb,var(--accent) 14%,transparent); }
 :root[data-theme="midnight"] .app-card.current { border-color: #3bc7ad; background: #15312c; box-shadow: 0 0 0 2px rgba(59,199,173,.22),0 14px 30px rgba(0,0,0,.34); }
 :root[data-theme="wallpaper"] .app-card.current { border-color: var(--accent); background: color-mix(in srgb,var(--accent) 22%,var(--wallpaper-card)); box-shadow: 0 0 0 2px color-mix(in srgb,var(--accent) 28%,transparent),0 16px 36px rgba(0,0,0,.2); }
+:root[data-theme="clear"] .app-card.current {
+  border-color: rgba(255,255,255,.28);
+  background: rgba(255,255,255,.12);
+  box-shadow: 0 8px 22px rgba(0,0,0,.12),inset 0 1px 0 rgba(255,255,255,.18);
+  backdrop-filter: blur(10px) saturate(112%);
+}
+:root[data-theme="clear"] .app-card.current:hover {
+  border-color: rgba(255,255,255,.36);
+  background: rgba(255,255,255,.17);
+  box-shadow: 0 10px 26px rgba(0,0,0,.14),inset 0 1px 0 rgba(255,255,255,.22);
+}
 :root[data-theme="apple"] .search-button,
 :root[data-theme="apple"] .launch {
   border: 0;
@@ -1897,4 +2001,16 @@ button { border: 0; }
   :root[data-theme="wallpaper"] .drag-preview,
   :root[data-theme="wallpaper"] .group-sort-preview,
   :root[data-theme="wallpaper"] .search-results-panel { backdrop-filter: none; }
+  :root[data-theme="clear"] .app-shell { background: #101722; }
+  :root[data-theme="clear"] .sidebar,
+  :root[data-theme="clear"] .topbar,
+  :root[data-theme="clear"] .content { background: #141d29; }
+  :root[data-theme="clear"] .app-card,
+  :root[data-theme="clear"] .preference-row,
+  :root[data-theme="clear"] .theme-card,
+  :root[data-theme="clear"] .group-manager-item,
+  :root[data-theme="clear"] .process-table,
+  :root[data-theme="clear"] .settings-collapsible { background: #192534; }
+  :root[data-theme="clear"] .folder-zoom-card,
+  :root[data-theme="clear"] .folder-zoom-card .app-card { background: #213044; }
 }

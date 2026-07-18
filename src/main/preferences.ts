@@ -1,7 +1,7 @@
 import type { AllAppsViewPreferences, AppKeyboardShortcutId, AppPreferences, KeyboardShortcutPreferences, SearchProvider, UiTheme, WallpaperGlassIntensity, WallpaperGlassVariant, WindowBounds } from "../shared/types.js";
 import { defaultUiLayoutPreferences, normalizeUiLayoutPreferences } from "../shared/ui-layout-share.js";
 
-const supportedThemes = new Set<UiTheme>(["apple", "fluent", "midnight", "utility", "glass", "wallpaper", "system"]);
+const supportedThemes = new Set<UiTheme>(["apple", "fluent", "midnight", "utility", "glass", "wallpaper", "clear", "system"]);
 const supportedSearchProviders = new Set<SearchProvider>(["everything", "internal"]);
 const supportedWallpaperGlassVariants = new Set<WallpaperGlassVariant>(["dark", "light"]);
 export const defaultKeyboardShortcuts: KeyboardShortcutPreferences = {
