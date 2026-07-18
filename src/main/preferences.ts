@@ -1,4 +1,4 @@
-import type { AllAppsViewPreferences, AppKeyboardShortcutId, AppPreferences, KeyboardShortcutPreferences, SearchProvider, UiTheme, WallpaperBackgroundPreferences, WallpaperGlassIntensity, WallpaperGlassVariant, WindowBounds } from "../shared/types.js";
+import type { AllAppsViewPreferences, AppKeyboardShortcutId, AppPreferences, KeyboardShortcutPreferences, SearchProvider, UiTheme, WallpaperGlassIntensity, WallpaperGlassVariant, WindowBounds } from "../shared/types.js";
 import { defaultUiLayoutPreferences, normalizeUiLayoutPreferences } from "../shared/ui-layout-share.js";
 
 const supportedThemes = new Set<UiTheme>(["apple", "fluent", "midnight", "utility", "glass", "wallpaper", "system"]);
@@ -17,7 +17,6 @@ export const defaultPreferences: AppPreferences = {
   uiTheme: "apple",
   wallpaperGlassIntensity: 55,
   wallpaperGlassVariant: "dark",
-  wallpaperBackground: { fit: "cover", focusX: 50, focusY: 50, dim: 18 },
   runAsAdministrator: false,
   searchProvider: "everything",
   sortRunningAppsFirst: true,
@@ -78,21 +77,6 @@ function normalizeWallpaperGlassIntensity(value: unknown): WallpaperGlassIntensi
   return Math.min(100, Math.max(0, Math.round(value)));
 }
 
-function normalizePercent(value: unknown, fallback: number) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
-  return Math.min(100, Math.max(0, Math.round(value)));
-}
-
-function normalizeWallpaperBackground(value: unknown): WallpaperBackgroundPreferences {
-  const raw = value && typeof value === "object" ? value as Partial<WallpaperBackgroundPreferences> : {};
-  return {
-    fit: raw.fit === "contain" ? "contain" : "cover",
-    focusX: normalizePercent(raw.focusX, defaultPreferences.wallpaperBackground.focusX),
-    focusY: normalizePercent(raw.focusY, defaultPreferences.wallpaperBackground.focusY),
-    dim: normalizePercent(raw.dim, defaultPreferences.wallpaperBackground.dim)
-  };
-}
-
 export function normalizePreferences(raw: Partial<AppPreferences> | null | undefined): AppPreferences {
   return {
     launchAtStartup: raw?.launchAtStartup === true,
@@ -106,7 +90,6 @@ export function normalizePreferences(raw: Partial<AppPreferences> | null | undef
     wallpaperGlassVariant: supportedWallpaperGlassVariants.has(raw?.wallpaperGlassVariant as WallpaperGlassVariant)
       ? raw?.wallpaperGlassVariant as WallpaperGlassVariant
       : defaultPreferences.wallpaperGlassVariant,
-    wallpaperBackground: normalizeWallpaperBackground(raw?.wallpaperBackground),
     runAsAdministrator: raw?.runAsAdministrator === true,
     searchProvider: supportedSearchProviders.has(raw?.searchProvider as SearchProvider) ? raw?.searchProvider as SearchProvider : defaultPreferences.searchProvider,
     sortRunningAppsFirst: raw?.sortRunningAppsFirst !== false,

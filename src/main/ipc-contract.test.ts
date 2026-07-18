@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const root = process.cwd();
-const handlerFiles = ["ipc.ts", "runtime-ipc.ts", "search-ipc.ts", "preferences-ipc.ts", "wallpaper-ipc.ts", "window-ipc.ts"];
+const handlerFiles = ["ipc.ts", "runtime-ipc.ts", "search-ipc.ts", "preferences-ipc.ts", "window-ipc.ts"];
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 const channels = (source: string, pattern: RegExp) => [...source.matchAll(pattern)].map((match) => match[1]);
 

@@ -4,7 +4,7 @@ import { shortcutFromKeyboardEvent, validateShortcut } from "../shared/global-sh
 import { encodeUiLayoutShareCode } from "../shared/ui-layout-share";
 import { cleanErrorMessage } from "./error-message";
 
-type PreferenceSaveKind = "startup" | "close" | "shortcut" | "theme" | "layout" | "wallpaperIntensity" | "wallpaperVariant" | "wallpaperBackground" | "administrator" | "search" | "runningSort" | "appNames";
+type PreferenceSaveKind = "startup" | "close" | "shortcut" | "theme" | "layout" | "wallpaperIntensity" | "wallpaperVariant" | "administrator" | "search" | "runningSort" | "appNames";
 type SettingsSection = "general" | "theme";
 
 type UseSettingsPreferencesOptions = {

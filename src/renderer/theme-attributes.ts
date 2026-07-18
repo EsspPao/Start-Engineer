@@ -1,4 +1,4 @@
-import type { AppPreferences, WallpaperBackgroundPreferences, WallpaperBackgroundState, WallpaperGlassIntensity, WallpaperGlassVariant } from "../shared/types";
+import type { AppPreferences, WallpaperGlassIntensity, WallpaperGlassVariant } from "../shared/types";
 import { resolveUiTheme } from "../shared/theme";
 
 function clampIntensity(value: unknown): WallpaperGlassIntensity {
@@ -26,16 +26,6 @@ export function buildWallpaperIntensityStyle(intensity: WallpaperGlassIntensity,
     "--wallpaper-card-hover": light ? rgba(255, 255, 255, alpha(0.84, 0.16, value)) : rgba(255, 255, 255, alpha(0.34, 0.07, value)),
     "--wallpaper-control": light ? rgba(255, 255, 255, alpha(0.76, 0.07, value)) : rgba(255, 255, 255, alpha(0.3, 0.04, value)),
     "--wallpaper-control-strong": light ? rgba(255, 255, 255, alpha(0.88, 0.18, value)) : rgba(255, 255, 255, alpha(0.42, 0.08, value))
-  };
-}
-
-export function buildWallpaperBackgroundStyle(preferences: WallpaperBackgroundPreferences, background: WallpaperBackgroundState) {
-  if (!background.dataUrl) return {};
-  return {
-    "--wallpaper-background-image": `url("${background.dataUrl}")`,
-    "--wallpaper-background-size": preferences.fit,
-    "--wallpaper-background-position": `${preferences.focusX}% ${preferences.focusY}%`,
-    "--wallpaper-background-dim": preferences.dim / 100
   };
 }
 

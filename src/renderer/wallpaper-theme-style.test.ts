@@ -34,10 +34,4 @@ describe("Wallpaper Glass styles", () => {
     expect(css).toMatch(/:root\[data-theme="wallpaper"\]\s+\.process-row\.header button\s*\{[^}]*color:\s*#eef6ff;/i);
     expect(css).toMatch(/:root\[data-theme="wallpaper"\]\[data-wallpaper-variant="light"\]\s+\.process-row\.header button\s*\{[^}]*color:\s*#1c2b42;/i);
   });
-
-  it("keeps custom wallpaper images clear behind the main content", () => {
-    expect(css).toMatch(/data-wallpaper-image="true"\]\s+\.content\s*\{[^}]*backdrop-filter:\s*none;/i);
-    expect(css).toMatch(/data-wallpaper-image="true"\]\s+\.sidebar,[\s\S]*?backdrop-filter:\s*blur\(8px\)/i);
-    expect(css).toMatch(/data-wallpaper-image="true"\]\s+\.app-card\s*\{[^}]*backdrop-filter:\s*blur\(5px\)/i);
-  });
 });

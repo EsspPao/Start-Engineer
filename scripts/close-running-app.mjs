@@ -6,18 +6,34 @@ const sleep = (milliseconds) => Atomics.wait(new Int32Array(new SharedArrayBuffe
 function runningProcessIds() {
   const result = spawnSync("tasklist.exe", ["/FI", `IMAGENAME eq ${imageName}`, "/FO", "CSV", "/NH"], { encoding: "utf8", windowsHide: true });
   if (result.status !== 0) throw new Error(result.stderr?.trim() || "无法检查 Start Engineer 运行状态");
-  return result.stdout.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.toLowerCase().startsWith(`"${imageName.toLowerCase()}"`)).map((line) => Number(line.match(/^"[^"]+","(\d+)"/)?.[1])).filter(Number.isFinite);
+  const tasklistIds = result.stdout.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.toLowerCase().startsWith(`"${imageName.toLowerCase()}"`)).map((line) => Number(line.match(/^"[^"]+","(\d+)"/)?.[1])).filter(Number.isFinite);
+  const powershell = spawnSync("powershell.exe", [
+    "-NoProfile",
+    "-NonInteractive",
+    "-Command",
+    "$ErrorActionPreference='SilentlyContinue'; @(Get-Process -Name 'Start Engineer' | Select-Object -ExpandProperty Id) -join ','",
+  ], { encoding: "utf8", windowsHide: true });
+  const powershellIds = powershell.status === 0
+    ? powershell.stdout.trim().split(",").filter(Boolean).map(Number).filter(Number.isFinite)
+    : [];
+  return [...new Set([...tasklistIds, ...powershellIds])];
+}
+
+function stopProcesses(processIds, force = false) {
+  for (const processId of processIds) {
+    spawnSync("taskkill.exe", [...(force ? ["/F"] : []), "/PID", String(processId), "/T"], { encoding: "utf8", windowsHide: true });
+  }
 }
 
 if (process.platform === "win32") {
   let processIds = runningProcessIds();
   if (processIds.length) {
     console.log(`[package] 检测到正在运行的 Start Engineer（PID: ${processIds.join(", ")}），正在关闭...`);
-    spawnSync("taskkill.exe", ["/IM", imageName, "/T"], { encoding: "utf8", windowsHide: true });
+    stopProcesses(processIds);
     for (let attempt = 0; attempt < 20 && (processIds = runningProcessIds()).length; attempt += 1) sleep(150);
     if (processIds.length) {
       console.log(`[package] 正常关闭未完成，正在结束残留进程（PID: ${processIds.join(", ")}）...`);
-      spawnSync("taskkill.exe", ["/F", "/IM", imageName, "/T"], { encoding: "utf8", windowsHide: true });
+      stopProcesses(processIds, true);
       for (let attempt = 0; attempt < 20 && (processIds = runningProcessIds()).length; attempt += 1) sleep(150);
     }
     if (processIds.length) {

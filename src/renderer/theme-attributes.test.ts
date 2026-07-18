@@ -1,16 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { buildThemeAttributes, buildWallpaperBackgroundStyle, buildWallpaperIntensityStyle } from "./theme-attributes";
+import { buildThemeAttributes, buildWallpaperIntensityStyle } from "./theme-attributes";
 
 describe("buildThemeAttributes", () => {
-  it("maps a managed wallpaper into CSS variables", () => {
-    expect(buildWallpaperBackgroundStyle({ fit: "cover", focusX: 42, focusY: 68, dim: 24 }, { hasImage: true, dataUrl: "data:image/png;base64,AA==" })).toEqual({
-      "--wallpaper-background-image": "url(\"data:image/png;base64,AA==\")",
-      "--wallpaper-background-size": "cover",
-      "--wallpaper-background-position": "42% 68%",
-      "--wallpaper-background-dim": 0.24
-    });
-    expect(buildWallpaperBackgroundStyle({ fit: "contain", focusX: 50, focusY: 50, dim: 0 }, { hasImage: false })).toEqual({});
-  });
   it("returns wallpaper root attributes and dark color scheme", () => {
     expect(buildThemeAttributes({ uiTheme: "wallpaper", wallpaperGlassIntensity: 85, wallpaperGlassVariant: "dark" }, false)).toEqual({
       theme: "wallpaper",

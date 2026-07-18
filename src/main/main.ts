@@ -1,4 +1,4 @@
-import { app, dialog, globalShortcut, nativeImage } from "electron";
+import { app, globalShortcut } from "electron";
 import { randomUUID } from "node:crypto";
 import { cpus } from "node:os";
 import { dirname, join } from "node:path";
@@ -37,8 +37,6 @@ import { ProcessControlService } from "./process-control-service.js";
 import { metricsFromFocusHints } from "./focus-hints.js";
 import { AppWindowService } from "./app-window-service.js";
 import { AppAdditionService } from "./app-addition-service.js";
-import { WallpaperService } from "./wallpaper-service.js";
-import { registerWallpaperIpc } from "./wallpaper-ipc.js";
 
 const isDev = process.env.VITE_DEV_SERVER_URL !== undefined;
 const appRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -57,7 +55,6 @@ const foldersPath = () => join(app.getPath("userData"), "folders.json");
 const groupGridPath = () => join(app.getPath("userData"), "group-grid-order.json");
 const preferencesPath = () => join(app.getPath("userData"), "preferences.json");
 const iconCacheDir = () => join(app.getPath("userData"), "icons");
-const wallpaperDir = () => join(app.getPath("userData"), "wallpaper");
 const nativeRuntime = new NativeRuntimeHost();
 let administratorMessage = "";
 const runtimeAssociatedPids = new Map<string, Set<number>>();
@@ -72,7 +69,6 @@ let runtimeService!: RuntimeService;
 let searchService!: SearchService;
 let appWindowService!: AppWindowService;
 let appAdditionService!: AppAdditionService;
-let wallpaperService!: WallpaperService;
 const processControlService = new ProcessControlService({ ownProcessIds: () => appWindowService?.ownProcessIds() ?? new Set([process.pid]), runNativeHelper });
 const runPowerShell = (script: string) => processControlService.runPowerShell(script);
 const groupService = new GroupService({
@@ -187,24 +183,6 @@ appAdditionService = new AppAdditionService({
   cacheIcon: (entry) => iconService.cache(entry)
 });
 
-wallpaperService = new WallpaperService({
-  directory: wallpaperDir,
-  pickFile: async () => {
-    const options = {
-      title: "选择背景图片",
-      properties: ["openFile"] as Array<"openFile">,
-      filters: [{ name: "图片", extensions: ["png", "jpg", "jpeg", "webp"] }]
-    };
-    const owner = appWindowService.getMainWindow();
-    const result = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options);
-    return result.canceled ? null : result.filePaths[0] ?? null;
-  },
-  imageSize: (path) => {
-    const image = nativeImage.createFromPath(path);
-    return image.isEmpty() ? null : image.getSize();
-  }
-});
-
 const searchAppCandidates = (query: string) => searchService.searchCandidates(query);
 const refreshDiscoveryIndex = () => searchService.refreshIndex();
 const discoverImportCandidates = () => searchService.discoverImportCandidates();
@@ -298,7 +276,6 @@ function registerIpc() {
     getManagedRunningStatus
   });
   registerPreferencesIpc(preferencesService, () => administratorService.restartWithConfiguredPrivileges());
-  registerWallpaperIpc(wallpaperService);
   registerSearchIpc({
     getMainWindow: () => appWindowService.getMainWindow(),
     getUserDataPath: () => app.getPath("userData"),
