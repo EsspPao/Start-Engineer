@@ -1,6 +1,6 @@
 import type { AppEntry } from "../shared/types.js";
 
-export const APP_ICON_CACHE_VERSION = 2;
+export const APP_ICON_CACHE_VERSION = 3;
 export const APP_ICON_TARGET_SIZE = 128;
 export const APP_ICON_MIN_SIZE = 96;
 

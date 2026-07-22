@@ -96,6 +96,17 @@ describe("preferences", () => {
     expect(normalizePreferences({ uiTheme: "unknown" as "utility" }).uiTheme).toBe("apple");
   });
 
+  it("backfills a non-conflicting launch-all shortcut for legacy preferences", () => {
+    const legacyShortcuts = { ...defaultPreferences.keyboardShortcuts } as Record<string, string[]>;
+    delete legacyShortcuts.launchFolder;
+    legacyShortcuts.activate = ["Ctrl+Enter"];
+
+    const normalized = normalizePreferences({ keyboardShortcuts: legacyShortcuts as typeof defaultPreferences.keyboardShortcuts });
+
+    expect(normalized.keyboardShortcuts.activate).toEqual(["Ctrl+Enter"]);
+    expect(normalized.keyboardShortcuts.launchFolder).toEqual(["Ctrl+Shift+Enter"]);
+  });
+
   it("preserves the Clear Desktop theme", () => {
     expect(normalizePreferences({ uiTheme: "clear" }).uiTheme).toBe("clear");
   });

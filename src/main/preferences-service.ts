@@ -1,7 +1,6 @@
 import type { AppPreferences, AppPreferencesState, UpdatePreferencesInput } from "../shared/types.js";
 import { validateShortcut } from "../shared/global-shortcut.js";
 import { decodeUiLayoutShareCode, encodeUiLayoutShareCode } from "../shared/ui-layout-share.js";
-import { administratorRestartRequired } from "./administrator-launch.js";
 import { JsonConfigStore } from "./config-store.js";
 import { defaultPreferences, normalizePreferences } from "./preferences.js";
 
@@ -17,7 +16,7 @@ type PreferencesServiceOptions = {
   unregisterShortcut: (accelerator: string) => void;
   isShortcutRegistered: (accelerator: string) => boolean;
   toggleMainWindow: () => void;
-  getAdministratorState: () => { isRunningAsAdministrator: boolean; administratorStatusLoading: boolean; administratorMessage?: string };
+  getAdministratorState: () => { isRunningAsAdministrator: boolean; administratorStatusLoading: boolean; elevatedTerminationStatus: AppPreferencesState["elevatedTerminationStatus"]; administratorMessage?: string };
   clearAdministratorMessage: () => void;
   applyTheme: (preferences: AppPreferences) => void;
 };
@@ -52,7 +51,10 @@ export class PreferencesService {
       ...this.shortcutState,
       isRunningAsAdministrator: administrator.isRunningAsAdministrator,
       administratorStatusLoading: administrator.administratorStatusLoading,
-      administratorRestartRequired: administratorRestartRequired(preferences.runAsAdministrator, administrator.isRunningAsAdministrator),
+      administratorRestartRequired: preferences.runAsAdministrator
+        && !administrator.isRunningAsAdministrator
+        && ["disabled", "cancelled", "failed"].includes(administrator.elevatedTerminationStatus),
+      elevatedTerminationStatus: administrator.elevatedTerminationStatus,
       ...(administrator.administratorMessage ? { administratorMessage: administrator.administratorMessage } : {})
     };
   }

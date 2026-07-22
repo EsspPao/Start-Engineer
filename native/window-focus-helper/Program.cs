@@ -16,6 +16,7 @@ try
 {
     var command = args.FirstOrDefault()?.Trim().ToLowerInvariant();
     if (command == "runtime") return await RuntimeServer.Run(options);
+    if (command == "terminate-server") return await ElevatedTerminationClient.Run(args.Skip(1).ToArray(), options);
     var input = Console.In.ReadToEnd();
     switch (command)
     {
@@ -66,7 +67,7 @@ try
             return 0;
         }
         default:
-            Console.Error.WriteLine("Usage: window-focus-helper.exe scan|focus|launch|is-elevated|snapshot|extract|shortcuts|icon|runtime");
+            Console.Error.WriteLine("Usage: window-focus-helper.exe scan|focus|launch|is-elevated|snapshot|extract|shortcuts|icon|runtime|terminate-server");
             return 2;
     }
 }
@@ -341,6 +342,9 @@ internal static class ShellIconExtractor
     public static IconResult Extract(IconRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Path) || !File.Exists(request.Path)) throw new FileNotFoundException("Icon source does not exist", request.Path);
+        var size = Math.Clamp(request.PixelSize, 32, 512);
+        var resourceIcon = ExtractResourceIcon(request.Path, size);
+        if (resourceIcon is not null) return new IconResult { Ok = true, PngBase64 = Convert.ToBase64String(resourceIcon) };
         var iid = typeof(NativeMethods.IShellItemImageFactory).GUID;
         var result = NativeMethods.SHCreateItemFromParsingName(request.Path, IntPtr.Zero, ref iid, out var factory);
         if (result != 0) Marshal.ThrowExceptionForHR(result);
@@ -348,7 +352,6 @@ internal static class ShellIconExtractor
         var bitmapHandle = IntPtr.Zero;
         try
         {
-            var size = Math.Clamp(request.PixelSize, 32, 512);
             result = factory.GetImage(new NativeMethods.NativeSize { Width = size, Height = size }, 0x00000004, out bitmapHandle);
             if (result != 0 || bitmapHandle == IntPtr.Zero) Marshal.ThrowExceptionForHR(result);
             using var bitmap = System.Drawing.Image.FromHbitmap(bitmapHandle);
@@ -360,6 +363,26 @@ internal static class ShellIconExtractor
         {
             if (bitmapHandle != IntPtr.Zero) _ = NativeMethods.DeleteObject(bitmapHandle);
             if (Marshal.IsComObject(factory)) _ = Marshal.FinalReleaseComObject(factory);
+        }
+    }
+
+    private static byte[]? ExtractResourceIcon(string path, int size)
+    {
+        var handles = new IntPtr[1];
+        var resourceIds = new uint[1];
+        var extracted = NativeMethods.PrivateExtractIcons(path, 0, size, size, handles, resourceIds, 1, 0);
+        if (extracted == 0 || handles[0] == IntPtr.Zero) return null;
+        try
+        {
+            using var icon = (System.Drawing.Icon)System.Drawing.Icon.FromHandle(handles[0]).Clone();
+            using var bitmap = icon.ToBitmap();
+            using var stream = new MemoryStream();
+            bitmap.Save(stream, System.Drawing.Imaging.ImageFormat.Png);
+            return stream.ToArray();
+        }
+        finally
+        {
+            _ = NativeMethods.DestroyIcon(handles[0]);
         }
     }
 }
@@ -1212,6 +1235,13 @@ internal static partial class NativeMethods
 
     [DllImport("shell32.dll", EntryPoint = "SHCreateItemFromParsingName", CharSet = CharSet.Unicode, PreserveSig = true)]
     public static extern int SHCreateItemFromParsingName(string path, IntPtr bindContext, ref Guid iid, [MarshalAs(UnmanagedType.Interface)] out IShellItemImageFactory factory);
+
+    [DllImport("user32.dll", EntryPoint = "PrivateExtractIconsW", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern uint PrivateExtractIcons(string fileName, int iconIndex, int iconWidth, int iconHeight, [Out] IntPtr[] iconHandles, [Out] uint[] resourceIds, uint iconCount, uint flags);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool DestroyIcon(IntPtr iconHandle);
 
     [LibraryImport("gdi32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

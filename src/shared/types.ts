@@ -107,7 +107,7 @@ export type UiLayoutPreferences = {
   showBatchActions: boolean;
   showSearchBar: boolean;
 };
-export type AppKeyboardShortcutId = "up" | "down" | "left" | "right" | "activate" | "cancel" | "edit" | "menu" | "search" | "previousGroup" | "nextGroup" | `group${1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9}`;
+export type AppKeyboardShortcutId = "up" | "down" | "left" | "right" | "activate" | "launchFolder" | "cancel" | "edit" | "menu" | "search" | "previousGroup" | "nextGroup" | `group${1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9}`;
 export type KeyboardShortcutPreferences = Record<AppKeyboardShortcutId, string[]>;
 export type AllAppsViewPreferences = {
   orderedAppIds: string[];
@@ -134,12 +134,14 @@ export type AppPreferences = {
 };
 export type UpdatePreferencesInput = Partial<AppPreferences>;
 export type GlobalShortcutStatus = "registered" | "disabled" | "invalid" | "unavailable";
+export type ElevatedTerminationStatus = "disabled" | "starting" | "ready" | "cancelled" | "failed";
 export type AppPreferencesState = AppPreferences & {
   globalShortcutStatus: GlobalShortcutStatus;
   globalShortcutMessage?: string;
   isRunningAsAdministrator: boolean;
   administratorStatusLoading?: boolean;
   administratorRestartRequired: boolean;
+  elevatedTerminationStatus: ElevatedTerminationStatus;
   administratorMessage?: string;
 };
 export type SnapshotMode = "full" | "managed";
@@ -361,6 +363,7 @@ export type StartEngineerApi = {
   exportUiLayoutShareCode: () => Promise<string>;
   importUiLayoutShareCode: (code: string) => Promise<AppPreferencesState>;
   restartWithConfiguredPrivileges: () => Promise<void>;
+  onPreferencesStateChanged: (listener: (preferences: AppPreferencesState) => void) => () => void;
   windowAction: (action: WindowAction) => Promise<void>;
 };
 

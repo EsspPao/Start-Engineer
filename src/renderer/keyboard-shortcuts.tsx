@@ -5,7 +5,8 @@ export type KeyboardShortcutHelpItem = {
 
 export const keyboardShortcutHelpItems: KeyboardShortcutHelpItem[] = [
   { keys: "方向键 / WASD", label: "在应用卡片之间移动选择" },
-  { keys: "Enter", label: "启动未运行应用，或唤起运行中应用" },
+  { keys: "Enter", label: "启动或唤起普通应用；展开合并卡片" },
+  { keys: "Ctrl+Enter", label: "启动合并卡片内的全部应用" },
   { keys: "Esc", label: "关闭搜索、菜单、弹窗，或取消当前选择" },
   { keys: "Menu / Shift+F10", label: "打开当前应用更多菜单" },
   { keys: "F2", label: "重命名当前应用" },
@@ -25,7 +26,7 @@ export function KeyboardShortcutPanel() {
 
 const labels: Record<AppKeyboardShortcutId, [string, string]> = {
   up: ["向上移动", "选择上方应用卡片"], down: ["向下移动", "选择下方应用卡片"], left: ["向左移动", "选择左侧应用卡片"], right: ["向右移动", "选择右侧应用卡片"],
-  activate: ["启动 / 唤起", "启动应用，或启动合并卡片内的全部应用"], cancel: ["取消 / 收起", "关闭搜索、菜单或放大的卡片"], edit: ["编辑应用", "编辑当前选择的应用"],
+  activate: ["激活 / 展开", "启动或唤起普通应用，展开合并卡片"], launchFolder: ["启动卡片全部应用", "启动当前合并卡片内的全部应用"], cancel: ["取消 / 收起", "关闭搜索、菜单或放大的卡片"], edit: ["编辑应用", "编辑当前选择的应用"],
   menu: ["更多菜单", "打开当前应用的右键菜单"], search: ["聚焦搜索", "将焦点移到搜索框"], previousGroup: ["上一个分组", "切换到前一个应用分组"], nextGroup: ["下一个分组", "切换到后一个应用分组"],
   group1: ["第 1 分组", "直接切换到第 1 个分组"], group2: ["第 2 分组", "直接切换到第 2 个分组"], group3: ["第 3 分组", "直接切换到第 3 个分组"],
   group4: ["第 4 分组", "直接切换到第 4 个分组"], group5: ["第 5 分组", "直接切换到第 5 个分组"], group6: ["第 6 分组", "直接切换到第 6 个分组"],
@@ -33,7 +34,7 @@ const labels: Record<AppKeyboardShortcutId, [string, string]> = {
 };
 
 const sections: Array<{ id: string; title: string; shortcuts: AppKeyboardShortcutId[] }> = [
-  { id: "actions", title: "常用操作", shortcuts: ["activate", "edit", "menu", "search", "cancel"] },
+  { id: "actions", title: "常用操作", shortcuts: ["activate", "launchFolder", "edit", "menu", "search", "cancel"] },
   { id: "navigation", title: "导航", shortcuts: ["up", "down", "left", "right", "previousGroup", "nextGroup"] },
   { id: "groups", title: "分组直达", shortcuts: ["group1", "group2", "group3", "group4", "group5", "group6", "group7", "group8", "group9"] }
 ];

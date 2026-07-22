@@ -9,6 +9,7 @@ describe("app shortcuts", () => {
     expect(findAppShortcut(defaultKeyboardShortcuts, event("ArrowUp"))).toBe("up");
     expect(findAppShortcut(defaultKeyboardShortcuts, event("w", "KeyW"))).toBe("up");
     expect(findAppShortcut(defaultKeyboardShortcuts, event("4", "Digit4", true))).toBe("group4");
+    expect(findAppShortcut(defaultKeyboardShortcuts, event("Enter", "Enter", true))).toBe("launchFolder");
   });
 
   it("uses a replacement binding without retaining defaults", () => {

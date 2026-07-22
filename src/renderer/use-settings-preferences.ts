@@ -139,15 +139,17 @@ export function useSettingsPreferences({
     });
   };
 
-  const administratorStatus = (preferences.administratorRestartRequired ? shortcutMessage : "")
+  const administratorStatus = shortcutMessage
     || preferences.administratorMessage
-    || (preferences.administratorStatusLoading
-      ? "权限状态检测中"
-      : preferences.administratorRestartRequired
-        ? "下次启动生效"
-        : preferences.isRunningAsAdministrator
-          ? "当前以管理员权限运行"
-          : "当前以普通权限运行");
+    || (preferences.isRunningAsAdministrator
+      ? "主界面由 Windows 以管理员权限启动，资源管理器拖放受限"
+      : preferences.elevatedTerminationStatus === "ready"
+        ? "本次运行已授权；主界面仍为普通权限，拖放可用"
+        : preferences.elevatedTerminationStatus === "starting"
+          ? "正在请求本次运行的管理员授权"
+          : preferences.runAsAdministrator
+            ? "将在启动时预先授权；本次可立即授权或按需授权"
+            : "需要结束高权限应用时授权一次，本次运行后续不再重复询问");
 
   return {
     administratorStatus,

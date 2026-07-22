@@ -18,8 +18,8 @@ type AppWindowServiceOptions = {
   quit: () => void;
 };
 
-export function windowBackgroundColor(theme: ReturnType<typeof resolveUiTheme>) {
-  return theme === "midnight" ? "#07111f" : theme === "utility" ? "#f3efe6" : "#00000000";
+export function windowBackgroundColor(_theme: ReturnType<typeof resolveUiTheme>) {
+  return "#00000000";
 }
 
 export class AppWindowService {

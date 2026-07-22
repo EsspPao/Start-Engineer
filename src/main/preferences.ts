@@ -1,11 +1,12 @@
 import type { AllAppsViewPreferences, AppKeyboardShortcutId, AppPreferences, KeyboardShortcutPreferences, SearchProvider, UiTheme, WallpaperGlassIntensity, WallpaperGlassVariant, WindowBounds } from "../shared/types.js";
 import { defaultUiLayoutPreferences, normalizeUiLayoutPreferences } from "../shared/ui-layout-share.js";
+import { normalizeShortcut } from "../shared/global-shortcut.js";
 
 const supportedThemes = new Set<UiTheme>(["apple", "fluent", "midnight", "utility", "glass", "wallpaper", "clear", "system"]);
 const supportedSearchProviders = new Set<SearchProvider>(["everything", "internal"]);
 const supportedWallpaperGlassVariants = new Set<WallpaperGlassVariant>(["dark", "light"]);
 export const defaultKeyboardShortcuts: KeyboardShortcutPreferences = {
-  up: ["Up", "W"], down: ["Down", "S"], left: ["Left", "A"], right: ["Right", "D"], activate: ["Enter"], cancel: ["Esc"], edit: ["F2"], menu: ["Menu", "Shift+F10"], search: ["Ctrl+F"], previousGroup: ["Ctrl+Up", "Ctrl+W"], nextGroup: ["Ctrl+Down", "Ctrl+S"],
+  up: ["Up", "W"], down: ["Down", "S"], left: ["Left", "A"], right: ["Right", "D"], activate: ["Enter"], launchFolder: ["Ctrl+Enter"], cancel: ["Esc"], edit: ["F2"], menu: ["Menu", "Shift+F10"], search: ["Ctrl+F"], previousGroup: ["Ctrl+Up", "Ctrl+W"], nextGroup: ["Ctrl+Down", "Ctrl+S"],
   group1: ["Ctrl+1"], group2: ["Ctrl+2"], group3: ["Ctrl+3"], group4: ["Ctrl+4"], group5: ["Ctrl+5"], group6: ["Ctrl+6"], group7: ["Ctrl+7"], group8: ["Ctrl+8"], group9: ["Ctrl+9"]
 };
 
@@ -43,7 +44,7 @@ function normalizeStringList(value: unknown): string[] {
 
 function normalizeKeyboardShortcuts(value: unknown): KeyboardShortcutPreferences {
   const raw = value && typeof value === "object" ? value as Record<string, unknown> : {};
-  return Object.fromEntries(Object.entries(defaultKeyboardShortcuts).map(([id, fallback]) => {
+  const normalized = Object.fromEntries(Object.entries(defaultKeyboardShortcuts).map(([id, fallback]) => {
     const candidate = raw[id as AppKeyboardShortcutId];
     if (Array.isArray(candidate)) {
       const bindings = candidate.filter((item): item is string => typeof item === "string" && Boolean(item.trim())).map((item) => item.trim());
@@ -51,6 +52,14 @@ function normalizeKeyboardShortcuts(value: unknown): KeyboardShortcutPreferences
     }
     return [id, typeof candidate === "string" && candidate.trim() && !candidate.includes("/") && !candidate.includes("-") ? [candidate.trim()] : fallback];
   })) as KeyboardShortcutPreferences;
+  const occupied = new Set(Object.entries(normalized)
+    .filter(([id]) => id !== "launchFolder")
+    .flatMap(([, bindings]) => bindings.map((binding) => normalizeShortcut(binding).toLowerCase())));
+  const availableSavedBindings = normalized.launchFolder.filter((binding) => !occupied.has(normalizeShortcut(binding).toLowerCase()));
+  if (availableSavedBindings.length) normalized.launchFolder = availableSavedBindings;
+  else normalized.launchFolder = [(["Ctrl+Enter", "Ctrl+Shift+Enter", "Ctrl+Alt+Enter"]
+    .find((binding) => !occupied.has(normalizeShortcut(binding).toLowerCase())) ?? "Ctrl+Enter")];
+  return normalized;
 }
 function normalizeAllAppsView(value: unknown): AllAppsViewPreferences {
   if (!value || typeof value !== "object") return defaultPreferences.allAppsView;

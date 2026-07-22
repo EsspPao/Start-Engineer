@@ -8,7 +8,13 @@ describe("themeOptions", () => {
     expect(wallpaper?.name).toBe("Wallpaper Glass");
     expect(wallpaper?.description).toContain("壁纸");
     expect(wallpaper?.title).toContain("窗口背景透出壁纸");
-    expect(themeOptions.find((theme) => theme.id === "system")?.description).toContain("Fluent");
+    expect(themeOptions.find((theme) => theme.id === "system")?.description).toContain("深色墨青");
+  });
+
+  it("describes the non-clear presets as color palettes rather than different layouts", () => {
+    for (const id of ["apple", "fluent", "midnight", "utility", "glass"] as const) {
+      expect(themeOptions.find((theme) => theme.id === id)?.description).toContain("玻璃");
+    }
   });
 
   it("includes the Clear Desktop transparent preset", () => {

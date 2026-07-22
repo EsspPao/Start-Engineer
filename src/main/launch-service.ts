@@ -49,12 +49,19 @@ export class LaunchService {
 
   private async launchExecutable(entry: AppEntry): Promise<Omit<LaunchAppResult, "apps">> {
     try {
-      const result = normalizeNativeLaunchResult(await this.options.nativeRuntime.request("launch", {
+      const request = {
         executablePath: entry.executablePath,
         workingDirectory: entry.workingDirectory || dirname(entry.executablePath),
         argumentLine: entry.launchArgs?.trim() || ""
-      } satisfies NativeLaunchRequest));
-      return this.mapResult(result);
+      } satisfies NativeLaunchRequest;
+      const result = normalizeNativeLaunchResult(await this.options.nativeRuntime.request("launch", request));
+      if (result.errorCode !== 740) return this.mapResult(result);
+      const elevatedResult = normalizeNativeLaunchResult(await this.options.nativeRuntime.request(
+        "launch",
+        { ...request, elevated: true },
+        120_000
+      ));
+      return this.mapResult(elevatedResult);
     } catch (reason) {
       if (nativeHelperWasUnavailable(reason)) return this.launchWithPowerShell(entry);
       console.warn(`[native-runtime] launch response failed without automatic retry; reason=${reason instanceof Error ? reason.message : String(reason)}`);
@@ -62,13 +69,14 @@ export class LaunchService {
     }
   }
 
-  private async launchWithPowerShell(entry: AppEntry): Promise<Omit<LaunchAppResult, "apps">> {
+  private async launchWithPowerShell(entry: AppEntry, elevated = false): Promise<Omit<LaunchAppResult, "apps">> {
     const payload = Buffer.from(JSON.stringify({ executablePath: entry.executablePath, workingDirectory: entry.workingDirectory || dirname(entry.executablePath), argumentLine: entry.launchArgs?.trim() || "" }), "utf16le").toString("base64");
     const script = `
 $payloadJson = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('${payload}'))
 $payload = $payloadJson | ConvertFrom-Json
 try {
   $options = @{ FilePath = [string]$payload.executablePath; WorkingDirectory = [string]$payload.workingDirectory; PassThru = $true; ErrorAction = 'Stop' }
+  if (${elevated ? "$true" : "$false"}) { $options.Verb = 'RunAs' }
   if (-not [string]::IsNullOrWhiteSpace([string]$payload.argumentLine)) { $options.ArgumentList = [string]$payload.argumentLine }
   $process = Start-Process @options
   [PSCustomObject]@{ ok = $true; pid = [int]$process.Id; errorCode = 0; detail = '' } | ConvertTo-Json -Compress
@@ -78,7 +86,9 @@ try {
   if ($code -eq 0 -and $_.Exception.HResult) { $code = [int]($_.Exception.HResult -band 0xFFFF) }
   [PSCustomObject]@{ ok = $false; pid = 0; errorCode = $code; detail = [string]$_.Exception.Message } | ConvertTo-Json -Compress
 }`;
-    return this.mapResult(normalizeNativeLaunchResult(JSON.parse((await this.options.runPowerShell(script)).trim())));
+    const result = normalizeNativeLaunchResult(JSON.parse((await this.options.runPowerShell(script)).trim()));
+    if (!elevated && result.errorCode === 740) return this.launchWithPowerShell(entry, true);
+    return this.mapResult(result);
   }
 
   private mapResult(result: NativeLaunchResult): Omit<LaunchAppResult, "apps"> {
@@ -90,6 +100,7 @@ try {
   private errorMessage(errorCode?: number) {
     if (errorCode === 2 || errorCode === 3) return "程序或工作目录不存在。";
     if (errorCode === 5) return "没有权限启动该程序。";
+    if (errorCode === 740) return "此应用需要管理员权限，Windows 授权未完成。";
     if (errorCode === 267) return "应用配置的工作目录无效。";
     return "启动失败，请检查程序路径和启动参数。";
   }

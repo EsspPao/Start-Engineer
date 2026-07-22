@@ -1,8 +1,9 @@
 import { dialog, type BrowserWindow, type OpenDialogOptions } from "electron";
 import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { extname } from "node:path";
 import type { AddDroppedExecutablesResult, AppEntry, AppGroup } from "../shared/types.js";
-import { addDroppedExecutablesToApps } from "./dropped-apps.js";
+import { addDroppedExecutablesToApps, type DroppedAppTarget } from "./dropped-apps.js";
 
 type AppAdditionServiceOptions = {
   getMainWindow: () => BrowserWindow | null;
@@ -15,6 +16,7 @@ type AppAdditionServiceOptions = {
   exists?: (path: string) => boolean;
   createId?: () => string;
   chooseExecutable?: (title: string) => Promise<string | undefined>;
+  resolveShortcut?: (filePath: string) => Promise<DroppedAppTarget | null>;
 };
 
 export class AppAdditionService {
@@ -39,7 +41,8 @@ export class AppAdditionService {
       apps: this.options.loadApps(),
       exists: this.options.exists ?? existsSync,
       createId: this.options.createId ?? randomUUID,
-      cacheAppIcon: this.options.cacheIcon
+      cacheAppIcon: this.options.cacheIcon,
+      resolveDroppedPath: (filePath) => this.resolveDroppedPath(filePath)
     });
     if (result.addedAppIds.length) this.options.saveApps(result.apps);
     return result;
@@ -55,5 +58,12 @@ export class AppAdditionService {
     const mainWindow = this.options.getMainWindow();
     return (mainWindow ? dialog.showOpenDialog(mainWindow, dialogOptions) : dialog.showOpenDialog(dialogOptions))
       .then((result) => result.canceled || result.filePaths.length === 0 ? undefined : result.filePaths[0]);
+  }
+
+  private resolveDroppedPath(filePath: string): Promise<DroppedAppTarget | null> {
+    const extension = extname(filePath).toLowerCase();
+    if (extension === ".exe") return Promise.resolve({ executablePath: filePath });
+    if (extension === ".lnk" && this.options.resolveShortcut) return this.options.resolveShortcut(filePath);
+    return Promise.resolve(null);
   }
 }

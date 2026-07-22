@@ -16,7 +16,7 @@ type RuntimeServiceOptions = {
   resolveIcon: (path: string, name: string) => Promise<string>;
   getTerminationBlockReason: (name: string, pids: number[]) => string | undefined;
   runTaskkill: (args: string[]) => Promise<void>;
-  runElevatedTaskkill: (args: string[]) => Promise<void>;
+  terminateElevatedPids: (pids: number[]) => Promise<void>;
   processorCount: number;
 };
 
@@ -66,7 +66,7 @@ export class RuntimeService {
       const blocked = this.options.getTerminationBlockReason(`${entry.processName || ""}.exe`, beforeByApp.get(entry.id)?.pids ?? []);
       if (blocked) throw new Error(`${entry.name}：${blocked}`);
     }
-    if (pids.length) await terminatePids(pids, { runNormal: this.options.runTaskkill, runElevated: this.options.runElevatedTaskkill, getRunningPids: (values) => this.getRunningPids(values), assumeRunning: true });
+    if (pids.length) await this.terminateProcessPids(pids, true);
     const runningStatuses = await this.getManagedRunningStatus();
     const afterByApp = new Map(runningStatuses.map((status) => [status.appId, status]));
     const results = targets.map((entry) => afterByApp.get(entry.id)?.isRunning
@@ -77,6 +77,15 @@ export class RuntimeService {
     const apps = this.options.loadApps().map((entry) => stoppedIds.has(entry.id) ? { ...entry, launchedPid: undefined } : entry);
     this.options.saveApps(apps);
     return { apps, results, runningStatuses };
+  }
+
+  async terminateProcessPids(pids: number[], assumeRunning = false) {
+    await terminatePids(pids, {
+      runNormal: this.options.runTaskkill,
+      runElevated: this.options.terminateElevatedPids,
+      getRunningPids: (values) => this.getRunningPids(values),
+      assumeRunning
+    });
   }
 
   private nativeSnapshotRequest(mode: SnapshotMode) {

@@ -14,7 +14,7 @@ import { shouldStartProcessPrewarm, STARTUP_DEFERRED_IMPORT_MS, STARTUP_DEFERRED
 import { findAppShortcut } from "../shared/app-shortcuts";
 import { cleanErrorMessage } from "./error-message";
 import { buildThemeAttributes } from "./theme-attributes";
-import { keyboardBlockKeyFromEventLike, isTextInputTarget, pickDirectionalApp, pickIndexedGroup, pickRelativeGroup, shouldSuppressNavigationAfterGroupMove, type AppCardRect } from "./keyboard-navigation";
+import { collapsedFolderKeyboardSelection, expandedFolderKeyboardSelection, isEscapeKeyboardEvent, keyboardBlockKeyFromEventLike, isTextInputTarget, pickDirectionalApp, pickIndexedGroup, pickRelativeGroup, resolveFolderKeyboardAction, shouldSuppressNavigationAfterGroupMove, type AppCardRect } from "./keyboard-navigation";
 import { SearchResultsPanel } from "./search-results-panel";
 import { AppEditDialog, type AppEditState } from "./app-edit-dialog";
 import { AppContextMenu, GroupContextMenu, ProcessContextMenu, type DisplayProcess, type MenuState } from "./context-menus";
@@ -141,11 +141,12 @@ const fallbackApi: StartEngineerApi = {
   openSearchDependencyFolder: electronOnly,
   openSearchResult: async () => electronOnly(),
   showSearchResultInFolder: async () => electronOnly(),
-  getPreferences: async () => ({ launchAtStartup: false, closeBehavior: "tray", globalShortcutEnabled: true, globalShortcut: "Ctrl+Shift+Space", uiTheme: "apple", wallpaperGlassIntensity: 55, wallpaperGlassVariant: "dark", runAsAdministrator: false, searchProvider: "everything", sortRunningAppsFirst: true, showAppNames: false, keyboardShortcuts: defaultKeyboardShortcuts, uiLayout: defaultUiLayoutPreferences, allAppsView: { orderedAppIds: [] }, firstRunImportCompleted: false, globalShortcutStatus: "registered", isRunningAsAdministrator: false, administratorStatusLoading: false, administratorRestartRequired: false }),
-  updatePreferences: async (input) => ({ launchAtStartup: input.launchAtStartup ?? false, closeBehavior: input.closeBehavior ?? "tray", globalShortcutEnabled: input.globalShortcutEnabled ?? true, globalShortcut: input.globalShortcut ?? "Ctrl+Shift+Space", uiTheme: input.uiTheme ?? "apple", wallpaperGlassIntensity: input.wallpaperGlassIntensity ?? 55, wallpaperGlassVariant: input.wallpaperGlassVariant ?? "dark", runAsAdministrator: input.runAsAdministrator ?? false, searchProvider: input.searchProvider ?? "everything", sortRunningAppsFirst: input.sortRunningAppsFirst ?? true, showAppNames: input.showAppNames ?? false, keyboardShortcuts: input.keyboardShortcuts ?? defaultKeyboardShortcuts, uiLayout: input.uiLayout ?? defaultUiLayoutPreferences, allAppsView: input.allAppsView ?? { orderedAppIds: [] }, firstRunImportCompleted: input.firstRunImportCompleted ?? false, everythingCliPath: input.everythingCliPath, globalShortcutStatus: "registered", isRunningAsAdministrator: false, administratorStatusLoading: false, administratorRestartRequired: Boolean(input.runAsAdministrator) }),
+  getPreferences: async () => ({ launchAtStartup: false, closeBehavior: "tray", globalShortcutEnabled: true, globalShortcut: "Ctrl+Shift+Space", uiTheme: "apple", wallpaperGlassIntensity: 55, wallpaperGlassVariant: "dark", runAsAdministrator: false, searchProvider: "everything", sortRunningAppsFirst: true, showAppNames: false, keyboardShortcuts: defaultKeyboardShortcuts, uiLayout: defaultUiLayoutPreferences, allAppsView: { orderedAppIds: [] }, firstRunImportCompleted: false, globalShortcutStatus: "registered", isRunningAsAdministrator: false, administratorStatusLoading: false, administratorRestartRequired: false, elevatedTerminationStatus: "disabled" }),
+  updatePreferences: async (input) => ({ launchAtStartup: input.launchAtStartup ?? false, closeBehavior: input.closeBehavior ?? "tray", globalShortcutEnabled: input.globalShortcutEnabled ?? true, globalShortcut: input.globalShortcut ?? "Ctrl+Shift+Space", uiTheme: input.uiTheme ?? "apple", wallpaperGlassIntensity: input.wallpaperGlassIntensity ?? 55, wallpaperGlassVariant: input.wallpaperGlassVariant ?? "dark", runAsAdministrator: input.runAsAdministrator ?? false, searchProvider: input.searchProvider ?? "everything", sortRunningAppsFirst: input.sortRunningAppsFirst ?? true, showAppNames: input.showAppNames ?? false, keyboardShortcuts: input.keyboardShortcuts ?? defaultKeyboardShortcuts, uiLayout: input.uiLayout ?? defaultUiLayoutPreferences, allAppsView: input.allAppsView ?? { orderedAppIds: [] }, firstRunImportCompleted: input.firstRunImportCompleted ?? false, everythingCliPath: input.everythingCliPath, globalShortcutStatus: "registered", isRunningAsAdministrator: false, administratorStatusLoading: false, administratorRestartRequired: Boolean(input.runAsAdministrator), elevatedTerminationStatus: "disabled" }),
   exportUiLayoutShareCode: async () => "",
   importUiLayoutShareCode: electronOnly,
   restartWithConfiguredPrivileges: electronOnly,
+  onPreferencesStateChanged: () => () => undefined,
   windowAction: async () => electronOnly()
 };
 
@@ -183,7 +184,7 @@ function App() {
   const [activeSection, setActiveSection] = useState<SectionId>(() => firstAppGroupId(fallbackGroups));
   const [selectedAppId, setSelectedAppId] = useState("");
   const [selectedGridItemId, setSelectedGridItemId] = useState<GroupGridItemId | "">("");
-  const [preferences, setPreferences] = useState<AppPreferencesState>({ launchAtStartup: false, closeBehavior: "tray", globalShortcutEnabled: true, globalShortcut: "Ctrl+Shift+Space", uiTheme: "apple", wallpaperGlassIntensity: 55, wallpaperGlassVariant: "dark", runAsAdministrator: false, searchProvider: "everything", sortRunningAppsFirst: true, showAppNames: false, keyboardShortcuts: defaultKeyboardShortcuts, uiLayout: defaultUiLayoutPreferences, allAppsView: { orderedAppIds: [] }, firstRunImportCompleted: false, globalShortcutStatus: "registered", isRunningAsAdministrator: false, administratorStatusLoading: false, administratorRestartRequired: false });
+  const [preferences, setPreferences] = useState<AppPreferencesState>({ launchAtStartup: false, closeBehavior: "tray", globalShortcutEnabled: true, globalShortcut: "Ctrl+Shift+Space", uiTheme: "apple", wallpaperGlassIntensity: 55, wallpaperGlassVariant: "dark", runAsAdministrator: false, searchProvider: "everything", sortRunningAppsFirst: true, showAppNames: false, keyboardShortcuts: defaultKeyboardShortcuts, uiLayout: defaultUiLayoutPreferences, allAppsView: { orderedAppIds: [] }, firstRunImportCompleted: false, globalShortcutStatus: "registered", isRunningAsAdministrator: false, administratorStatusLoading: false, administratorRestartRequired: false, elevatedTerminationStatus: "disabled" });
   const [searchDependencyStatus, setSearchDependencyStatus] = useState<SearchDependencyStatus>({ state: "missing" });
   const [systemIsDark, setSystemIsDark] = useState(() => window.matchMedia("(prefers-color-scheme: dark)").matches);
   const [sortKey, setSortKey] = useState<SortKey>("cpuPercent");
@@ -233,6 +234,11 @@ function App() {
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
   }, []);
+
+  useEffect(() => api().onPreferencesStateChanged((next) => {
+    setPreferences(next);
+    if (next.administratorMessage) setNotice(next.administratorMessage);
+  }), []);
 
   const themeAttributes = useMemo(() => buildThemeAttributes(preferences, systemIsDark), [preferences.uiTheme, preferences.wallpaperGlassIntensity, preferences.wallpaperGlassVariant, systemIsDark]);
 
@@ -791,6 +797,16 @@ function App() {
     }
     return baseGridItemOrder;
   }, [activeSection, baseGridItemOrder, drag?.previewOrder, drag?.reorderGroupId]);
+  const expandedFolderMemberItemIds = useMemo<GroupGridItemId[]>(() => {
+    const folder = activeFolders.find((item) => item.id === expandedFolderId);
+    if (!folder) return [];
+    const available = new Set(runtimeApps.map((app) => app.id));
+    return folder.appIds.filter((id) => available.has(id)).map((id) => `app:${id}` as const);
+  }, [activeFolders, expandedFolderId, runtimeApps]);
+  const selectableGridItemOrder = useMemo<GroupGridItemId[]>(
+    () => [...activeGridItemOrder, ...expandedFolderMemberItemIds],
+    [activeGridItemOrder, expandedFolderMemberItemIds]
+  );
   const visibleProcesses = useMemo<DisplayProcess[]>(() => {
     const direction = sortDirection === "asc" ? 1 : -1;
     const sorted = processes
@@ -831,9 +847,9 @@ function App() {
       if (selectedGridItemId) setSelectedGridItemId("");
       return;
     }
-    const nextItemId = selectedGridItemId && activeGridItemOrder.includes(selectedGridItemId)
+    const nextItemId = selectedGridItemId && selectableGridItemOrder.includes(selectedGridItemId)
       ? selectedGridItemId
-      : activeGridItemOrder[0] ?? "";
+      : selectableGridItemOrder[0] ?? "";
     if (nextItemId !== selectedGridItemId) setSelectedGridItemId(nextItemId);
     if (nextItemId.startsWith("app:")) {
       const appId = nextItemId.slice(4);
@@ -841,7 +857,7 @@ function App() {
     } else if (selectedAppId) {
       setSelectedAppId("");
     }
-  }, [activeGridItemOrder, isAllAppsSection, isAppSection, selectedAppId, selectedGridItemId]);
+  }, [isAllAppsSection, isAppSection, selectableGridItemOrder, selectedAppId, selectedGridItemId]);
   const draggedApp = runtimeApps.find((item) => item.id === drag?.appId);
   const draggedFolder = folders.find((item) => item.id === drag?.folderId);
   const activeGroup = groups.find((group) => group.id === activeSection);
@@ -905,6 +921,23 @@ function App() {
       document.querySelector<HTMLElement>(selector)?.focus({ preventScroll: true });
     });
   }, []);
+  const closeExpandedFolder = useCallback((folderId: string) => {
+    const selection = collapsedFolderKeyboardSelection(folderId);
+    setExpandedFolderId(selection.expandedFolderId);
+    setSelectedGridItemId(selection.selectedItemId);
+    setSelectedAppId(selection.selectedAppId);
+  }, []);
+  useEffect(() => {
+    if (!expandedFolderId) return;
+    const onExpandedFolderEscape = (event: KeyboardEvent) => {
+      if (!isEscapeKeyboardEvent(event)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      closeExpandedFolder(expandedFolderId);
+    };
+    window.addEventListener("keydown", onExpandedFolderEscape, true);
+    return () => window.removeEventListener("keydown", onExpandedFolderEscape, true);
+  }, [closeExpandedFolder, expandedFolderId]);
   const focusAppCardById = useCallback((sectionId: string, appId: string) => {
     searchInputRef.current?.blur();
     const selector = pageFocusSelector(sectionId, appId);
@@ -1047,7 +1080,7 @@ function App() {
     if (!folder) return;
     const memberIds = folder.appIds.filter((id) => runtimeApps.some((app) => app.id === id));
     if (!memberIds.length || memberIds.some((id) => folderLaunchStatuses[id] === "queued" || folderLaunchStatuses[id] === "launching")) return;
-    setExpandedFolderId("");
+    closeExpandedFolder(folderId);
     for (const id of memberIds) {
       const timer = folderLaunchClearTimers.current.get(id);
       if (timer) window.clearTimeout(timer);
@@ -1313,7 +1346,7 @@ function App() {
   useEffect(() => {
     const usesUnifiedGrid = isAppSection && !isAllAppsSection;
     const activeItemId = usesUnifiedGrid
-      ? (selectedGridItemId && activeGridItemOrder.includes(selectedGridItemId) ? selectedGridItemId : activeGridItemOrder[0] ?? "")
+      ? (selectedGridItemId && selectableGridItemOrder.includes(selectedGridItemId) ? selectedGridItemId : selectableGridItemOrder[0] ?? "")
       : selectedAppId;
     const selectedApp = usesUnifiedGrid
       ? (activeItemId.startsWith("app:") ? runtimeApps.find((app) => app.id === activeItemId.slice(4)) : undefined)
@@ -1321,8 +1354,11 @@ function App() {
     const selectedFolderId = usesUnifiedGrid && activeItemId.startsWith("folder:") ? activeItemId.slice(7) : "";
     const hasModal = Boolean(confirm || edit || groupEdit || groupDelete || importCandidates.length);
     const selectedCardRect = () => {
+      const isExpandedMember = expandedFolderMemberItemIds.includes(activeItemId as GroupGridItemId);
       const selector = usesUnifiedGrid && activeItemId
-        ? `.unified-grid > [data-grid-item-id="${CSS.escape(activeItemId)}"]`
+        ? isExpandedMember
+          ? `.folder-zoom-card [data-folder-member-id="${CSS.escape(activeItemId.slice(4))}"]`
+          : `.unified-grid > [data-grid-item-id="${CSS.escape(activeItemId)}"]`
         : selectedApp ? `.group-content:not(.unified-content) [data-app-card-id="${CSS.escape(selectedApp.id)}"]` : "";
       const element = selector ? document.querySelector<HTMLElement>(selector) : null;
       return element?.getBoundingClientRect();
@@ -1336,10 +1372,11 @@ function App() {
       if (groupDelete) { setGroupDelete(null); return true; }
       return false;
     };
-    const appCardRects = () => [...document.querySelectorAll<HTMLElement>(usesUnifiedGrid ? ".unified-grid > [data-grid-item-id]" : ".group-content:not(.unified-content) [data-app-card-id]")].map((element): AppCardRect => {
+    const navigatingExpandedMembers = usesUnifiedGrid && expandedFolderMemberItemIds.length > 0;
+    const appCardRects = () => [...document.querySelectorAll<HTMLElement>(navigatingExpandedMembers ? ".folder-zoom-card [data-folder-member-id]" : usesUnifiedGrid ? ".unified-grid > [data-grid-item-id]" : ".group-content:not(.unified-content) [data-app-card-id]")].map((element): AppCardRect => {
       const bounds = element.getBoundingClientRect();
       return {
-        id: usesUnifiedGrid ? element.dataset.gridItemId ?? "" : element.dataset.appCardId ?? "",
+        id: navigatingExpandedMembers ? `app:${element.dataset.folderMemberId ?? ""}` : usesUnifiedGrid ? element.dataset.gridItemId ?? "" : element.dataset.appCardId ?? "",
         left: bounds.left,
         top: bounds.top,
         right: bounds.right,
@@ -1361,9 +1398,9 @@ function App() {
     const onKeyDown = (event: KeyboardEvent) => {
       const command = findAppShortcut(preferences.keyboardShortcuts, event);
       if (command === "cancel") {
+        if (expandedFolderId) { event.preventDefault(); closeExpandedFolder(expandedFolderId); return; }
         if (closeTopLayer()) { event.preventDefault(); return; }
         if (query) { event.preventDefault(); setQuery(""); setSearchPanelOpen(false); return; }
-        if (expandedFolderId) { event.preventDefault(); setExpandedFolderId(""); return; }
         if (isAppSection && (selectedAppId || selectedGridItemId)) { event.preventDefault(); setSelectedAppId(""); setSelectedGridItemId(""); }
         return;
       }
@@ -1384,7 +1421,10 @@ function App() {
             const itemId = nextId as GroupGridItemId;
             setSelectedGridItemId(itemId);
             setSelectedAppId(itemId.startsWith("app:") ? itemId.slice(4) : "");
-            document.querySelector<HTMLElement>(`.unified-grid > [data-grid-item-id="${CSS.escape(itemId)}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+            const selector = expandedFolderMemberItemIds.includes(itemId)
+              ? `.folder-zoom-card [data-folder-member-id="${CSS.escape(itemId.slice(4))}"]`
+              : `.unified-grid > [data-grid-item-id="${CSS.escape(itemId)}"]`;
+            document.querySelector<HTMLElement>(selector)?.scrollIntoView({ block: "nearest", inline: "nearest" });
           } else {
             setSelectedAppId(nextId);
             document.querySelector<HTMLElement>(`.group-content:not(.unified-content) [data-app-card-id="${CSS.escape(nextId)}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -1392,7 +1432,20 @@ function App() {
         }
         return;
       }
-      if (command === "activate" && selectedFolderId) { event.preventDefault(); void launchFolderWithFeedback(selectedFolderId); return; }
+      const folderAction = resolveFolderKeyboardAction(command, Boolean(selectedFolderId), Boolean(expandedFolderId));
+      if (folderAction) {
+        event.preventDefault();
+        if (folderAction === "expand") {
+          const folder = activeFolders.find((item) => item.id === selectedFolderId);
+          if (folder) {
+            const selection = expandedFolderKeyboardSelection(folder.id, folder.appIds, runtimeApps.map((app) => app.id));
+            setExpandedFolderId(selection.expandedFolderId);
+            setSelectedGridItemId(selection.selectedItemId);
+            setSelectedAppId(selection.selectedAppId);
+          }
+        } else void launchFolderWithFeedback(selectedFolderId || expandedFolderId);
+        return;
+      }
       if (!selectedApp) return;
       if (command === "activate" || command === "edit") { event.preventDefault(); runKeyboardAppAction(selectedApp, command); }
       else if (command === "menu") { event.preventDefault(); const rect = selectedCardRect(); runKeyboardAppAction(selectedApp, "menu", { x: rect ? rect.left + rect.width / 2 : window.innerWidth / 2, y: rect ? rect.top + rect.height / 2 : window.innerHeight / 2 }); }
@@ -1412,7 +1465,7 @@ function App() {
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("start-engineer:group-navigation", onNativeGroupNavigation);
     };
-  }, [activeGridItemOrder, activeSection, appGroups, closeMenu, confirm, displayedApps, edit, expandedFolderId, groupDelete, groupEdit, importCandidates.length, isAllAppsSection, isAppSection, menu, preferences.keyboardShortcuts, query, runKeyboardAppAction, runtimeApps, searchPanelOpen, selectedAppId, selectedGridItemId]);
+  }, [activeFolders, activeSection, appGroups, closeExpandedFolder, closeMenu, confirm, displayedApps, edit, expandedFolderId, expandedFolderMemberItemIds, groupDelete, groupEdit, importCandidates.length, isAllAppsSection, isAppSection, menu, preferences.keyboardShortcuts, query, runKeyboardAppAction, runtimeApps, searchPanelOpen, selectableGridItemOrder, selectedAppId, selectedGridItemId]);
 
   return (
     <main className={`app-shell drag-region ${fileDropActive ? "file-drop-active" : ""}`} style={{ ...themeAttributes.wallpaperStyle, "--ui-scale": preferences.uiLayout.uiScale / 100, "--ui-scale-width": `${10000 / preferences.uiLayout.uiScale}vw`, "--ui-scale-height": `${10000 / preferences.uiLayout.uiScale}vh`, "--ui-background-color": preferences.uiLayout.backgroundColor || "transparent" } as unknown as React.CSSProperties} data-theme={themeAttributes.theme} data-wallpaper-intensity={themeAttributes.wallpaperIntensity} data-wallpaper-variant={themeAttributes.wallpaperVariant} data-ui-card-size={preferences.uiLayout.cardSize} data-ui-grid-density={preferences.uiLayout.gridDensity} data-ui-sidebar-width={preferences.uiLayout.sidebarWidth} data-ui-brand-icon-size={preferences.uiLayout.brandIconSize} data-ui-background-tone={preferences.uiLayout.backgroundTone} data-ui-custom-background={preferences.uiLayout.backgroundColor ? "true" : "false"} data-ui-show-running-status={preferences.uiLayout.showRunningStatus ? "true" : "false"} data-ui-show-search-bar={preferences.uiLayout.showSearchBar ? "true" : "false"} data-ui-show-batch-actions={preferences.uiLayout.showBatchActions ? "true" : "false"} onPointerDown={closeFloatingUi} onDragEnter={handleFileDragEnter} onDragOver={handleFileDragOver} onDragLeave={handleFileDragLeave} onDrop={handleFileDrop}>
@@ -1451,7 +1504,7 @@ function App() {
         {activeSection === "processes" ? <ProcessPage processes={visibleProcesses} loading={processesLoading} lockedProcessName={lockedProcessName} sortKey={sortKey} sortDirection={sortDirection} changeSort={changeSort} filter={processFilter} setFilter={changeProcessFilter} onContextMenu={openProcessMenu} />
           : activeSection === "settings" ? <SettingsPage client={api()} apps={runtimeApps} groups={appGroups} preferences={preferences} onPreferencesChange={savePreferences} onWallpaperIntensityPreview={previewWallpaperGlassIntensity} onThemeChange={saveTheme} onAdd={addApp} onAddToGroup={(groupId) => void runAppAction(() => api().addAppFromDialog(groupId))} onCreate={() => setGroupEdit({ name: "", icon: "grid" })} onEdit={(group) => setGroupEdit({ id: group.id, name: group.name, icon: group.icon })} onDelete={requestDeleteGroup} onReorder={reorderGroups} onOpenApp={(app) => { setActiveSection(app.groupId); setSelectedAppId(app.id); }} onAppContextMenu={(event, app) => { event.preventDefault(); event.stopPropagation(); openMenu({ kind: "app", x: event.clientX, y: event.clientY, appId: app.id }); }} onMoveApp={moveAppWithinSettings} />
           : <GroupPage apps={displayedApps} folders={folders.filter((folder) => folder.groupId === activeSection)} launchingAppIds={launchingAppIds} selectedAppId={selectedAppId} invalidAppIds={invalidAppIds} draggingAppId={drag?.appId} runningCount={activeGroupApps.filter((app) => app.metrics.isRunning).length} showAppNames={preferences.uiLayout.showAppNames} onSelectApp={handleAppSelection} onFocusApp={(app) => void focusAppWindow(app)} onLaunchApp={(app) => void launchApp(app.id)} onLaunchingFeedback={handleLaunchingFeedback} onCloseAll={() => void requestCloseGroupApps()} onAdd={addApp} onContextMenu={(event, app) => { event.preventDefault(); event.stopPropagation(); if (!drag) openMenu({ kind: "app", x: event.clientX, y: event.clientY, appId: app.id }); }} onPointerDown={(event, app) => { if (event.button !== 0) return; const rect = event.currentTarget.getBoundingClientRect(); dragCandidate.current = { appId: app.id, sourceGroupId: app.groupId, startX: event.clientX, startY: event.clientY, grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top, width: rect.width, height: rect.height, initialOrder: displayedApps.map((item) => item.id) }; }} onRequestClose={requestCloseApp} onFolderDrop={(folderId) => { const appId = drag?.appId; const folder = folders.find((item) => item.id === folderId); if (!appId || !folder || folder.appIds.includes(appId)) return; void api().updateFolder({ id: folderId, appIds: [...folder.appIds, appId] }).then(setFolders); }} onLaunchFolder={(folderId) => void api().launchFolder(folderId).then((result) => { setApps(result.apps); setNotice(`已处理 ${result.results.length} 个应用`); })} />}
-        {isAppSection && !isAllAppsSection ? <UnifiedGroupPage apps={visibleApps} allApps={runtimeApps} folders={activeFolders} itemOrder={activeGridItemOrder} expandedFolderId={expandedFolderId} launchingAppIds={launchingAppIds} folderLaunchStatuses={folderLaunchStatuses} selectedItemId={selectedGridItemId} invalidAppIds={invalidAppIds} draggingItemId={drag?.itemId} runningCount={activeGroupApps.filter((app) => app.metrics.isRunning).length} showAppNames={preferences.uiLayout.showAppNames} onSelectApp={handleAppSelection} onSelectFolder={(folderId) => { setSelectedGridItemId(`folder:${folderId}`); setSelectedAppId(""); }} onFocusApp={(app) => void focusAppWindow(app)} onLaunchApp={(app) => void launchApp(app.id)} onLaunchingFeedback={handleLaunchingFeedback} onCloseAll={() => void requestCloseGroupApps()} onAdd={addApp} onContextMenu={(event, app) => { event.preventDefault(); event.stopPropagation(); if (!drag) openMenu({ kind: "app", x: event.clientX, y: event.clientY, appId: app.id }); }} onAppPointerDown={(event, app, sourceFolderId) => { if (event.button !== 0) return; const rect = event.currentTarget.getBoundingClientRect(); unifiedDragCandidate.current = { kind: "app", appId: app.id, sourceFolderId, itemId: `app:${app.id}`, startX: event.clientX, startY: event.clientY, grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top, width: rect.width, height: rect.height }; }} onFolderPointerDown={(event, folder) => { if (event.button !== 0) return; const rect = event.currentTarget.getBoundingClientRect(); unifiedDragCandidate.current = { kind: "folder", folderId: folder.id, itemId: `folder:${folder.id}`, startX: event.clientX, startY: event.clientY, grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top, width: rect.width, height: rect.height }; }} onToggleFolder={(folderId) => { if (document.documentElement.dataset.cardDragging) return; setExpandedFolderId((current) => current === folderId ? "" : folderId); }} onLaunchFolder={(folderId) => { void launchFolderWithFeedback(folderId); }} onRequestCloseFolder={requestCloseFolder} onRequestClose={requestCloseApp} /> : null}
+        {isAppSection && !isAllAppsSection ? <UnifiedGroupPage apps={visibleApps} allApps={runtimeApps} folders={activeFolders} itemOrder={activeGridItemOrder} expandedFolderId={expandedFolderId} launchingAppIds={launchingAppIds} folderLaunchStatuses={folderLaunchStatuses} selectedItemId={selectedGridItemId} invalidAppIds={invalidAppIds} draggingItemId={drag?.itemId} runningCount={activeGroupApps.filter((app) => app.metrics.isRunning).length} showAppNames={preferences.uiLayout.showAppNames} onSelectApp={handleAppSelection} onSelectFolder={(folderId) => { setSelectedGridItemId(`folder:${folderId}`); setSelectedAppId(""); }} onFocusApp={(app) => void focusAppWindow(app)} onLaunchApp={(app) => void launchApp(app.id)} onLaunchingFeedback={handleLaunchingFeedback} onCloseAll={() => void requestCloseGroupApps()} onAdd={addApp} onContextMenu={(event, app) => { event.preventDefault(); event.stopPropagation(); if (!drag) openMenu({ kind: "app", x: event.clientX, y: event.clientY, appId: app.id }); }} onAppPointerDown={(event, app, sourceFolderId) => { if (event.button !== 0) return; const rect = event.currentTarget.getBoundingClientRect(); unifiedDragCandidate.current = { kind: "app", appId: app.id, sourceFolderId, itemId: `app:${app.id}`, startX: event.clientX, startY: event.clientY, grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top, width: rect.width, height: rect.height }; }} onFolderPointerDown={(event, folder) => { if (event.button !== 0) return; const rect = event.currentTarget.getBoundingClientRect(); unifiedDragCandidate.current = { kind: "folder", folderId: folder.id, itemId: `folder:${folder.id}`, startX: event.clientX, startY: event.clientY, grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top, width: rect.width, height: rect.height }; }} onToggleFolder={(folderId) => { if (document.documentElement.dataset.cardDragging) return; if (expandedFolderId === folderId) closeExpandedFolder(folderId); else { setExpandedFolderId(folderId); setSelectedGridItemId(`folder:${folderId}`); setSelectedAppId(""); } }} onLaunchFolder={(folderId) => { void launchFolderWithFeedback(folderId); }} onRequestCloseFolder={requestCloseFolder} onRequestClose={requestCloseApp} /> : null}
         {notice || error ? <ToastStack notice={notice} error={error} onDismissNotice={() => setNotice("")} onDismissError={() => setError("")} /> : null}
       </section>
 

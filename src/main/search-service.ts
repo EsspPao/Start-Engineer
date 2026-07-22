@@ -46,6 +46,17 @@ export class SearchService {
     return this.importCandidates;
   }
 
+  async resolveShortcut(filePath: string) {
+    const shortcut = (await this.resolveShortcutFiles([filePath], "desktop"))[0];
+    if (!shortcut) return null;
+    return {
+      executablePath: shortcut.targetPath,
+      name: shortcut.name,
+      workingDirectory: shortcut.workingDirectory,
+      launchArgs: shortcut.launchArgs
+    };
+  }
+
   async addCandidate(candidateId: string, groupId: string) {
     const candidate = this.candidates.find((item) => item.id === candidateId);
     if (!candidate) throw new Error("未找到该应用候选");

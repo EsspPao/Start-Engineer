@@ -37,6 +37,7 @@ describe("process termination", () => {
 
     await expect(terminatePids([10], { runNormal, runElevated, getRunningPids })).resolves.toEqual({ elevated: true });
     expect(runElevated).toHaveBeenCalledTimes(1);
+    expect(runElevated).toHaveBeenCalledWith([10]);
   });
 
   it("treats elevated taskkill failures as success when the follow-up snapshot is clear", async () => {

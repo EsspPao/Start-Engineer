@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AppGroup, AppWindowInfo, ProcessInfo } from "../shared/types";
 import { cleanErrorMessage } from "./error-message";
 import type { ConfirmState } from "./overlay-components";
@@ -72,8 +72,41 @@ export function GroupContextMenu({ state, groups, onClose, onCreate, onEdit, onD
   return <ContextMenu x={state.x} y={state.y} onClose={onClose}><div className="process-menu-header"><strong>{group.name}</strong><span>应用分组</span></div><MenuDivider /><MenuButton onClick={() => { onClose(); onEdit(group); }}>重命名 / 更换图标</MenuButton><MenuButton onClick={() => { onClose(); onCreate(); }}>新建分组</MenuButton><MenuButton disabled={index === 0} onClick={() => move(-1)}>上移</MenuButton><MenuButton disabled={index === groups.length - 1} onClick={() => move(1)}>下移</MenuButton><MenuDivider /><MenuButton danger disabled={groups.length <= 1} onClick={() => onDelete(group.id)}>删除分组</MenuButton></ContextMenu>;
 }
 
+const CONTEXT_MENU_MARGIN = 8;
+const useClientLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
+
+export function resolveContextMenuPosition({ x, y, menuWidth, menuHeight, viewportWidth, viewportHeight, margin = CONTEXT_MENU_MARGIN }: { x: number; y: number; menuWidth: number; menuHeight: number; viewportWidth: number; viewportHeight: number; margin?: number }) {
+  const maxLeft = Math.max(margin, viewportWidth - menuWidth - margin);
+  const maxTop = Math.max(margin, viewportHeight - menuHeight - margin);
+  return {
+    left: Math.min(Math.max(margin, x), maxLeft),
+    top: Math.min(Math.max(margin, y), maxTop),
+  };
+}
+
 function ContextMenu({ x, y, onClose, children }: { x: number; y: number; onClose: () => void; children: React.ReactNode }) {
-  return <div className="context-menu no-drag" style={{ left: x, top: Math.max(8, y) }} onPointerDown={(event) => event.stopPropagation()} onContextMenu={(event) => event.preventDefault()}>{children}<button className="menu-dismiss" aria-label="关闭菜单" onClick={onClose} /></div>;
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState({ left: Math.max(CONTEXT_MENU_MARGIN, x), top: Math.max(CONTEXT_MENU_MARGIN, y) });
+
+  useClientLayoutEffect(() => {
+    const menu = menuRef.current;
+    if (!menu) return;
+    const updatePosition = () => {
+      const bounds = menu.getBoundingClientRect();
+      const next = resolveContextMenuPosition({ x, y, menuWidth: bounds.width, menuHeight: bounds.height, viewportWidth: window.innerWidth, viewportHeight: window.innerHeight });
+      setPosition((current) => current.left === next.left && current.top === next.top ? current : next);
+    };
+    updatePosition();
+    const resizeObserver = new ResizeObserver(updatePosition);
+    resizeObserver.observe(menu);
+    window.addEventListener("resize", updatePosition);
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", updatePosition);
+    };
+  }, [x, y]);
+
+  return <div ref={menuRef} className="context-menu no-drag" style={position} onPointerDown={(event) => event.stopPropagation()} onContextMenu={(event) => event.preventDefault()}>{children}<button className="menu-dismiss" aria-label="关闭菜单" onClick={onClose} /></div>;
 }
 
 function MenuButton({ disabled, danger, title, onClick, children }: { disabled?: boolean; danger?: boolean; title?: string; onClick: () => void; children: React.ReactNode }) {

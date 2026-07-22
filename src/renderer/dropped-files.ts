@@ -7,10 +7,10 @@ export type DropAddSummary = {
   skippedPaths: string[];
 };
 
-export function droppedExePaths<T extends DroppedFileLike>(files: T[], getPathForFile: (file: T) => string) {
+export function droppedAppPaths<T extends DroppedFileLike>(files: T[], getPathForFile: (file: T) => string) {
   return files
     .map((file) => getPathForFile(file).trim())
-    .filter((filePath) => filePath && /\.exe$/i.test(filePath));
+    .filter((filePath) => filePath && /\.(exe|lnk)$/i.test(filePath));
 }
 
 export function targetDropGroupId(activeSection: string, appGroupIds: string[]) {

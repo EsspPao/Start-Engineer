@@ -66,6 +66,11 @@ const api: StartEngineerApi = {
   exportUiLayoutShareCode: () => ipcRenderer.invoke("preferences:exportUiLayoutShareCode"),
   importUiLayoutShareCode: (code: string) => ipcRenderer.invoke("preferences:importUiLayoutShareCode", code),
   restartWithConfiguredPrivileges: () => ipcRenderer.invoke("preferences:restartWithConfiguredPrivileges"),
+  onPreferencesStateChanged: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, preferences: Parameters<typeof listener>[0]) => listener(preferences);
+    ipcRenderer.on("preferences:stateChanged", handler);
+    return () => ipcRenderer.removeListener("preferences:stateChanged", handler);
+  },
   windowAction: (action: WindowAction) => ipcRenderer.invoke("window:action", action)
 };
 

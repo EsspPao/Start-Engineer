@@ -5,6 +5,6 @@ export function resolveUiTheme(theme: UiTheme, systemIsDark: boolean): FixedUiTh
   return theme;
 }
 
-export function themeUsesMica(theme: FixedUiTheme): boolean {
-  return theme === "fluent" || theme === "glass";
+export function themeUsesMica(_theme: FixedUiTheme): boolean {
+  return false;
 }

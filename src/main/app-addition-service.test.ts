@@ -37,6 +37,17 @@ describe("AppAdditionService", () => {
     expect(saveApps).toHaveBeenCalledOnce();
   });
 
+  it("accepts a dropped application shortcut", async () => {
+    const resolveShortcut = vi.fn(async () => ({ executablePath: "C:\\Apps\\Typora\\Typora.exe", name: "Typora" }));
+    const { service, saveApps } = createService({ resolveShortcut });
+
+    const result = await service.addDroppedExecutables(["C:\\Desktop\\Typora.lnk"], "games");
+
+    expect(resolveShortcut).toHaveBeenCalledWith("C:\\Desktop\\Typora.lnk");
+    expect(result.apps[0]).toMatchObject({ name: "Typora", executablePath: "C:\\Apps\\Typora\\Typora.exe" });
+    expect(saveApps).toHaveBeenCalledOnce();
+  });
+
   it("validates the app before replacing its executable", async () => {
     const { service } = createService();
     await expect(service.pickExecutable("missing")).rejects.toThrow("未找到该应用配置");

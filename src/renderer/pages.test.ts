@@ -196,6 +196,8 @@ describe("UnifiedGroupPage", () => {
     expect(html.match(/class="folder-icon"/g)).toHaveLength(1);
     expect(html.match(/data:image\/png;base64,icon/g)).toHaveLength(4);
     expect(html).toContain("--folder-columns:2");
+    expect(html).toContain('title="多应用卡片：单击展开，双击启动全部"');
+    expect(html).toContain('aria-label="多应用卡片，合并卡片"');
   });
 
   it("renders member-level batch launch states on the collapsed folder card", () => {
@@ -237,6 +239,12 @@ describe("UnifiedGroupPage", () => {
     expect(html).not.toContain("modal-backdrop");
     expect(html).not.toContain("2 个应用");
     expect(html.match(/data-folder-member-id=/g)).toHaveLength(3);
+  });
+
+  it("shows the first expanded member as the current keyboard selection", () => {
+    const html = renderUnified("bundle", {}, "app:one");
+    expect(html).toMatch(/data-folder-member-id="one" class="app-card-wrap[^\"]*current/);
+    expect(html).not.toContain('data-grid-item-id="folder:bundle" class="app-card-wrap folder-card-wrap current');
   });
 });
 

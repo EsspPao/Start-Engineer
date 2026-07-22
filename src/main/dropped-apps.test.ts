@@ -46,6 +46,34 @@ describe("dropped app importing", () => {
     expect(cacheAppIcon).toHaveBeenCalledOnce();
   });
 
+  it("resolves a dropped Windows shortcut and preserves its launch metadata", async () => {
+    const result = await addDroppedExecutablesToApps({
+      filePaths: ["C:\\Users\\Xbfe\\Desktop\\Typora.lnk"],
+      groupId: "office",
+      groups,
+      apps: [],
+      exists: (filePath) => filePath === "D:\\Apps\\Typora\\Typora.exe",
+      createId: () => "typora",
+      cacheAppIcon: async (entry) => entry,
+      resolveDroppedPath: async () => ({
+        executablePath: "D:\\Apps\\Typora\\Typora.exe",
+        name: "Typora Markdown",
+        workingDirectory: "D:\\Apps\\Typora",
+        launchArgs: "--safe-mode"
+      })
+    });
+
+    expect(result.addedAppIds).toEqual(["typora"]);
+    expect(result.skippedPaths).toEqual([]);
+    expect(result.apps[0]).toMatchObject({
+      name: "Typora Markdown",
+      executablePath: "D:\\Apps\\Typora\\Typora.exe",
+      processName: "Typora",
+      workingDirectory: "D:\\Apps\\Typora",
+      launchArgs: "--safe-mode"
+    });
+  });
+
   it("skips duplicate, non-exe, empty, and missing files", async () => {
     const result = await addDroppedExecutablesToApps({
       filePaths: [

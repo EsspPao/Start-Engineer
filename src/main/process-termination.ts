@@ -1,6 +1,6 @@
 export type ProcessTerminationDependencies = {
   runNormal: (args: string[]) => Promise<void>;
-  runElevated: (args: string[]) => Promise<void>;
+  runElevated: (pids: number[]) => Promise<void>;
   getRunningPids: (pids: number[]) => Promise<number[]>;
   assumeRunning?: boolean;
 };
@@ -27,7 +27,7 @@ export async function terminatePids(pids: number[], dependencies: ProcessTermina
   if (!remaining.length) return { elevated: false };
 
   try {
-    await dependencies.runElevated(buildTaskkillArgs(remaining));
+    await dependencies.runElevated(remaining);
   } catch (reason) {
     if (reason instanceof Error && "code" in reason && reason.code === "ELEVATION_CANCELLED") {
       throw new Error("已取消管理员授权，未能结束应用进程");

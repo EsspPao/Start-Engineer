@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState, type DragEvent } from "react";
 import type { AppEntry, SectionId, StartEngineerApi } from "../shared/types";
 import { cleanErrorMessage } from "./error-message";
-import { droppedExePaths, dropNoticeForResult, targetDropGroupId } from "./dropped-files";
+import { droppedAppPaths, dropNoticeForResult, targetDropGroupId } from "./dropped-files";
 
 type UseExecutableDropOptions = {
   client: StartEngineerApi;
@@ -61,12 +61,12 @@ export function useExecutableDrop(options: UseExecutableDropOptions) {
     event.preventDefault();
     fileDropDepth.current = 0;
     setFileDropActive(false);
-    const exePaths = droppedExePaths(Array.from(event.dataTransfer.files), (file) => client.getPathForFile(file));
-    if (!exePaths.length) {
-      onError("请拖入 exe 程序文件");
+    const appPaths = droppedAppPaths(Array.from(event.dataTransfer.files), (file) => client.getPathForFile(file));
+    if (!appPaths.length) {
+      onError("请拖入 exe 程序文件或应用快捷方式");
       return;
     }
-    void addDroppedApps(exePaths);
+    void addDroppedApps(appPaths);
   };
 
   return { fileDropActive, handleFileDragEnter, handleFileDragLeave, handleFileDragOver, handleFileDrop };

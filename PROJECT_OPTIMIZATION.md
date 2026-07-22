@@ -4,9 +4,11 @@
 
 请以后续实际代码为准，尤其是 `src/shared/types.ts`、`src/main/main.ts`、`src/renderer/main.tsx`、`src/main/window-manager.ts`、`native/window-focus-helper/Program.cs`。本文只把代码中已经存在的能力写为“当前能力”；尚未落地的设想会明确放在“风险 / 建议 / 路线图”中。
 
-最后核对日期：`2026-07-19`。本轮改动基于 `main@5b1b9d5`，当前代码已通过 TypeScript 类型检查和完整 Vitest 测试（74 个测试文件、305 项测试），Windows 安装版与便携版输出到 `release`。
+最后核对日期：`2026-07-23`。当前开发基线包含 `main@c256366` 之后的合并卡片键盘交互、透明图标提取、快捷方式拖入、右键菜单视口适配、“普通权限主界面 + 会话级高权限进程控制”，以及参照 Wallpaper Glass 统一的其他主题外观；Wallpaper Glass 与 Clear Desktop 自身保持独立、不会被统一覆盖层改写。应用启动兼容自身清单要求管理员权限的程序：普通启动返回 Windows 740 后自动请求 UAC 并重试，取消授权不会误判成路径失效。当前已通过 TypeScript 类型检查、native helper 构建、完整 Vitest 测试（78 个测试文件、331 项测试）、生产构建和 Electron 冒烟验证；Windows 安装版与便携版已同步重新生成到 `release`。
 
 维护硬性约定：每次代码、配置、样式、测试或构建流程发生改动，都必须在同一提交中同步更新本文档，至少记录受影响能力、验证结果或新的维护注意事项，避免文档再次落后于实际代码。
+
+发布硬性约定：每次完成改动并通过必要验证后，都必须重新生成 Windows 安装版和便携版，确保 `release` 中的交付文件与当前代码一致。
 
 ## 1. 项目定位与当前状态
 
@@ -18,13 +20,14 @@ Start Engineer 当前是一个 Windows 桌面启动台与进程监控工具，�
 - 系统分组包括 `进程`、`已添加应用`、`设置`。
 - `已添加应用` 是聚合视图，按 `executablePath` 去重显示全部已添加应用，并保存独立排序。
 - 添加、修改、移动、删除应用。
-- 支持通过文件选择器、搜索候选、拖入 `.exe` 添加应用。
+- 支持通过文件选择器、搜索候选、拖入 `.exe` 或 `.lnk` 添加应用。
 - 搜索框可搜索已添加应用、本机可添加应用、安全下载入口；没有应用结果时才显示 Everything 文件兜底结果。
 - 支持首次启动扫描开始菜单和桌面快捷方式，并提供候选导入。
 - 应用卡片支持鼠标和键盘操作：选择、启动、唤起、右键菜单、编辑和拖拽排序。
+- 应用右键菜单会在内容或窗口尺寸变化时自动贴合视口边界；长菜单限制在窗口内独立滚动，底部操作不会再落到不可见区域。
 - 支持将应用拖到另一个应用或既有多应用卡片中；成员应用从外层网格隐藏，多应用卡片与普通卡片统一排序并可跨分组移动。
-- 多应用卡片支持单击原位放大、双击或 Enter 启动全部成员；成员可从放大卡片拖回外层、转移到其他卡片或移动到其他分组。
-- 支持方向键 / WASD 网格导航，Enter 执行主操作，Esc 分层退出。
+- 多应用卡片支持单击或 Enter 原位放大、双击或默认 `Ctrl+Enter` 启动全部成员；成员可从放大卡片拖回外层、转移到其他卡片或移动到其他分组。
+- 支持方向键 / WASD 网格导航，Enter 执行普通应用主操作或展开合并卡片，Esc 分层退出。
 - 应用内快捷键可以录制、冲突校验、立即生效和恢复全部默认；默认支持相邻分组切换及 `Ctrl+1` 到 `Ctrl+9` 直达前九个用户分组。
 - 支持关闭单个应用、一次关闭多应用卡片成员、关闭当前视图或全部运行应用、结束进程页中的进程组。
 - 支持进程监控页，默认显示已管理应用，可切换全部进程。
@@ -34,10 +37,10 @@ Start Engineer 当前是一个 Windows 桌面启动台与进程监控工具，�
 - 支持 Codex 这类无交互窗口但可通过重新运行自身安全激活的 allowlist 策略。
 - 支持全局快捷键唤出 / 隐藏主窗口。
 - 支持开机自启、关闭到托盘、托盘菜单。
-- 支持可选管理员模式和按目标权限重启；冷启动 UAC 拒绝时不继续普通启动。
+- Electron 主界面默认保持普通权限，资源管理器可原生拖入 `.exe` / `.lnk`；需要结束高权限进程时，由受限 native helper 在本次运行中授权一次并保持连接，后续不再反复弹出 UAC。授权失败或取消使用可关闭 Toast，不再永久占用应用页右下角。
 - 支持窗口大小和位置记忆。
 - 支持 Splash Window，降低双击 EXE 后的空白等待感。
-- 支持经过独立视觉重做的 `Apple Gallery`、`Fluent Workspace`、`Midnight Control`、`Modern Utility`、`Refined Glass`、`Wallpaper Glass`、`Clear Desktop` 和跟随系统主题。
+- `Apple Gallery`、`Fluent Workspace`、`Midnight Control`、`Modern Utility`、`Refined Glass` 参照 Wallpaper Glass 共用同一套玻璃外观和交互层级，只保留配色差异；`Wallpaper Glass` 原有背景、按钮与融合强度链路保持不变，`Clear Desktop` 继续作为独立透明主题。
 - `Wallpaper Glass` 支持深色/浅色变体和 0-100 数值融合强度，滑条拖动时实时预览。
 - 支持受约束 UI 编辑：整体缩放、自定义背景色、卡片大小、网格密度、侧栏宽度、顶部图标大小、背景色调，以及名称/搜索栏/运行状态/底部操作的显示开关。
 - 支持 UI 分享码 `seui:v1:...` 导入导出。
@@ -149,7 +152,7 @@ Start Engineer 应尽可能支持键盘操作，让用户可以在不依赖鼠�
 具体要求：
 
 - 方向键和 WASD 可用于选择应用。
-- Enter 执行当前选中应用的主操作。
+- Enter 启动/唤起普通应用，选中合并卡片时改为展开；启动合并卡片全部成员使用独立可配置快捷键，默认 `Ctrl+Enter`。
 - Esc 用于取消、关闭搜索、关闭菜单或关闭弹窗。
 - 常用操作尽量提供快捷键。
 - 键盘操作不能干扰搜索框、输入框、编辑框等文本输入。
@@ -302,7 +305,7 @@ D:\Code\Start Engineer
 - `administrator-service.ts`：权限检测、提权交接和按配置重启。
 - `process-control-service.ts`：PowerShell 命令执行、普通/提权 taskkill 和关键进程保护。
 - `app-window-service.ts`：主窗口、Splash、托盘、主题、边界保存、显示/隐藏和退出状态。
-- `app-addition-service.ts`：EXE 文件选择、拖入程序、重复过滤、图标缓存和新增应用持久化。
+- `app-addition-service.ts`：EXE 文件选择、拖入程序或 Windows 应用快捷方式、重复过滤、图标缓存和新增应用持久化。
 - `focus-hints.ts`：窗口聚焦提示的清洗与运行指标转换。
 - `ipc.ts`：应用库相关 IPC 注册。
 - `runtime-ipc.ts`、`search-ipc.ts`、`preferences-ipc.ts`、`window-ipc.ts`：按职责分区的 IPC 注册器。
@@ -312,7 +315,7 @@ D:\Code\Start Engineer
 
 ### 3.4 渲染层职责
 
-`src/renderer/main.tsx` 是渲染层组合入口。当前已迁出完整设置页、设置偏好控制器、设置页分组拖拽、搜索请求状态机、外部 EXE 拖入、统一网格拖拽、快捷键设置、搜索结果、应用编辑、右键菜单、通用弹层、分组管理组件和通用图标，但以下职责仍然集中：
+`src/renderer/main.tsx` 是渲染层组合入口。当前已迁出完整设置页、设置偏好控制器、设置页分组拖拽、搜索请求状态机、外部应用拖入、统一网格拖拽、快捷键设置、搜索结果、应用编辑、右键菜单、通用弹层、分组管理组件和通用图标，但以下职责仍然集中：
 
 - 加载分组、应用、偏好。
 - 系统 section 和用户 section 切换。
@@ -489,27 +492,31 @@ Smoke 模式使用临时目录：
 - `wallpaperGlassIntensity` 已是 0-100 数值。旧字符串 `"weak" | "medium" | "strong"` 仅作为迁移兼容输入。
 - 顶层 `showAppNames` 仍保留用于兼容；实际 UI layout 控制看 `uiLayout.showAppNames`。
 - `keyboardShortcuts` 按独立命令保存规范化按键列表；用户录制会完整替换该命令旧绑定，并在保存后立即更新运行时匹配。
+- `runAsAdministrator` 为兼容旧配置继续保留，但当前语义已改为“启动时预先授权高权限进程控制”，不再表示让整个 Electron 主界面提权。
 
 ## 5. 当前功能实现分析
 
-### 5.1 启动流程、管理员模式与 Splash
+### 5.1 启动流程、会话级高权限进程控制与 Splash
 
 启动流程重点：
 
-- 启动阶段会判断是否需要管理员 relaunch。
-- 如果用户配置了管理员启动，冷启动 UAC 被拒绝时，普通权限进程直接退出，不继续启动主窗口。
-- 设置页手动“以管理员身份重启”仍保持当前窗口运行，UAC 拒绝时只提示失败/取消。
+- 启动阶段不再因 `runAsAdministrator` 提升整个 Electron 主界面；GUI 保持普通权限，从根源上保留 Explorer 的 OLE 文件拖放。
+- 旧 `runAsAdministrator: true` 自动沿用为“启动时预授权一次”。窗口显示后启动受限的 elevated termination helper；用户取消 UAC 时主界面继续正常工作，拖放不受影响。
+- 普通关闭先执行普通 `taskkill`；确认目标 PID 仍在运行后才按需启动 helper。本次运行一旦授权成功，单应用、合并卡片、分组、全部关闭和进程页都复用同一连接。
+- helper 的命名管道由普通 GUI 创建；双方校验父 PID、Windows 会话、helper PID、协议版本和 32 字节随机 nonce。高权限端只接受 PID 列表的 `terminate`、`ping` 和 `shutdown`，不接受任意命令、路径或 PowerShell。
+- helper 再次拒绝 Start Engineer 自身、进程树祖先、跨会话目标和 Windows 关键进程；GUI 退出或管道断开后 helper 随即退出，避免便携版临时目录被锁定。
+- helper 授权取消、启动失败或意外断开时只发送可关闭 Toast，并允许用户稍后重试；应用页不再显示无法消失的永久权限提示。
 - `app.whenReady()` 后创建 Splash Window。
 - 主窗口先 `show: false` 创建。
 - 主窗口 `ready-to-show` 后显示主窗口并销毁 Splash。
 - Splash 使用静态 HTML/CSS，不复用 React。
-- 主窗口支持透明背景，并按主题设置 Mica 或 none。
+- 主窗口统一使用透明背景和 CSS 玻璃材质，不再按主题切换 Windows Mica；Clear Desktop 通过 CSS 单独移除整屏 blur。
 - 窗口 bounds 通过 `windowBounds` 持久化，保存时跳过最小化和全屏状态。
 
 优势：
 
 - 双击 EXE 后更快获得可见反馈。
-- 管理员冷启动语义更明确：用户拒绝就是不启动。
+- 主界面权限与高权限操作能力解耦，拖放和高权限结束进程不再要求用户来回切换并重启。
 - 窗口位置记忆使其更适合作为桌面启动台。
 
 风险：
@@ -523,14 +530,14 @@ Smoke 模式使用临时目录：
 
 - 添加 `.exe`。
 - 搜索本机候选并添加到当前/默认应用分组。
-- 拖入 `.exe` 自动添加到当前/默认应用分组。
+- 拖入 `.exe` 或 `.lnk` 自动添加到当前/默认应用分组。
 - 修改启动程序。
 - 编辑名称、启动程序和启动参数；历史 `workingDirectory` 字段继续兼容，但当前编辑弹窗不提供独立工作目录控件。
 - 移动分组。
 - 删除应用。
 - 应用卡片拖拽排序。
 - 应用拖到侧栏移动分组。
-- 高分辨率图标缓存和 fallback 图标。
+- 高分辨率图标缓存和 fallback 图标；native helper 优先从 EXE 图标资源提取带透明通道的 PNG，缓存版本升级时自动刷新旧图标，避免浅色主题下出现黑色衬底。
 
 本机候选来源：
 
@@ -545,7 +552,10 @@ Smoke 模式使用临时目录：
 拖放添加：
 
 - 渲染层使用 `getPathForFile(file)` 取得真实路径。
-- 主进程 `apps:addDroppedExecutables` 校验路径存在且扩展名为 `.exe`。
+- 前端接受 `.exe` 和 `.lnk`；主进程将 `.lnk` 解析为真实 EXE，并保留快捷方式名称、工作目录和启动参数。
+- 正常启动时 Electron 主界面保持普通权限，Explorer 拖放会直接到达既有 DOM drop 链路；无需管理员拖放代理，也不再显示永久恢复条。
+- 如果用户从外部显式“以管理员身份运行”GUI，Windows UIPI 仍会阻止普通 Explorer 的 OLE 拖放；设置页会准确显示该实际状态，但不会用不可关闭弹窗覆盖应用网格。
+- 主进程 `apps:addDroppedExecutables` 最终校验目标路径存在且扩展名为 `.exe`。
 - 已存在 executablePath 时跳过，不重复添加。
 - 添加后会更新列表、Toast 反馈，并选中新添加应用。
 
@@ -568,14 +578,21 @@ Smoke 模式使用临时目录：
   - 点击 X 会阻止冒泡，避免触发卡片选择/启动/唤起。
 - 多应用卡片：
   - 单击：经过短暂单双击判定后，从原位置平滑放大。
-  - 双击 / Enter：顺序启动全部未运行成员，并跳过已运行成员。
+  - Enter：展开卡片，与鼠标单击保持一致；键盘展开后默认选择第一个有效成员。
+  - 双击 / 默认 `Ctrl+Enter`：顺序启动全部未运行成员，并跳过已运行成员。
   - 部分运行和全部运行使用不同状态灯；状态灯 hover/focus 后可一次关闭全部运行成员。
   - 启动中、等待运行确认、失败和关闭中均通过成员图标上的统一环形动画或状态反馈表达。
+- 应用右键菜单：
+  - 初次渲染、异步窗口列表加载和窗口尺寸变化后，使用实际菜单尺寸重新计算位置，横纵方向都保留 8px 视口边距。
+  - 菜单高度最多为 `100vh - 16px`，超出时在菜单内部使用滚轮滚动，并阻止滚动继续传递到底层页面。
+  - 右键位置靠近窗口底部或右侧时，菜单向上或向左偏移，保证“复制程序路径”“移除应用”等末尾操作可达。
 
 键盘能力：
 
 - 方向键 / WASD 按统一混合网格的几何关系移动选择，普通应用和多应用卡片都可成为当前项。
-- Enter 复用现有主操作：普通卡片启动/唤起，多应用卡片启动全部成员。
+- Enter 复用普通卡片主操作；选中多应用卡片时只展开，不再直接批量启动。
+- “启动卡片全部应用”是独立可配置命令，默认 `Ctrl+Enter`；旧偏好缺少该命令时自动补齐，若默认组合与现有自定义快捷键冲突则使用 `Ctrl+Shift+Enter`。
+- 合并卡片展开时，方向键在成员应用之间移动；物理 Esc 在捕获阶段优先收起展开卡片并把选择恢复到外层合并卡片，不受局部控件事件或可配置快捷键匹配影响。
 - Esc 关闭浮层、搜索、菜单或取消当前选中。
 - Menu 键 / Shift+F10 打开当前应用菜单。
 - F2 重命名当前应用。
@@ -599,6 +616,8 @@ Smoke 模式使用临时目录：
 - 启动前路径检查。
 - 已运行检测。
 - 返回 `launched` / `alreadyRunning` / `cancelled` / `failed`。
+- 对内嵌清单要求管理员权限的应用，普通启动收到 Windows 错误 740 后才通过 `ShellExecuteExW + runas` 自动请求 UAC 并重试；PowerShell 回退路径保持同样行为，普通应用不会产生额外授权弹窗。
+- 用户取消 UAC 会返回 `cancelled`，界面显示中性取消反馈，不会显示“检查路径和参数”或给卡片添加路径失效标记。
 
 启动后处理：
 
@@ -612,6 +631,7 @@ Smoke 模式使用临时目录：
 
 - 游戏启动器、客户端更新器、多进程壳仍可能“启动器退出、真实窗口在子进程/其他进程”。
 - 关联 PID 只在运行期保留，重启 Start Engineer 后需要重新通过路径/进程名匹配。
+- 保持主界面普通权限与资源管理器拖放兼容；禁止通过重新提升整个 Electron 主进程来规避 740，需仅对本次目标应用启动发起授权。
 
 ### 5.5 应用窗口唤起
 
@@ -827,16 +847,24 @@ Everything 兜底：
 
 ### 5.10 主题、Wallpaper Glass、Clear Desktop 与 UI 分享码
 
-当前主题：
+当前主题共用规则：
 
-- `apple`：Apple Gallery，黑白画廊与克制蓝色焦点，也是当前默认主题。
-- `fluent`：Fluent Workspace，冷灰工作台与 Windows 蓝色焦点。
-- `midnight`：Midnight Control，近黑控制台与青绿状态提示。
-- `utility`：Modern Utility，深色工具栏、冷白画布与自然强调。
-- `glass`：Refined Glass，清透中性玻璃与多色状态层级。
+- `apple`、`fluent`、`midnight`、`utility`、`glass` 共用参照 Wallpaper Glass 建立的窗口网格、侧栏与顶栏尺寸、圆角、间距、卡片层级、选中/hover 状态、阴影、半透明表面和 blur 强度。
+- 上述五个配色的 Electron 窗口背景统一透明，并禁用按主题启用 Windows Mica 的旧分支，避免同一结构因 OS 材质不同而产生额外外观差异。
+- 上述五个配色仅定义 `--theme-shell`、`--theme-panel`、`--theme-card`、`--theme-control` 等颜色材质变量，以及文字、强调色、成功和危险色。
+- `prefers-reduced-transparency` 下仍保持统一结构，但使用各配色对应的不透明表面并关闭 blur。
+- 统一选择器必须同时排除 `data-theme="wallpaper"` 与 `data-theme="clear"`；Wallpaper Glass 的背景梯度、蓝紫主按钮、深浅变体和 0-100 融合强度继续使用原始专属规则。
+
+当前配色：
+
+- `apple`：Apple Gallery，银白玻璃与克制苹果蓝，也是当前默认主题。
+- `fluent`：Fluent Workspace，冷灰蓝玻璃与 Windows 蓝。
+- `midnight`：Midnight Control，深墨玻璃与青绿色焦点。
+- `utility`：Modern Utility，浅灰绿玻璃与自然绿色。
+- `glass`：Refined Glass，雾白青玻璃与松石绿色。
 - `wallpaper`：Wallpaper Glass，让桌面壁纸成为视觉主体。
 - `clear`：Clear Desktop，参考 TranslucentTB Clear 效果，让桌面壁纸直接透出且不使用整屏模糊。
-- `system`：跟随 Windows，浅色映射到 Fluent Workspace，深色映射到 Midnight Control。
+- `system`：跟随 Windows，浅色映射到冷灰蓝配色，深色映射到墨青配色；结构不会切换。
 
 Wallpaper Glass：
 
@@ -848,6 +876,7 @@ Wallpaper Glass：
 - 对主要容器使用玻璃变量和 blur。
 - `prefers-reduced-transparency` 下回退为更不透明背景。
 - 当前只透出 Windows 桌面壁纸，不提供应用内图片选择、图片复制、焦点位置或遮罩编辑；此前试验性自定义壁纸链路已经撤回。
+- 其他五个配色借用相同玻璃结构和固定透明材质；深浅变体与 0-100 融合强度控制仍只属于 Wallpaper Glass，统一覆盖层不得重定义其专属变量或按钮样式。
 
 Clear Desktop：
 
@@ -891,7 +920,7 @@ UI 分享码：
 - 关闭行为。
 - 全局快捷键。
 - 可录制的应用内快捷键和恢复全部默认。
-- 管理员模式。
+- 启动时预先授权高权限操作；状态区区分正在授权、本次已授权、取消/失败和外部显式提权 GUI。
 - 运行应用置顶。
 - 实时 UI 编辑、自定义背景色和分享码导入导出。
 - 搜索提供方。
@@ -955,7 +984,7 @@ UI 分享码：
 - `main.ts` 从约 1900 行降到约 335 行；配置、应用、应用添加、分组、启动、运行时、搜索、搜索依赖、偏好、图标、管理员、进程控制和应用窗口均有独立服务。
 - IPC 已按 `library / runtime / search / preferences / window` 分区注册，入口不再直接注册处理器。
 - IPC 契约测试会检查 preload 与全部注册器的调用/事件通道，并阻止重复注册。
-- `main.tsx` 已迁出完整设置页、偏好编辑、搜索请求、外部 EXE 拖入和统一网格拖拽等控制器，当前约 1478 行；相较本轮开始约 1835 行进一步减少约 19%。
+- `main.tsx` 已迁出完整设置页、偏好编辑、搜索请求、外部应用拖入和统一网格拖拽等控制器，当前约 1478 行；相较本轮开始约 1835 行进一步减少约 19%。
 
 剩余风险：
 
@@ -1060,7 +1089,7 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 - 应用添加、拖入程序和 EXE 文件选择已迁入 `app-addition-service.ts`。
 - 设置页分组排序与跨组拖拽已迁入 `use-settings-group-drag.ts`。
 - 完整设置页及偏好编辑已迁入 `settings-page.tsx` 与 `use-settings-preferences.ts`。
-- 搜索请求、外部 EXE 拖入和统一网格拖拽分别迁入独立 hook，并由边界测试防止职责回流。
+- 搜索请求、外部应用拖入和统一网格拖拽分别迁入独立 hook，并由边界测试防止职责回流。
 - 下一步优先拆分运行快照轮询和应用启动/关闭动作；旧聚合视图拖拽在移除旧视图时一并删除，不与统一网格状态机强行合并。
 
 ### 7.4 设置页信息架构重整
@@ -1170,7 +1199,7 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
   - `folders.json` 和 `group-grid-order.json` 的归一化。
   - 普通应用与多应用卡片的混合排序及跨分组移动。
   - 成员拖出、转移、自动解散和重复成员清理。
-  - 单击放大、双击/Enter 批量启动、部分运行状态和批量关闭。
+  - 单击/Enter 放大、双击/默认 `Ctrl+Enter` 批量启动、部分运行状态和批量关闭。
 - 修改偏好时同步：
   - `src/main/preferences.ts`
   - `src/shared/types.ts`
@@ -1235,7 +1264,9 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 - `D:\Code\Start Engineer\src\main\search-dependency-service.ts`
   - Everything 搜索依赖状态、下载、解压、启动、失败清理和并发去重。
 - `D:\Code\Start Engineer\src\main\administrator-service.ts`
-  - 管理员权限检测、native/PowerShell 提权适配和按配置重启。
+  - 实际 GUI 权限检测和旧版权限重启兼容代码；正常启动流程不再用它提升 Electron 主界面。
+- `D:\Code\Start Engineer\src\main\elevated-termination-host.ts`
+  - 普通权限命名管道 server、UAC 启动握手、会话级 helper 状态、受限 PID 终止请求和退出清理。
 - `D:\Code\Start Engineer\src\main\ipc.ts`
   - 应用库相关 IPC 注册。
 - `D:\Code\Start Engineer\src\main\runtime-ipc.ts`、`search-ipc.ts`、`preferences-ipc.ts`、`window-ipc.ts`
@@ -1247,13 +1278,13 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 - `D:\Code\Start Engineer\src\main\focus-window.ts`
   - helper runner、PowerShell fallback、窗口阶段构造和聚焦 API。
 - `D:\Code\Start Engineer\src\main\process-termination.ts`
-  - taskkill、UAC、PID 清洗和关闭验证。
+  - 普通 taskkill、剩余 PID 校验、会话级高权限终止和关闭后复核。
 - `D:\Code\Start Engineer\src\main\native-helper.ts`
   - native helper 路径解析、单次命令、常驻 JSON Lines 客户端、超时重启和结果归一化。
 - `D:\Code\Start Engineer\src\main\app-discovery.ts`
   - 首次导入候选和搜索可添加本机应用候选。
 - `D:\Code\Start Engineer\src\main\dropped-apps.ts`
-  - 拖入 `.exe` 添加应用的主进程逻辑。
+  - 拖入 `.exe` 或 Windows `.lnk` 应用快捷方式的主进程解析和添加逻辑。
 - `D:\Code\Start Engineer\src\main\installable-apps.ts`
   - 可安装应用官方下载入口 catalog。
 - `D:\Code\Start Engineer\src\main\everything-search.ts`
@@ -1268,6 +1299,8 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
   - `window.startEngineer` 暴露层，保留 `window.commandDeck` 兼容别名。
 - `D:\Code\Start Engineer\src\renderer\main.tsx`
   - 渲染层状态、轮询、搜索、菜单、设置、导入、拖拽和操作反馈。
+- `D:\Code\Start Engineer\src\renderer\context-menus.tsx`
+  - 进程、应用和分组右键菜单，以及基于实际尺寸的视口边界定位。
 - `D:\Code\Start Engineer\src\renderer\section-apps.ts`
   - 普通分组和 `all-apps` 聚合视图的应用列表、去重和排序辅助。
 - `D:\Code\Start Engineer\src\renderer\keyboard-navigation.ts`
@@ -1283,6 +1316,6 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 
 ## 13. 当前结论
 
-Start Engineer 已经不只是一个简单启动器。当前代码已经具备应用分组、多应用卡片与混合网格、聚合应用视图、首次导入、搜索添加、拖放添加、可安装应用安全入口、运行监控、实时批量操作反馈、Everything 兜底搜索、托盘、可配置应用内快捷键、全局快捷键、管理员模式、Splash、实时 UI 编辑、UI 分享码、七套独立主题、Wallpaper Glass、Clear Desktop、native 窗口 helper 和窗口唤起诊断等较完整的桌面应用能力。
+Start Engineer 已经不只是一个简单启动器。当前代码已经具备应用分组、多应用卡片与混合网格、聚合应用视图、首次导入、搜索添加、拖放添加、可安装应用安全入口、运行监控、实时批量操作反馈、Everything 兜底搜索、托盘、可配置应用内快捷键、全局快捷键、会话级高权限进程控制、Splash、实时 UI 编辑、UI 分享码、统一 Wallpaper Glass 外观的多套配色、独立 Clear Desktop、native 窗口 helper 和窗口唤起诊断等较完整的桌面应用能力。
 
 下一阶段最重要的不是继续堆新入口，而是把“运行中应用单击唤起窗口”这条主路径做稳、做快，并降低后台监控成本。只要窗口唤起、运行识别和关闭反馈可靠，Start Engineer 才能真正承担“桌面启动台 / 任务栏辅助入口”的角色。随后再拆分大型控制器、整理设置页信息架构、补齐发布能力，项目会明显更接近可公开发布的状态。

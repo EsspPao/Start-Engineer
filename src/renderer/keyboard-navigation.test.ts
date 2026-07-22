@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { groupIndexNavigationFromKey, groupNavigationFromKey, keyboardBlockKeyFromEventLike, isTextInputTarget, navigationDirectionFromKey, pickDirectionalApp, pickIndexedGroup, pickRelativeGroup, shouldSuppressNavigationAfterGroupMove } from "./keyboard-navigation";
+import { collapsedFolderKeyboardSelection, expandedFolderKeyboardSelection, groupIndexNavigationFromKey, groupNavigationFromKey, isEscapeKeyboardEvent, keyboardBlockKeyFromEventLike, isTextInputTarget, navigationDirectionFromKey, pickDirectionalApp, pickIndexedGroup, pickRelativeGroup, resolveFolderKeyboardAction, shouldSuppressNavigationAfterGroupMove } from "./keyboard-navigation";
 
 const rect = (id: string, left: number, top: number, width = 100, height = 80) => ({
   id,
@@ -47,6 +47,40 @@ describe("keyboard navigation", () => {
     expect(pickDirectionalApp(cards, "app:steam", "right")).toBe("folder:games");
     expect(pickDirectionalApp(cards, "folder:games", "right")).toBe("app:codex");
     expect(pickDirectionalApp(cards, "folder:games", "left")).toBe("app:steam");
+  });
+
+  it("expands a merged card on activation and reserves a separate command for launching all", () => {
+    expect(resolveFolderKeyboardAction("activate", true)).toBe("expand");
+    expect(resolveFolderKeyboardAction("launchFolder", true)).toBe("launch");
+    expect(resolveFolderKeyboardAction("launchFolder", false, true)).toBe("launch");
+    expect(resolveFolderKeyboardAction("activate", false, true)).toBeNull();
+    expect(resolveFolderKeyboardAction("activate", false)).toBeNull();
+    expect(resolveFolderKeyboardAction("edit", true)).toBeNull();
+  });
+
+  it("selects the first valid folder member on expand and restores the folder on collapse", () => {
+    expect(expandedFolderKeyboardSelection("games", ["missing", "steam", "codex"], ["steam", "codex"])).toEqual({
+      expandedFolderId: "games",
+      selectedItemId: "app:steam",
+      selectedAppId: "steam"
+    });
+    expect(expandedFolderKeyboardSelection("empty", ["missing"], [])).toEqual({
+      expandedFolderId: "empty",
+      selectedItemId: "folder:empty",
+      selectedAppId: ""
+    });
+    expect(collapsedFolderKeyboardSelection("games")).toEqual({
+      expandedFolderId: "",
+      selectedItemId: "folder:games",
+      selectedAppId: ""
+    });
+  });
+
+  it("recognizes the physical Escape key independently from configurable shortcuts", () => {
+    expect(isEscapeKeyboardEvent({ key: "Escape", code: "Escape" })).toBe(true);
+    expect(isEscapeKeyboardEvent({ key: "Esc", code: "Escape" })).toBe(true);
+    expect(isEscapeKeyboardEvent({ key: "Unidentified", code: "Escape" })).toBe(true);
+    expect(isEscapeKeyboardEvent({ key: "Enter", code: "Enter" })).toBe(false);
   });
 
   it("does not hijack text entry targets", () => {

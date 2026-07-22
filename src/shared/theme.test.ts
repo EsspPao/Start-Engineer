@@ -14,12 +14,9 @@ describe("theme resolution", () => {
     expect(resolveUiTheme("clear", false)).toBe("clear");
   });
 
-  it("only enables Mica for Fluent and Refined Glass", () => {
-    expect(themeUsesMica("fluent")).toBe(true);
-    expect(themeUsesMica("glass")).toBe(true);
-    expect(themeUsesMica("utility")).toBe(false);
-    expect(themeUsesMica("midnight")).toBe(false);
-    expect(themeUsesMica("wallpaper")).toBe(false);
-    expect(themeUsesMica("clear")).toBe(false);
+  it("keeps every theme on the same CSS glass material instead of mixing in Mica", () => {
+    for (const theme of ["apple", "fluent", "glass", "utility", "midnight", "wallpaper", "clear"] as const) {
+      expect(themeUsesMica(theme)).toBe(false);
+    }
   });
 });

@@ -34,4 +34,10 @@ describe("Wallpaper Glass styles", () => {
     expect(css).toMatch(/:root\[data-theme="wallpaper"\]\s+\.process-row\.header button\s*\{[^}]*color:\s*#eef6ff;/i);
     expect(css).toMatch(/:root\[data-theme="wallpaper"\]\[data-wallpaper-variant="light"\]\s+\.process-row\.header button\s*\{[^}]*color:\s*#1c2b42;/i);
   });
+
+  it("keeps the original Wallpaper Glass background, primary button, and intensity variables outside the shared theme override", () => {
+    expect(css).toContain(':root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"])');
+    expect(css).toMatch(/:root\[data-theme="wallpaper"\]\[data-wallpaper-variant="light"\]\s+\.search-button,[\s\S]*?linear-gradient\(135deg,#24bfd5,#4f7df7 58%,#8b5cf6\)/i);
+    expect(css).toMatch(/:root\[data-theme="wallpaper"\]\[data-wallpaper-variant="light"\]\s+\.app-shell\s*\{[\s\S]*?var\(--wallpaper-shell\)/i);
+  });
 });

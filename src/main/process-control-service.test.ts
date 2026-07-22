@@ -16,13 +16,13 @@ describe("ProcessControlService", () => {
     expect(service.getTerminationBlockReason("app.exe", [30])).toBeUndefined();
   });
 
-  it("uses the native helper for elevated taskkill", async () => {
+  it("uses the native helper fallback for elevated taskkill", async () => {
     const runNativeHelper = vi.fn().mockResolvedValue(JSON.stringify({ ok: true, exitCode: 0 }));
     const service = new ProcessControlService({ ownProcessIds: () => new Set(), runNativeHelper, systemRoot: () => "C:\\Windows" });
-    await service.runElevatedTaskkill(["/PID", "42", "/F"]);
+    await service.terminateElevatedPids([42]);
     expect(runNativeHelper).toHaveBeenCalledWith("launch", expect.objectContaining({
       executablePath: "C:\\Windows\\System32\\taskkill.exe",
-      arguments: ["/PID", "42", "/F"],
+      arguments: ["/PID", "42", "/T", "/F"],
       elevated: true
     }), 120_000);
   });
@@ -32,6 +32,19 @@ describe("ProcessControlService", () => {
       ownProcessIds: () => new Set(),
       runNativeHelper: vi.fn().mockResolvedValue(JSON.stringify({ ok: false, errorCode: 1223 }))
     });
-    await expect(service.runElevatedTaskkill(["/PID", "42"])).rejects.toMatchObject({ code: "ELEVATION_CANCELLED" });
+    await expect(service.terminateElevatedPids([42])).rejects.toMatchObject({ code: "ELEVATION_CANCELLED" });
+  });
+
+  it("uses the constrained session host when available", async () => {
+    const terminate = vi.fn().mockResolvedValue(undefined);
+    const runNativeHelper = vi.fn();
+    const service = new ProcessControlService({
+      ownProcessIds: () => new Set(),
+      runNativeHelper,
+      elevatedTerminationHost: { terminate }
+    });
+    await service.terminateElevatedPids([42, 42, -1]);
+    expect(terminate).toHaveBeenCalledWith([42]);
+    expect(runNativeHelper).not.toHaveBeenCalled();
   });
 });

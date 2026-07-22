@@ -19,7 +19,7 @@ function createService() {
     unregisterShortcut: () => { registered = ""; },
     isShortcutRegistered: (accelerator) => registered === accelerator,
     toggleMainWindow: vi.fn(),
-    getAdministratorState: () => ({ isRunningAsAdministrator: false, administratorStatusLoading: false }),
+    getAdministratorState: () => ({ isRunningAsAdministrator: false, administratorStatusLoading: false, elevatedTerminationStatus: "disabled" }),
     clearAdministratorMessage: vi.fn(),
     applyTheme
   });

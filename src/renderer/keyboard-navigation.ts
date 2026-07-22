@@ -1,5 +1,13 @@
+import type { AppKeyboardShortcutId, GroupGridItemId } from "../shared/types.js";
+
 export type NavigationDirection = "up" | "down" | "left" | "right";
 export type GroupNavigationDirection = "previous" | "next";
+export type FolderKeyboardAction = "expand" | "launch";
+export type FolderKeyboardSelection = {
+  expandedFolderId: string;
+  selectedItemId: GroupGridItemId | "";
+  selectedAppId: string;
+};
 
 export type AppCardRect = {
   id: string;
@@ -50,6 +58,34 @@ export function keyboardBlockKeyFromEventLike(event: KeyboardEventLike) {
 export function shouldSuppressNavigationAfterGroupMove(blockedKey: string | null, event: KeyboardEventLike) {
   if (!blockedKey || event.ctrlKey || event.metaKey || event.altKey) return false;
   return keyboardBlockKeyFromEventLike(event) === blockedKey;
+}
+
+export function resolveFolderKeyboardAction(command: AppKeyboardShortcutId | null, hasSelectedFolder: boolean, hasExpandedFolder = false): FolderKeyboardAction | null {
+  if (command === "activate" && hasSelectedFolder) return "expand";
+  if (command === "launchFolder" && (hasSelectedFolder || hasExpandedFolder)) return "launch";
+  return null;
+}
+
+export function expandedFolderKeyboardSelection(folderId: string, memberIds: string[], availableAppIds: string[]): FolderKeyboardSelection {
+  const available = new Set(availableAppIds);
+  const firstMemberId = memberIds.find((id) => available.has(id)) ?? "";
+  return {
+    expandedFolderId: folderId,
+    selectedItemId: firstMemberId ? `app:${firstMemberId}` : `folder:${folderId}`,
+    selectedAppId: firstMemberId
+  };
+}
+
+export function collapsedFolderKeyboardSelection(folderId: string): FolderKeyboardSelection {
+  return {
+    expandedFolderId: "",
+    selectedItemId: folderId ? `folder:${folderId}` : "",
+    selectedAppId: ""
+  };
+}
+
+export function isEscapeKeyboardEvent(event: Pick<KeyboardEvent, "key" | "code">) {
+  return event.key === "Escape" || event.key === "Esc" || event.code === "Escape";
 }
 
 export function isTextInputTarget(target: EventTarget | null) {

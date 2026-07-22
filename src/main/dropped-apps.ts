@@ -9,6 +9,14 @@ type AddDroppedExecutablesInput = {
   exists: (filePath: string) => boolean;
   createId: () => string;
   cacheAppIcon: (entry: AppEntry) => Promise<AppEntry>;
+  resolveDroppedPath?: (filePath: string) => Promise<DroppedAppTarget | null>;
+};
+
+export type DroppedAppTarget = {
+  executablePath: string;
+  name?: string;
+  workingDirectory?: string;
+  launchArgs?: string;
 };
 
 export async function addDroppedExecutablesToApps(input: AddDroppedExecutablesInput): Promise<AddDroppedExecutablesResult> {
@@ -23,22 +31,28 @@ export async function addDroppedExecutablesToApps(input: AddDroppedExecutablesIn
   }
 
   for (const rawPath of input.filePaths) {
-    const filePath = String(rawPath ?? "").trim();
+    const sourcePath = String(rawPath ?? "").trim();
+    const resolved = input.resolveDroppedPath
+      ? await input.resolveDroppedPath(sourcePath)
+      : extname(sourcePath).toLowerCase() === ".exe" ? { executablePath: sourcePath } : null;
+    const filePath = resolved?.executablePath.trim() ?? "";
     const normalized = normalizePath(filePath);
-    if (!filePath || extname(filePath).toLowerCase() !== ".exe" || knownPaths.has(normalized) || !input.exists(filePath)) {
-      skippedPaths.push(filePath);
+    if (!sourcePath || !filePath || extname(filePath).toLowerCase() !== ".exe" || knownPaths.has(normalized) || !input.exists(filePath)) {
+      skippedPaths.push(sourcePath);
       continue;
     }
 
-    const name = basename(filePath, extname(filePath));
+    const processName = basename(filePath, extname(filePath));
+    const name = resolved?.name?.trim() || processName;
     const appEntry = await input.cacheAppIcon({
       id: input.createId(),
       name,
       category: targetGroup.name,
       groupId: targetGroup.id,
       executablePath: filePath,
-      processName: name,
-      workingDirectory: dirname(filePath),
+      processName,
+      workingDirectory: resolved?.workingDirectory?.trim() || dirname(filePath),
+      launchArgs: resolved?.launchArgs?.trim() || undefined,
       accent: "#2f66e8"
     });
     knownPaths.add(normalized);

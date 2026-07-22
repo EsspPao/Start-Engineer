@@ -9,6 +9,8 @@ describe("keyboard shortcut help", () => {
 
     expect(labels).toContain("方向键 / WASD");
     expect(labels).toContain("Enter");
+    expect(labels).toContain("Ctrl+Enter 启动合并卡片内的全部应用");
+    expect(labels).toContain("Enter 启动或唤起普通应用；展开合并卡片");
     expect(labels).not.toContain("Space");
     expect(labels).toContain("Esc");
     expect(labels).toContain("Ctrl+↑/↓ / Ctrl+W/S");

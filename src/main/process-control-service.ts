@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { join } from "node:path";
 import { normalizeNativeLaunchResult, type NativeHelperCommand, type NativeLaunchRequest } from "./native-helper.js";
+import { buildTaskkillArgs, normalizePids } from "./process-termination.js";
 
 const protectedProcessNames = new Set([
   "system",
@@ -18,6 +19,7 @@ const protectedProcessNames = new Set([
 type ProcessControlOptions = {
   ownProcessIds: () => ReadonlySet<number>;
   runNativeHelper: (command: NativeHelperCommand, payload: unknown, timeoutMs?: number) => Promise<string>;
+  elevatedTerminationHost?: { terminate: (pids: number[]) => Promise<void> };
   systemRoot?: () => string;
 };
 
@@ -60,7 +62,14 @@ export class ProcessControlService {
     });
   }
 
-  async runElevatedTaskkill(args: string[]) {
+  async terminateElevatedPids(pids: number[]) {
+    const normalized = normalizePids(pids);
+    if (!normalized.length) return;
+    if (this.options.elevatedTerminationHost) {
+      await this.options.elevatedTerminationHost.terminate(normalized);
+      return;
+    }
+    const args = buildTaskkillArgs(normalized);
     let value: unknown;
     try {
       const systemDirectory = join(this.options.systemRoot?.() || process.env.SystemRoot || "C:\\Windows", "System32");

@@ -547,7 +547,7 @@ button { border: 0; }
 .group-app-empty { display: flex; align-items: center; justify-content: space-between; min-height: 58px; border-top: 1px solid rgba(130,145,177,.12); color: var(--ink-muted); padding: 11px 16px; font-size: 11px; }
 .group-app-empty button { border-radius: 8px; color: #4f5bd7; background: rgba(225,231,255,.75); padding: 7px 11px; cursor: pointer; }
 
-.context-menu { position: fixed; z-index: 1000; display: grid; width: 226px; max-height: calc(100vh - 16px); overflow: auto; border-color: rgba(255,255,255,.72); border-radius: var(--radius-panel); padding: 6px; box-shadow: var(--shadow-float); }
+.context-menu { position: fixed; z-index: 1000; display: grid; width: 226px; max-height: calc(100vh - 16px); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; touch-action: pan-y; border-color: rgba(255,255,255,.72); border-radius: var(--radius-panel); padding: 6px; box-shadow: var(--shadow-float); }
 .menu-item { min-height: 34px; border-radius: 8px; color: #344158; background: transparent; padding: 7px 9px; cursor: pointer; text-align: left; font-size: 12px; }
 .menu-item:hover:not(:disabled) { background: rgba(226,233,253,.78); }
 .menu-item.danger { color: #bc4b59; }
@@ -1968,12 +1968,236 @@ button { border: 0; }
   background: var(--liquid-button-glass);
 }
 
+/* Unified glass language: color presets borrow Wallpaper Glass geometry without overriding Wallpaper Glass or Clear Desktop. */
+:root[data-theme="apple"] {
+  --theme-shell: rgba(242,243,247,.74); --theme-shell-edge: rgba(218,222,231,.42);
+  --theme-sidebar: rgba(246,246,249,.56); --theme-panel: rgba(255,255,255,.52); --theme-panel-strong: rgba(255,255,255,.82);
+  --theme-card: rgba(255,255,255,.38); --theme-card-hover: rgba(255,255,255,.68); --theme-control: rgba(255,255,255,.44); --theme-control-strong: rgba(255,255,255,.7);
+  --theme-panel-shadow: 0 16px 42px rgba(39,43,54,.14),inset 0 1px rgba(255,255,255,.72);
+  --theme-card-shadow: 0 10px 28px rgba(39,43,54,.11),inset 0 1px rgba(255,255,255,.78);
+}
+:root[data-theme="fluent"] {
+  --theme-shell: rgba(226,237,247,.72); --theme-shell-edge: rgba(201,218,233,.42);
+  --theme-sidebar: rgba(239,247,253,.55); --theme-panel: rgba(247,251,255,.5); --theme-panel-strong: rgba(250,253,255,.82);
+  --theme-card: rgba(255,255,255,.38); --theme-card-hover: rgba(255,255,255,.68); --theme-control: rgba(247,252,255,.43); --theme-control-strong: rgba(255,255,255,.7);
+  --theme-panel-shadow: 0 16px 42px rgba(31,58,83,.14),inset 0 1px rgba(255,255,255,.7);
+  --theme-card-shadow: 0 10px 28px rgba(31,58,83,.11),inset 0 1px rgba(255,255,255,.78);
+}
+:root[data-theme="utility"] {
+  --theme-shell: rgba(231,238,233,.74); --theme-shell-edge: rgba(213,222,216,.44);
+  --theme-sidebar: rgba(238,246,241,.56); --theme-panel: rgba(248,252,249,.51); --theme-panel-strong: rgba(251,254,252,.82);
+  --theme-card: rgba(255,255,255,.38); --theme-card-hover: rgba(255,255,255,.68); --theme-control: rgba(247,252,249,.44); --theme-control-strong: rgba(255,255,255,.7);
+  --theme-panel-shadow: 0 16px 42px rgba(31,55,45,.14),inset 0 1px rgba(255,255,255,.7);
+  --theme-card-shadow: 0 10px 28px rgba(31,55,45,.11),inset 0 1px rgba(255,255,255,.78);
+}
+:root[data-theme="glass"] {
+  --theme-shell: rgba(226,242,239,.68); --theme-shell-edge: rgba(228,237,245,.42);
+  --theme-sidebar: rgba(242,250,248,.52); --theme-panel: rgba(248,252,251,.48); --theme-panel-strong: rgba(252,255,254,.8);
+  --theme-card: rgba(255,255,255,.36); --theme-card-hover: rgba(255,255,255,.66); --theme-control: rgba(250,255,254,.42); --theme-control-strong: rgba(255,255,255,.68);
+  --theme-panel-shadow: 0 16px 42px rgba(37,67,63,.14),inset 0 1px rgba(255,255,255,.74);
+  --theme-card-shadow: 0 10px 28px rgba(37,67,63,.11),inset 0 1px rgba(255,255,255,.8);
+}
+:root[data-theme="midnight"] {
+  --theme-shell: rgba(8,12,15,.7); --theme-shell-edge: rgba(10,18,20,.46);
+  --theme-sidebar: rgba(8,14,15,.55); --theme-panel: rgba(13,20,21,.52); --theme-panel-strong: rgba(15,23,24,.82);
+  --theme-card: rgba(255,255,255,.075); --theme-card-hover: rgba(255,255,255,.13); --theme-control: rgba(255,255,255,.085); --theme-control-strong: rgba(255,255,255,.145);
+  --theme-panel-shadow: 0 16px 42px rgba(0,0,0,.28),inset 0 1px rgba(255,255,255,.1);
+  --theme-card-shadow: 0 10px 28px rgba(0,0,0,.22),inset 0 1px rgba(255,255,255,.09);
+}
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) {
+  --glass: var(--theme-sidebar);
+  --glass-strong: var(--theme-panel-strong);
+  --glass-soft: var(--theme-card);
+  --shadow-panel: var(--theme-panel-shadow);
+  --shadow-float: 0 22px 58px color-mix(in srgb,var(--ink) 18%,transparent),inset 0 1px rgba(255,255,255,.14);
+  --liquid-button-glass: var(--theme-control);
+  --liquid-button-glass-hover: var(--theme-control-strong);
+  --liquid-button-shadow: inset 0 1px rgba(255,255,255,.12),inset 0 -1px rgba(0,0,0,.08),0 10px 24px color-mix(in srgb,var(--ink) 10%,transparent);
+  --radius-window: 14px;
+  --radius-panel: 10px;
+  --radius-control: 8px;
+  --radius-small: 6px;
+}
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) body::after,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .app-shell::before,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .sidebar::before,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .topbar::before,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .app-card::before { display: block; }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) body::after { opacity: .08; }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .app-shell {
+  grid-template-columns: 212px minmax(0,1fr);
+  gap: 10px;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 8% 12%,color-mix(in srgb,var(--accent) 18%,transparent),transparent 30%),
+    radial-gradient(circle at 90% 8%,color-mix(in srgb,var(--accent-2) 15%,transparent),transparent 32%),
+    linear-gradient(135deg,var(--theme-shell),var(--theme-shell-edge));
+  font-family: "Segoe UI Variable","Microsoft YaHei UI","Segoe UI",system-ui,sans-serif;
+}
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .app-shell::before { background: linear-gradient(120deg,rgba(255,255,255,.12),transparent 34%,transparent 72%,color-mix(in srgb,var(--accent) 7%,transparent)); }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .app-shell[data-ui-background-tone="aurora"] {
+  background:
+    radial-gradient(circle at 10% 10%,color-mix(in srgb,var(--cyan) 28%,transparent),transparent 28%),
+    radial-gradient(circle at 92% 8%,color-mix(in srgb,var(--accent-2) 26%,transparent),transparent 30%),
+    linear-gradient(135deg,var(--theme-shell),var(--theme-shell-edge));
+}
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .app-shell[data-ui-background-tone="graphite"] {
+  background:
+    radial-gradient(circle at 14% 12%,color-mix(in srgb,var(--ink) 16%,transparent),transparent 30%),
+    linear-gradient(135deg,var(--theme-shell),var(--theme-shell-edge));
+}
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .app-shell[data-ui-background-tone="mist"] {
+  background:
+    radial-gradient(circle at 12% 8%,color-mix(in srgb,var(--cyan) 22%,transparent),transparent 30%),
+    linear-gradient(135deg,var(--theme-shell),var(--theme-shell-edge));
+}
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .app-shell[data-ui-sidebar-width="narrow"] { grid-template-columns: 180px minmax(0,1fr); }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .app-shell[data-ui-sidebar-width="wide"] { grid-template-columns: 252px minmax(0,1fr); }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .window { grid-template-rows: 82px minmax(0,1fr); background: transparent; }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .sidebar,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .topbar,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .content {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-window);
+  background: var(--theme-panel);
+  box-shadow: var(--theme-panel-shadow);
+  backdrop-filter: blur(28px) saturate(108%);
+}
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .sidebar {
+  grid-template-rows: 96px minmax(0,1fr) 58px;
+  color: var(--ink);
+  background: var(--theme-sidebar);
+  padding: 14px 10px 10px;
+}
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .topbar {
+  grid-template-columns: minmax(170px,1fr) minmax(280px,430px) auto;
+  gap: 18px;
+  padding: 12px 12px 12px 20px;
+}
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .app-shell[data-ui-show-search-bar="false"] .topbar { grid-template-columns: minmax(170px,1fr) auto; }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .content { margin-top: 10px; padding: 18px; }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .brand-icon { width: 78px; height: 78px; border-radius: 22px; box-shadow: 0 16px 34px color-mix(in srgb,var(--accent) 32%,transparent); }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .app-shell[data-ui-brand-icon-size="standard"] .brand-icon { width: 58px; height: 58px; }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .app-shell[data-ui-brand-icon-size="large"] .brand-icon { width: 78px; height: 78px; }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .nav { gap: 5px; padding: 9px 4px 9px 0; }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .nav-divider { background: linear-gradient(90deg,transparent,color-mix(in srgb,var(--accent) 36%,transparent),color-mix(in srgb,var(--accent-2) 28%,transparent),transparent); box-shadow: none; }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .nav-button { height: 46px; border: 1px solid transparent; border-radius: var(--radius-control); color: var(--ink-soft); background: transparent; padding: 0 11px; font-size: 14px; }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .nav-button:hover { color: var(--ink); background: var(--theme-control); transform: translateX(2px); }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .nav-button.active { color: var(--ink); border-color: color-mix(in srgb,var(--accent) 36%,transparent); background: color-mix(in srgb,var(--accent) 17%,var(--theme-control)); box-shadow: inset 3px 0 var(--accent),0 10px 26px color-mix(in srgb,var(--ink) 10%,transparent); font-weight: 650; }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .page-heading h1 { color: var(--ink); font-size: 22px; font-weight: 690; letter-spacing: -.55px; }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .page-heading span,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .settings-heading p,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .preference-row small,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .group-manager-title small { color: var(--ink-muted); }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .searchbar label,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .preference-options,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .segmented,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .shortcut-recorder,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .shortcut-reset,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .ghost,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .edit-dialog input,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .edit-dialog select {
+  color: var(--ink-soft);
+  border-color: var(--line);
+  background: var(--theme-control);
+  box-shadow: inset 0 1px rgba(255,255,255,.1);
+}
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .searchbar label { height: 42px; border-radius: 12px; }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .searchbar label:focus-within { border-color: color-mix(in srgb,var(--accent) 52%,var(--line)); background: var(--theme-control-strong); box-shadow: 0 0 0 3px color-mix(in srgb,var(--accent) 12%,transparent); }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .searchbar input { color: var(--ink); font-size: 13px; }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .searchbar input::placeholder { color: var(--ink-muted); }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .search-button,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .launch { height: 42px; min-height: 42px; border: 1px solid color-mix(in srgb,var(--accent) 58%,white); border-radius: 12px; color: white; background: linear-gradient(135deg,var(--accent),var(--accent-2) 68%,var(--cyan)); box-shadow: var(--liquid-primary-shadow); font-size: 13px; font-weight: 650; }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .search-button:hover:not(:disabled),
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .launch:hover:not(:disabled) { background: linear-gradient(135deg,var(--accent),var(--accent-2) 68%,var(--cyan)); transform: translateY(-1px); filter: saturate(1.08); }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .window-controls button,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .ghost,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .shortcut-reset,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .search-result-row button,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .drag-handle,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .icon-action,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .group-app-empty button { color: var(--ink-soft); border-color: var(--line); background: var(--theme-control); box-shadow: var(--liquid-button-shadow); }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .window-controls button:hover,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .ghost:hover:not(:disabled),
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .shortcut-reset:hover:not(:disabled),
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .search-result-row button:hover:not(:disabled),
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .drag-handle:hover,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .icon-action:hover,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .group-app-empty button:hover { color: var(--ink); background: var(--theme-control-strong); box-shadow: var(--liquid-button-shadow); }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .window-controls .close:hover { color: white; background: var(--danger); }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .app-card,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .preference-row,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .theme-card,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .group-manager-item,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .process-table,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .settings-collapsible,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .import-panel {
+  border-color: var(--line);
+  background: var(--theme-card);
+  box-shadow: var(--theme-card-shadow);
+  backdrop-filter: blur(16px) saturate(106%);
+}
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .app-card,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .preference-row,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .theme-card,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .group-manager-item { border-radius: 8px; }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .settings-collapsible,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .process-table { border-radius: 10px; }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .app-card:hover,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .theme-card:hover:not(:disabled) { border-color: color-mix(in srgb,var(--accent) 38%,var(--line)); background: var(--theme-card-hover); box-shadow: 0 16px 36px color-mix(in srgb,var(--ink) 14%,transparent),inset 0 1px rgba(255,255,255,.14); transform: translateY(-2px); }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .app-card.current,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .app-card.current:hover { border-color: var(--accent); background: color-mix(in srgb,var(--accent) 20%,var(--theme-card)); box-shadow: 0 0 0 2px color-mix(in srgb,var(--accent) 28%,transparent),0 16px 36px color-mix(in srgb,var(--ink) 14%,transparent); }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .search-results-panel,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .context-menu,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .dialog,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .toast,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .drag-preview,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .group-sort-preview,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .folder-zoom-card { color: var(--ink); border-color: var(--line); background: var(--theme-panel-strong); box-shadow: var(--shadow-float); backdrop-filter: blur(22px) saturate(108%); }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .toast.info { color: var(--ink-soft); background: var(--theme-panel-strong); }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .process-row { border-color: color-mix(in srgb,var(--line) 62%,transparent); color: var(--ink-soft); }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .process-row.virtual { background: color-mix(in srgb,var(--theme-card) 76%,transparent); }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .process-row.virtual:nth-child(even) { background: color-mix(in srgb,var(--theme-card) 58%,transparent); }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .process-row.virtual:hover { background: color-mix(in srgb,var(--accent) 14%,var(--theme-card)); }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .process-row.header { background: color-mix(in srgb,var(--theme-control-strong) 82%,var(--theme-card)); }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .process-row.header button,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .process-row > span { color: var(--ink-soft); }
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .preference-options button.selected,
+:root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .segmented .selected { color: white; background: var(--accent); box-shadow: 0 8px 20px color-mix(in srgb,var(--accent) 22%,transparent); }
+
+@media (max-width: 1160px) {
+  :root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .app-shell { grid-template-columns: 174px minmax(0,1fr); gap: 9px; }
+  :root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .app-shell[data-ui-sidebar-width="narrow"] { grid-template-columns: 164px minmax(0,1fr); }
+  :root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .app-shell[data-ui-sidebar-width="wide"] { grid-template-columns: 210px minmax(0,1fr); }
+  :root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .topbar { grid-template-columns: 150px minmax(240px,1fr) auto; gap: 10px; padding-left: 15px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .folder-zoom-backdrop, .folder-zoom-card { animation: none; }
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
 }
 
 @media (prefers-reduced-transparency: reduce) {
+  :root[data-theme="apple"] { --theme-sidebar: #f6f6f8; --theme-panel: #fafafd; --theme-panel-strong: #fff; --theme-card: #fff; --theme-card-hover: #fff; --theme-control: #f3f3f6; --theme-control-strong: #fff; }
+  :root[data-theme="fluent"] { --theme-sidebar: #eef5fb; --theme-panel: #f4f8fc; --theme-panel-strong: #fff; --theme-card: #fff; --theme-card-hover: #fff; --theme-control: #edf4fa; --theme-control-strong: #fff; }
+  :root[data-theme="utility"] { --theme-sidebar: #eff5f1; --theme-panel: #f5f9f6; --theme-panel-strong: #fff; --theme-card: #fff; --theme-card-hover: #fff; --theme-control: #edf4ef; --theme-control-strong: #fff; }
+  :root[data-theme="glass"] { --theme-sidebar: #edf7f5; --theme-panel: #f3faf8; --theme-panel-strong: #fff; --theme-card: #fff; --theme-card-hover: #fff; --theme-control: #ebf6f3; --theme-control-strong: #fff; }
+  :root[data-theme="midnight"] { --theme-sidebar: #0c1214; --theme-panel: #101719; --theme-panel-strong: #151e20; --theme-card: #172123; --theme-card-hover: #1c292b; --theme-control: #172123; --theme-control-strong: #202e31; }
+  :root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .sidebar,
+  :root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .topbar,
+  :root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .content,
+  :root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .app-card,
+  :root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .preference-row,
+  :root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .theme-card,
+  :root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .group-manager-item,
+  :root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .process-table,
+  :root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .settings-collapsible,
+  :root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .context-menu,
+  :root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .dialog,
+  :root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .toast,
+  :root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .drag-preview,
+  :root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .group-sort-preview,
+  :root[data-theme]:not([data-theme="clear"]):not([data-theme="wallpaper"]) .search-results-panel { backdrop-filter: none; }
   .sidebar, .topbar, .context-menu, .dialog, .toast, .drag-preview, .group-sort-preview { background: #f7f9fe; backdrop-filter: none; }
   .content { background: #f4f7fc; }
   :root[data-theme="wallpaper"] {

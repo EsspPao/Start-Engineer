@@ -15,10 +15,9 @@ import type {
 } from "../shared/types.js";
 import { resolveLoginExecutable } from "./preferences.js";
 import { launchAppsSequentially } from "./batch-app-actions.js";
-import { buildRestartRequest, shouldContinueAfterAdministratorRelaunchAttempt, shouldDetectAdministratorSynchronously, shouldRequestAdministratorRelaunch } from "./administrator-launch.js";
 import { migrateLegacyUserData } from "./user-data-migration.js";
 import { AppWindowManager } from "./window-manager.js";
-import { NativeRuntimeHost, runNativeHelper } from "./native-helper.js";
+import { NativeRuntimeHost, resolveNativeHelperPath, runNativeHelper } from "./native-helper.js";
 import { AppService } from "./app-service.js";
 import { GroupService } from "./group-service.js";
 import { LaunchService } from "./launch-service.js";
@@ -37,6 +36,7 @@ import { ProcessControlService } from "./process-control-service.js";
 import { metricsFromFocusHints } from "./focus-hints.js";
 import { AppWindowService } from "./app-window-service.js";
 import { AppAdditionService } from "./app-addition-service.js";
+import { ElevatedTerminationHost, type ElevatedTerminationStatus } from "./elevated-termination-host.js";
 
 const isDev = process.env.VITE_DEV_SERVER_URL !== undefined;
 const appRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -56,7 +56,9 @@ const groupGridPath = () => join(app.getPath("userData"), "group-grid-order.json
 const preferencesPath = () => join(app.getPath("userData"), "preferences.json");
 const iconCacheDir = () => join(app.getPath("userData"), "icons");
 const nativeRuntime = new NativeRuntimeHost();
+const elevatedTerminationHost = new ElevatedTerminationHost({ runNativeHelper, resolveNativeHelperPath });
 let administratorMessage = "";
+let elevatedTerminationStatus: ElevatedTerminationStatus = elevatedTerminationHost.snapshot().status;
 const runtimeAssociatedPids = new Map<string, Set<number>>();
 
 let appService!: AppService;
@@ -69,7 +71,11 @@ let runtimeService!: RuntimeService;
 let searchService!: SearchService;
 let appWindowService!: AppWindowService;
 let appAdditionService!: AppAdditionService;
-const processControlService = new ProcessControlService({ ownProcessIds: () => appWindowService?.ownProcessIds() ?? new Set([process.pid]), runNativeHelper });
+const processControlService = new ProcessControlService({
+  ownProcessIds: () => new Set([process.pid, ...(appWindowService?.ownProcessIds() ?? []), ...elevatedTerminationHost.ownProcessIds()]),
+  runNativeHelper,
+  elevatedTerminationHost
+});
 const runPowerShell = (script: string) => processControlService.runPowerShell(script);
 const groupService = new GroupService({
   groupsPath,
@@ -122,7 +128,7 @@ preferencesService = new PreferencesService({
   unregisterShortcut: (accelerator) => globalShortcut.unregister(accelerator),
   isShortcutRegistered: (accelerator) => globalShortcut.isRegistered(accelerator),
   toggleMainWindow: () => appWindowService.toggleMainWindow(),
-  getAdministratorState: () => ({ isRunningAsAdministrator, administratorStatusLoading, ...(administratorMessage ? { administratorMessage } : {}) }),
+  getAdministratorState: () => ({ isRunningAsAdministrator, administratorStatusLoading, elevatedTerminationStatus, ...(administratorMessage ? { administratorMessage } : {}) }),
   clearAdministratorMessage: () => { administratorMessage = ""; },
   applyTheme: (preferences) => appWindowService.applyTheme(preferences)
 });
@@ -149,16 +155,19 @@ administratorService = new AdministratorService({
 });
 
 const startupPreferences = loadPreferences();
-let administratorStatusLoading = process.platform === "win32" && !shouldDetectAdministratorSynchronously(startupPreferences.runAsAdministrator, process.argv);
-let isRunningAsAdministrator = administratorStatusLoading ? false : administratorService.detectPrivileges();
+let administratorStatusLoading = false;
+let isRunningAsAdministrator = administratorService.detectPrivileges();
 
-function refreshAdministratorStatusInBackground() {
-  if (!administratorStatusLoading) return;
-  setTimeout(() => {
-    isRunningAsAdministrator = administratorService.detectPrivileges();
-    administratorStatusLoading = false;
-  }, 0);
+function notifyPreferencesState() {
+  const window = appWindowService?.getMainWindow();
+  if (window && !window.isDestroyed()) window.webContents.send("preferences:stateChanged", preferencesService.snapshot());
 }
+
+elevatedTerminationHost.subscribe((state) => {
+  elevatedTerminationStatus = state.status;
+  administratorMessage = state.message ?? "";
+  notifyPreferencesState();
+});
 
 appWindowService = new AppWindowService({
   isDev,
@@ -180,7 +189,8 @@ appAdditionService = new AppAdditionService({
   saveApps,
   getApp,
   validGroupId: validAppGroup,
-  cacheIcon: (entry) => iconService.cache(entry)
+  cacheIcon: (entry) => iconService.cache(entry),
+  resolveShortcut: (filePath) => searchService.resolveShortcut(filePath)
 });
 
 const searchAppCandidates = (query: string) => searchService.searchCandidates(query);
@@ -218,7 +228,7 @@ runtimeService = new RuntimeService({
   resolveIcon: (executablePath, seed) => iconService.resolve(executablePath, seed),
   getTerminationBlockReason: (name, pids) => processControlService.getTerminationBlockReason(name, pids),
   runTaskkill: (args) => processControlService.runTaskkill(args),
-  runElevatedTaskkill: (args) => processControlService.runElevatedTaskkill(args),
+  terminateElevatedPids: (pids) => processControlService.terminateElevatedPids(pids),
   processorCount: cpus().length
 });
 
@@ -270,12 +280,15 @@ function registerIpc() {
     terminateManagedApps,
     getTerminationBlockReason: (name, pids) => processControlService.getTerminationBlockReason(name, pids),
     getProcessSnapshots,
+    terminateProcessPids: (pids) => runtimeService.terminateProcessPids(pids),
     metricsSnapshot,
     processSnapshot,
     buildRuntimeSnapshot,
     getManagedRunningStatus
   });
-  registerPreferencesIpc(preferencesService, () => administratorService.restartWithConfiguredPrivileges());
+  registerPreferencesIpc(preferencesService, async () => {
+    await elevatedTerminationHost.start();
+  });
   registerSearchIpc({
     getMainWindow: () => appWindowService.getMainWindow(),
     getUserDataPath: () => app.getPath("userData"),
@@ -300,31 +313,21 @@ function registerIpc() {
 
 }
 
-let handedOffToAdministrator = false;
-if (process.platform === "win32" && shouldRequestAdministratorRelaunch(startupPreferences.runAsAdministrator, isRunningAsAdministrator, process.argv)) {
-  try {
-    administratorService.launchElevatedSynchronously(buildRestartRequest(process.execPath, process.env.PORTABLE_EXECUTABLE_FILE, true));
-    handedOffToAdministrator = !shouldContinueAfterAdministratorRelaunchAttempt("launched");
-  } catch {
-    handedOffToAdministrator = !shouldContinueAfterAdministratorRelaunchAttempt("cancelled");
-  }
-}
-
-const hasSingleInstanceLock = !handedOffToAdministrator && app.requestSingleInstanceLock();
-if (handedOffToAdministrator || !hasSingleInstanceLock) {
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
   app.quit();
 } else {
   app.on("second-instance", () => appWindowService.showMainWindow());
-  app.on("before-quit", () => { appWindowService.prepareToQuit(); nativeRuntime.stop(); globalShortcut.unregisterAll(); preferencesService.clearRegisteredShortcut(); });
+  app.on("before-quit", () => { appWindowService.prepareToQuit(); elevatedTerminationHost.stop(); nativeRuntime.stop(); globalShortcut.unregisterAll(); preferencesService.clearRegisteredShortcut(); });
   app.whenReady().then(async () => {
     registerIpc();
     const preferences = loadPreferences();
     appWindowService.createSplashWindow();
     appWindowService.createWindow();
-    refreshAdministratorStatusInBackground();
     await appWindowService.createTray();
     preferencesService.applyGlobalShortcut(preferences, false);
     appWindowService.watchSystemTheme();
+    if (preferences.runAsAdministrator && !isRunningAsAdministrator && !smokeMode) void elevatedTerminationHost.start().catch(() => undefined);
 
     app.on("activate", () => appWindowService.showMainWindow());
   });
