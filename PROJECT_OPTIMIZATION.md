@@ -4,7 +4,7 @@
 
 请以后续实际代码为准，尤其是 `src/shared/types.ts`、`src/main/main.ts`、`src/renderer/main.tsx`、`src/main/window-manager.ts`、`native/window-focus-helper/Program.cs`。本文只把代码中已经存在的能力写为“当前能力”；尚未落地的设想会明确放在“风险 / 建议 / 路线图”中。
 
-最后核对日期：`2026-07-23`。当前开发基线包含 `main@c256366` 之后的合并卡片键盘交互、透明图标提取、快捷方式拖入、右键菜单视口适配、“普通权限主界面 + 会话级高权限进程控制”，以及参照 Wallpaper Glass 统一的其他主题外观；Wallpaper Glass 与 Clear Desktop 自身保持独立、不会被统一覆盖层改写。应用启动兼容自身清单要求管理员权限的程序：普通启动返回 Windows 740 后自动请求 UAC 并重试，取消授权不会误判成路径失效。当前已通过 TypeScript 类型检查、native helper 构建、完整 Vitest 测试（78 个测试文件、331 项测试）、生产构建和 Electron 冒烟验证；Windows 安装版与便携版已同步重新生成到 `release`。
+最后核对日期：`2026-07-28`。当前开发基线以 `main@53bbd38` 为起点，并加入公开发布准备：用户 README、隐私/安全/贡献/排障/更新日志、GitHub CI 与草稿 Release、安装版和便携版 SHA-256 清单、可选签名构建、应用内关于与诊断，以及 Everything/ES 下载哈希校验。既有合并卡片键盘交互、透明图标提取、快捷方式拖入、右键菜单视口适配、“普通权限主界面 + 会话级高权限进程控制”和多主题外观继续保留；Wallpaper Glass 与 Clear Desktop 自身保持独立。主界面默认保持普通权限；关闭应用先尝试普通 `taskkill`，只有确认目标仍在运行时才按需请求 UAC，授权成功后由隐藏的受限 helper 完成关闭并在本次会话复用。Microsoft Store / MSIX 应用改用稳定 AUMID 作为启动身份，旧 WindowsApps 版本路径会在首次启动时原位迁移，因此 ChatGPT 等应用升级后不再要求用户重新选择 EXE；即使原生激活失败，也只提示检查 Store 安装状态，不进入普通 EXE 重选流程。当前基线已完整通过 TypeScript 类型检查、native helper 构建、完整 Vitest 测试（83 个测试文件、356 项测试）、生产构建、Electron 冒烟、Windows 安装版/便携版打包与校验和生成；制品位于 `release`。
 
 维护硬性约定：每次代码、配置、样式、测试或构建流程发生改动，都必须在同一提交中同步更新本文档，至少记录受影响能力、验证结果或新的维护注意事项，避免文档再次落后于实际代码。
 
@@ -18,11 +18,13 @@ Start Engineer 当前是一个 Windows 桌面启动台与进程监控工具，�
 
 - 按用户分组管理应用。
 - 系统分组包括 `进程`、`已添加应用`、`设置`。
-- `已添加应用` 是聚合视图，按 `executablePath` 去重显示全部已添加应用，并保存独立排序。
+- `已添加应用` 是聚合视图，Microsoft Store 应用优先按 AUMID、普通应用按 `executablePath` 去重显示全部已添加应用，并保存独立排序。
 - 添加、修改、移动、删除应用。
 - 支持通过文件选择器、搜索候选、拖入 `.exe` 或 `.lnk` 添加应用。
 - 搜索框可搜索已添加应用、本机可添加应用、安全下载入口；没有应用结果时才显示 Everything 文件兜底结果。
+- Everything 一键准备固定下载官方 1.4.1.1032 x64 Portable 与 ES 1.1.0.37 x64；两个 ZIP 都必须通过内置 SHA-256 后才允许解压和启动。
 - 支持首次启动扫描开始菜单和桌面快捷方式，并提供候选导入。
+- 支持发现 Microsoft Store / MSIX 应用并保存稳定 AUMID；包版本目录变化时自动解析当前安装位置、保留原卡片 ID/名称/分组并通过原生 Windows 激活接口启动。
 - 应用卡片支持鼠标和键盘操作：选择、启动、唤起、右键菜单、编辑和拖拽排序。
 - 应用右键菜单会在内容或窗口尺寸变化时自动贴合视口边界；长菜单限制在窗口内独立滚动，底部操作不会再落到不可见区域。
 - 支持将应用拖到另一个应用或既有多应用卡片中；成员应用从外层网格隐藏，多应用卡片与普通卡片统一排序并可跨分组移动。
@@ -37,13 +39,14 @@ Start Engineer 当前是一个 Windows 桌面启动台与进程监控工具，�
 - 支持 Codex 这类无交互窗口但可通过重新运行自身安全激活的 allowlist 策略。
 - 支持全局快捷键唤出 / 隐藏主窗口。
 - 支持开机自启、关闭到托盘、托盘菜单。
-- Electron 主界面默认保持普通权限，资源管理器可原生拖入 `.exe` / `.lnk`；需要结束高权限进程时，由受限 native helper 在本次运行中授权一次并保持连接，后续不再反复弹出 UAC。授权失败或取消使用可关闭 Toast，不再永久占用应用页右下角。
+- Electron 主界面默认保持普通权限，资源管理器可原生拖入 `.exe` / `.lnk`；关闭操作先尝试普通权限，只有目标 PID 仍在运行时才按需触发 UAC。授权成功后，本次运行复用受限 native helper，不再反复弹出 UAC。helper 始终隐藏控制台窗口，并在 GUI 退出或管道断开后自动退出。
 - 支持窗口大小和位置记忆。
 - 支持 Splash Window，降低双击 EXE 后的空白等待感。
 - `Apple Gallery`、`Fluent Workspace`、`Midnight Control`、`Modern Utility`、`Refined Glass` 参照 Wallpaper Glass 共用同一套玻璃外观和交互层级，只保留配色差异；`Wallpaper Glass` 原有背景、按钮与融合强度链路保持不变，`Clear Desktop` 继续作为独立透明主题。
 - `Wallpaper Glass` 支持深色/浅色变体和 0-100 数值融合强度，滑条拖动时实时预览。
 - 支持受约束 UI 编辑：整体缩放、自定义背景色、卡片大小、网格密度、侧栏宽度、顶部图标大小、背景色调，以及名称/搜索栏/运行状态/底部操作的显示开关。
 - 支持 UI 分享码 `seui:v1:...` 导入导出。
+- 设置页提供“关于与诊断”：读取真实应用/运行时/Windows 版本，打开用户数据目录、项目主页，并复制不包含应用列表或配置内容的诊断摘要。
 - 支持应用卡片拖拽排序、拖到侧栏移动分组，以及设置页分组拖拽排序。
 
 当前验证与打包脚本：
@@ -53,6 +56,9 @@ Start Engineer 当前是一个 Windows 桌面启动台与进程监控工具，�
 - `npm run build`
 - `npm run smoke`
 - `npm run package:win`
+- `npm run release:checksums`
+- `npm run release:verify`
+- `npm run release:prepare`
 
 `npm run package:win` 会先执行 `scripts/close-running-app.mjs`：同时通过 `tasklist` 和 PowerShell 进程查询识别安装版、便携版及临时目录中的 Start Engineer 实例，优先正常结束，必要时按 PID 强制结束；仍有高权限残留时会请求管理员权限。预检确认程序完全退出后才开始覆盖 `release` 产物，避免打包文件被占用。
 
@@ -64,8 +70,9 @@ Start Engineer 当前是一个 Windows 桌面启动台与进程监控工具，�
 - 输出目录：`release`
 - 安装包：`release/Start-Engineer-Setup-0.1.0.exe`
 - 便携版：`release/Start-Engineer-Portable-0.1.0.exe`
-- 当前未签名：`signAndEditExecutable: false`
+- 默认 `package:win` 保持 `signAndEditExecutable: false`，使未启用 Windows 符号链接权限的开发机也能稳定生成未签名包；`package:win:signed` 显式开启签名/资源编辑。GitHub Release 工作流只有检测到 `WIN_CSC_LINK` 与 `WIN_CSC_KEY_PASSWORD` Secrets 时才调用签名构建。
 - `electron-builder.extraResources` 会把 `dist-native/window-focus-helper/win-x64` 打进资源目录。
+- `release:checksums` 为安装版与便携版生成 `release/SHA256SUMS.txt`；公开 Release 必须同时附带该文件。
 
 ## 2. 设计原则
 
@@ -397,7 +404,7 @@ Smoke 模式使用临时目录：
 注意：
 
 - `all-apps` 不是普通用户分组，但当前实现允许在该视图内拖拽排序，排序保存到 `preferences.allAppsView.orderedAppIds`。
-- `all-apps` 会先应用独立排序，再按归一化后的 `executablePath` 去重；同一个 exe 出现在多个用户分组时只显示一个代表卡片。
+- `all-apps` 会先应用独立排序，再按 AUMID（Store 应用）或归一化后的 `executablePath`（普通应用）去重；同一个应用出现在多个用户分组时只显示一个代表卡片。
 - 如果 `preferences.allAppsView.orderedAppIds` 指向某个重复副本，该副本会优先作为 `all-apps` 中的显示代表。
 - 分组直达快捷键只跳转用户应用分组，不跳系统聚合分组；默认覆盖 `Ctrl+1` 到 `Ctrl+9`，实际绑定读取用户偏好。
 
@@ -418,6 +425,7 @@ Smoke 模式使用临时目录：
 - `iconPixelSize`
 - `launchArgs`
 - `workingDirectory`
+- `appUserModelId`
 - `launchedPid`
 - `processAliases`
 - `associatedPids`
@@ -425,6 +433,7 @@ Smoke 模式使用临时目录：
 注意：
 
 - `associatedPids` 已存在于类型中，但当前代码主要用 `runtimeAssociatedPids` 做运行期关联 PID，避免把复杂启动器的临时子进程永久污染到配置。
+- `appUserModelId` 是 Microsoft Store / MSIX 应用的稳定身份，例如 `OpenAI.Codex_2p2nqsd0c76g0!App`。`executablePath` 对这类应用只保存当前可解析到的真实路径，可能随包版本更新或为空，不能再被当作启动身份；禁止把 `shell:AppsFolder\...` 伪路径写进该字段。
 
 ### 4.5 AppFolder 与混合网格顺序
 
@@ -502,7 +511,8 @@ Smoke 模式使用临时目录：
 
 - 启动阶段不再因 `runAsAdministrator` 提升整个 Electron 主界面；GUI 保持普通权限，从根源上保留 Explorer 的 OLE 文件拖放。
 - 旧 `runAsAdministrator: true` 自动沿用为“启动时预授权一次”。窗口显示后启动受限的 elevated termination helper；用户取消 UAC 时主界面继续正常工作，拖放不受影响。
-- 普通关闭先执行普通 `taskkill`；确认目标 PID 仍在运行后才按需启动 helper。本次运行一旦授权成功，单应用、合并卡片、分组、全部关闭和进程页都复用同一连接。
+- 普通关闭先执行普通 `taskkill`；确认目标 PID 仍在运行后，若 helper 尚未授权则由当前关闭操作请求一次 UAC，随后再发送受限 PID 终止请求。用户取消 UAC 时明确提示应用未关闭；授权成功后，本次运行继续复用同一 helper。
+- helper 的 `terminate-server` 通过原生 `hidden` 启动标记运行；`ShellExecuteExW` 使用 `SW_HIDE`，普通 `CreateProcessW` 隐藏路径同时使用 `STARTF_USESHOWWINDOW + CREATE_NO_WINDOW`。高权限 `taskkill` 兼容回退也隐藏窗口，避免黑色命令行长期停留。
 - helper 的命名管道由普通 GUI 创建；双方校验父 PID、Windows 会话、helper PID、协议版本和 32 字节随机 nonce。高权限端只接受 PID 列表的 `terminate`、`ping` 和 `shutdown`，不接受任意命令、路径或 PowerShell。
 - helper 再次拒绝 Start Engineer 自身、进程树祖先、跨会话目标和 Windows 关键进程；GUI 退出或管道断开后 helper 随即退出，避免便携版临时目录被锁定。
 - helper 授权取消、启动失败或意外断开时只发送可关闭 Toast，并允许用户稍后重试；应用页不再显示无法消失的永久权限提示。
@@ -530,6 +540,7 @@ Smoke 模式使用临时目录：
 
 - 添加 `.exe`。
 - 搜索本机候选并添加到当前/默认应用分组。
+- 搜索并添加 Microsoft Store / MSIX 应用；候选以 AUMID 去重，旧 WindowsApps 路径条目会原位升级而不是新增重复卡片。
 - 拖入 `.exe` 或 `.lnk` 自动添加到当前/默认应用分组。
 - 修改启动程序。
 - 编辑名称、启动程序和启动参数；历史 `workingDirectory` 字段继续兼容，但当前编辑弹窗不提供独立工作目录控件。
@@ -541,6 +552,7 @@ Smoke 模式使用临时目录：
 
 本机候选来源：
 
+- Windows Start Apps + AppX 包清单，用于建立 AUMID、PackageFamilyName 与当前 EXE 的映射。
 - 系统开始菜单。
 - 用户开始菜单。
 - 用户桌面。
@@ -558,6 +570,7 @@ Smoke 模式使用临时目录：
 - 主进程 `apps:addDroppedExecutables` 最终校验目标路径存在且扩展名为 `.exe`。
 - 已存在 executablePath 时跳过，不重复添加。
 - 添加后会更新列表、Toast 反馈，并选中新添加应用。
+- Store 应用图标从 `shell:AppsFolder\<AUMID>` 对应的 Shell Item 提取；编辑弹窗和右键菜单显示/复制稳定 Windows 应用标识，而不是鼓励用户依赖版本化安装路径。
 
 ### 5.3 应用卡片交互与键盘导航
 
@@ -618,6 +631,10 @@ Smoke 模式使用临时目录：
 - 返回 `launched` / `alreadyRunning` / `cancelled` / `failed`。
 - 对内嵌清单要求管理员权限的应用，普通启动收到 Windows 错误 740 后才通过 `ShellExecuteExW + runas` 自动请求 UAC 并重试；PowerShell 回退路径保持同样行为，普通应用不会产生额外授权弹窗。
 - 用户取消 UAC 会返回 `cancelled`，界面显示中性取消反馈，不会显示“检查路径和参数”或给卡片添加路径失效标记。
+- Microsoft Store / MSIX 应用走 `IApplicationActivationManager.ActivateApplication(AUMID)`，不直接执行受版本控制的 WindowsApps EXE；helper 不可用时才用 `explorer.exe shell:AppsFolder\<AUMID>` 回退，且不会把 Explorer PID 误记为应用 PID。
+- Store 解析或原生激活失败使用独立错误模型，不给卡片打普通“路径失效”标记，也不自动打开 EXE 选择器。
+- 旧配置如果只有 `C:\Program Files\WindowsApps\<package>_<version>_...\*.exe`，启动前会从 PackageFamilyName、processName/name 精确匹配当前 AUMID，更新同一条 `AppEntry` 并保留 `id`、名称、分组、合并卡片引用与排序。
+- 同一 PackageFamilyName 可能包含多个 Application Id；迁移必须先精确匹配 AUMID，再结合 processName/name 消歧，禁止随意取包内第一个应用。
 
 启动后处理：
 
@@ -719,7 +736,7 @@ C# helper 当前职责：
 - 结束多个无关应用时并行执行，减少串行等待。
 - 危险进程保护。
 - Start Engineer 自身进程保护。
-- 普通 `taskkill /T /F` 失败后按需 UAC。
+- 普通 `taskkill /T /F` 后会重新确认 PID；只有目标仍在运行时才启动或复用会话 helper，并在首次需要时由关闭动作请求 UAC。
 - 管理员 taskkill 后以二次快照为准，不直接把 PowerShell 堆栈暴露给用户。
 
 近期优化点：
@@ -797,9 +814,9 @@ C# helper 当前职责：
 本机可添加应用：
 
 - 由 `apps:searchCandidates(query)` 提供。
-- 来源包括开始菜单、桌面、Everything 补充。
+- 来源包括 Microsoft Store / MSIX、开始菜单、桌面和 Everything 补充。
 - `.lnk` 会解析 target executable、工作目录、启动参数、图标路径。
-- 已添加的 targetPath 不重复添加，结果右侧显示已添加状态。
+- Store 应用按 AUMID、普通应用按 targetPath 判断已添加状态；同一 Store 应用更新包版本后不会出现第二张卡片。
 
 可安装应用：
 
@@ -831,7 +848,7 @@ Everything 兜底：
 当前能力：
 
 - 首次启动且应用列表为空时，延迟扫描候选。
-- 扫描来源包括开始菜单和桌面 `.lnk`。
+- 扫描来源包括 Microsoft Store / MSIX catalog、开始菜单和桌面 `.lnk`。
 - 使用 Windows Script Host 解析快捷方式目标。
 - 过滤非 `.exe`。
 - 排除已存在路径。
@@ -920,7 +937,7 @@ UI 分享码：
 - 关闭行为。
 - 全局快捷键。
 - 可录制的应用内快捷键和恢复全部默认。
-- 启动时预先授权高权限操作；状态区区分正在授权、本次已授权、取消/失败和外部显式提权 GUI。
+- 可选“启动时预先授权关闭高权限应用”；默认关闭并改为首次实际需要时请求 UAC，状态区区分正在授权、本次已授权、取消/失败和外部显式提权 GUI。
 - 运行应用置顶。
 - 实时 UI 编辑、自定义背景色和分享码导入导出。
 - 搜索提供方。
@@ -1004,15 +1021,24 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 
 ### 6.5 正式发布能力不足
 
-当前尚未实现：
+当前已补齐：
+
+- 面向用户的 README、隐私说明、安全策略、贡献指南、故障排查、更新日志和第三方软件说明。
+- GitHub Issue / PR 模板与 Windows CI。
+- 标签触发的 Windows 安装版/便携版构建、SHA-256 清单和草稿 Release；流水线不会直接公开 Release。
+- 设置页版本、数据目录、项目主页和诊断复制入口。
+- Everything/ES 下载固定 SHA-256，校验失败不会解压执行。
+
+仍未实现或需要仓库所有者完成：
 
 - 自动更新。
-- 代码签名。
+- 商业代码签名证书与 SmartScreen 信誉；工作流已预留 Secrets。
 - 崩溃上报。
-- 关于页。
 - 完整新手引导。
-- 发布说明自动化。
-- 卸载时用户数据策略说明。
+- 许可证选择；在明确授权条款前不得把仓库切换为公开。
+- GitHub 仓库可见性、Private vulnerability reporting、分支保护、Dependabot 与第一个正式 Release。
+
+发布操作与人工复核见 `docs/RELEASE_CHECKLIST.md`。当前明确采用手动更新策略，README 必须保留未签名与无自动更新提示。
 
 ## 7. 高优先级优化建议
 
@@ -1173,15 +1199,16 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 - 完善首次导入 UI。
 - 增加推荐分组和候选清理。
 - 路径失效引导重新选择。
-- 增加“打开数据目录 / 复制诊断 / 关于”。
+- “打开数据目录 / 复制诊断 / 关于”已完成；后续补充更细的运行诊断导出和新手引导。
 
 ### 阶段四：准备公开发布
 
+- README、隐私/安全/排障/贡献/更新日志、发布清单、CI、草稿 Release、校验和与应用内关于诊断已完成。
 - 明确默认偏好。
 - 增加自动更新。
-- 配置代码签名。
-- 完善安装版/便携版发布策略。
-- 写面向用户的 README、FAQ、隐私说明和发布说明。
+- 购买证书并配置 `WIN_CSC_LINK` / `WIN_CSC_KEY_PASSWORD`。
+- 选择许可证、公开仓库并启用安全与分支保护设置。
+- 按 `docs/RELEASE_CHECKLIST.md` 在干净 Windows 用户环境完成安装/卸载/便携版验收，再审核并发布草稿 Release。
 
 ## 11. 接手者注意事项
 
@@ -1190,6 +1217,11 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 - 修改卡片交互时务必跑 `pages.test.ts`、`app-card-interaction.test.ts`、`card-click.test.ts`、`keyboard-navigation.test.ts`。
 - 修改运行识别时务必跑 `runtime-monitor.test.ts`、`batch-app-actions.test.ts`。
 - 修改搜索时要关注 `search-panel`、Everything fallback、候选添加、方向键选中不被 runtime 刷新重置。
+- 修改 Store 应用支持时要同时检查：
+  - `windows-store-apps.test.ts` 的 AUMID / PackageFamilyName 解析和多 Application Id 消歧。
+  - `app-discovery.test.ts`、`search-service.test.ts` 的旧版本路径原位迁移与候选去重。
+  - `launch-service.test.ts` 的原生 AUMID 请求、卸载提示和“不要弹 EXE 重选”行为。
+  - `icon-cache.test.ts`、`section-apps.test.ts`、`app-edit-dialog.test.ts` 的图标、聚合去重和稳定标识展示。
 - 修改 `all-apps` 时要同时检查：
   - 普通用户分组排序。
   - `executablePath` 去重是否仍保留用户拖拽排序指定的代表副本。
@@ -1252,11 +1284,13 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 - `D:\Code\Start Engineer\src\main\group-service.ts`
   - 用户分组、多应用卡片、成员迁移和混合网格顺序。
 - `D:\Code\Start Engineer\src\main\launch-service.ts`
-  - 原生应用启动、PowerShell 回退、运行判断和启动后进程关联。
+  - 普通 EXE 与 Store AUMID 原生启动、PowerShell / Explorer 回退、旧路径迁移、运行判断和启动后进程关联。
+- `D:\Code\Start Engineer\src\main\windows-store-apps.ts`
+  - Microsoft Store / MSIX catalog、AUMID 与 PackageFamilyName 解析、当前安装路径映射和旧 WindowsApps 路径消歧。
 - `D:\Code\Start Engineer\src\main\runtime-service.ts`
   - managed/full 采集、RuntimeMonitor 装配、快速状态与批量终止。
 - `D:\Code\Start Engineer\src\main\search-service.ts`
-  - 本机快捷方式、Everything 候选、首次导入和候选添加。
+  - Store catalog、本机快捷方式、Everything 候选、首次导入、候选去重和旧 Store 条目原位修复。
 - `D:\Code\Start Engineer\src\main\preferences-service.ts`
   - 偏好存储、有效状态快照、开机启动、全局快捷键和界面分享码。
 - `D:\Code\Start Engineer\src\main\icon-service.ts`
@@ -1316,6 +1350,6 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 
 ## 13. 当前结论
 
-Start Engineer 已经不只是一个简单启动器。当前代码已经具备应用分组、多应用卡片与混合网格、聚合应用视图、首次导入、搜索添加、拖放添加、可安装应用安全入口、运行监控、实时批量操作反馈、Everything 兜底搜索、托盘、可配置应用内快捷键、全局快捷键、会话级高权限进程控制、Splash、实时 UI 编辑、UI 分享码、统一 Wallpaper Glass 外观的多套配色、独立 Clear Desktop、native 窗口 helper 和窗口唤起诊断等较完整的桌面应用能力。
+Start Engineer 已经不只是一个简单启动器。当前代码已经具备应用分组、多应用卡片与混合网格、聚合应用视图、首次导入、搜索添加、拖放添加、Microsoft Store / MSIX 稳定 AUMID 启动与升级迁移、可安装应用安全入口、运行监控、实时批量操作反馈、Everything 兜底搜索、托盘、可配置应用内快捷键、全局快捷键、会话级高权限进程控制、Splash、实时 UI 编辑、UI 分享码、统一 Wallpaper Glass 外观的多套配色、独立 Clear Desktop、native 窗口 helper 和窗口唤起诊断等较完整的桌面应用能力。
 
 下一阶段最重要的不是继续堆新入口，而是把“运行中应用单击唤起窗口”这条主路径做稳、做快，并降低后台监控成本。只要窗口唤起、运行识别和关闭反馈可靠，Start Engineer 才能真正承担“桌面启动台 / 任务栏辅助入口”的角色。随后再拆分大型控制器、整理设置页信息架构、补齐发布能力，项目会明显更接近可公开发布的状态。

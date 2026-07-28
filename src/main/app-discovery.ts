@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { basename, extname } from "node:path";
 import type { AppEntry, AppGroup, DiscoveredAppCandidate } from "../shared/types.js";
+import { inferPackageFamilyName, type WindowsStoreAppIdentity } from "./windows-store-apps.js";
 
 export type ShortcutSource = DiscoveredAppCandidate["source"];
 
@@ -28,9 +29,10 @@ function chooseGroup(name: string, targetPath: string, groups: AppGroup[]) {
 }
 
 function sourceRank(source: ShortcutSource) {
-  if (source === "start-menu") return 0;
-  if (source === "desktop") return 1;
-  return 3;
+  if (source === "windows-store") return 0;
+  if (source === "start-menu") return 1;
+  if (source === "desktop") return 2;
+  return 4;
 }
 
 function executableStem(value: string) {
@@ -101,24 +103,56 @@ export function buildDiscoveredApps(shortcuts: ShortcutInfo[], groups: AppGroup[
   return [...candidates.values()].sort((a, b) => (a.rank ?? candidateRank(a)) - (b.rank ?? candidateRank(b)) || a.name.localeCompare(b.name, "zh-CN"));
 }
 
+export function buildWindowsStoreAppCandidates(apps: WindowsStoreAppIdentity[], groups: AppGroup[], createId: () => string): DiscoveredAppCandidate[] {
+  return apps.flatMap((app) => {
+    const group = chooseGroup(app.name || app.processName, `${app.appUserModelId} ${app.executablePath}`, groups);
+    if (!group) return [];
+    return [withScore({
+      id: createId(),
+      name: app.name || app.processName,
+      executablePath: app.executablePath,
+      processName: app.processName || app.name,
+      groupId: group.id,
+      category: group.name,
+      source: "windows-store",
+      appUserModelId: app.appUserModelId,
+      workingDirectory: app.workingDirectory
+    })];
+  }).sort((a, b) => (a.rank ?? candidateRank(a)) - (b.rank ?? candidateRank(b)) || a.name.localeCompare(b.name, "zh-CN"));
+}
+
 export function filterNewShortcuts(shortcuts: ShortcutInfo[], existingPaths: string[]) {
   const existing = new Set(existingPaths.map(normalizePath));
   return shortcuts.filter((shortcut) => shortcut.targetPath && !existing.has(normalizePath(shortcut.targetPath)) && existsSync(shortcut.targetPath));
 }
 
-export function searchDiscoveredAppCandidates(candidates: DiscoveredAppCandidate[], query: string, existingApps: Pick<AppEntry, "id" | "executablePath" | "groupId">[]) {
+export function searchDiscoveredAppCandidates(candidates: DiscoveredAppCandidate[], query: string, existingApps: Pick<AppEntry, "id" | "name" | "processName" | "executablePath" | "groupId" | "appUserModelId">[]) {
   const normalized = query.trim().toLocaleLowerCase();
   if (!normalized) return [];
-  const existingByPath = new Map(existingApps.map((app) => [normalizePath(app.executablePath), app]));
+  const existingByPath = new Map(existingApps.flatMap((app) => {
+    const path = normalizePath(app.executablePath);
+    return path ? [[path, app] as const] : [];
+  }));
+  const existingByAppUserModelId = new Map(existingApps.flatMap((app) => app.appUserModelId ? [[app.appUserModelId.toLocaleLowerCase(), app] as const] : []));
 
   return candidates
     .filter((candidate) => {
       if (isLowQualityCandidate(candidate)) return false;
-      const searchable = `${candidate.name} ${candidate.processName} ${candidate.executablePath}`.toLocaleLowerCase();
+      const searchable = `${candidate.name} ${candidate.processName} ${candidate.executablePath} ${candidate.appUserModelId ?? ""}`.toLocaleLowerCase();
       return searchable.includes(normalized);
     })
     .map((candidate) => {
-      const existing = existingByPath.get(normalizePath(candidate.executablePath));
+      const appUserModelId = candidate.appUserModelId?.toLocaleLowerCase();
+      const packageFamilyName = appUserModelId?.split("!")[0];
+      const existing = (appUserModelId ? existingByAppUserModelId.get(appUserModelId) : undefined)
+        ?? (candidate.executablePath ? existingByPath.get(normalizePath(candidate.executablePath)) : undefined)
+        ?? (packageFamilyName ? existingApps.find((app) => {
+          if (app.appUserModelId || inferPackageFamilyName(app.executablePath).toLocaleLowerCase() !== packageFamilyName) return false;
+          const candidateProcess = candidate.processName.trim().toLocaleLowerCase();
+          const existingProcess = app.processName.trim().toLocaleLowerCase();
+          return Boolean(candidateProcess && existingProcess && candidateProcess === existingProcess)
+            || candidate.name.trim().toLocaleLowerCase() === app.name.trim().toLocaleLowerCase();
+        }) : undefined);
       return withScore({
         ...candidate,
         alreadyAdded: Boolean(existing),

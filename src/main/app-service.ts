@@ -54,7 +54,8 @@ export class AppService {
         ...entry,
         ...input,
         processName: basename(input.executablePath!, extname(input.executablePath!)),
-        workingDirectory: Object.prototype.hasOwnProperty.call(input, "workingDirectory") ? input.workingDirectory : dirname(input.executablePath!)
+        workingDirectory: Object.prototype.hasOwnProperty.call(input, "workingDirectory") ? input.workingDirectory : dirname(input.executablePath!),
+        appUserModelId: Object.prototype.hasOwnProperty.call(input, "appUserModelId") ? input.appUserModelId : undefined
       } : { ...entry, ...input };
       return executableChanged ? this.options.cacheIcon(next) : next;
     }));

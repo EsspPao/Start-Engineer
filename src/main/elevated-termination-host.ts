@@ -49,6 +49,17 @@ export function isValidElevatedHello(hello: ElevatedHello, expected: { pid: numb
   return actual.length === wanted.length && timingSafeEqual(actual, wanted);
 }
 
+export function buildElevatedTerminationLaunchRequest(executablePath: string, parentPid: number, pipeName: string, nonce: string): NativeLaunchRequest {
+  return {
+    executablePath,
+    workingDirectory: dirname(executablePath),
+    arguments: ["terminate-server", "--pipe", pipeName, "--parent-pid", String(parentPid), "--nonce", nonce],
+    elevated: true,
+    waitForExit: false,
+    hidden: true
+  };
+}
+
 export class ElevatedTerminationHost {
   private state: ElevatedTerminationState = { status: "disabled" };
   private readonly listeners = new Set<(state: ElevatedTerminationState) => void>();
@@ -88,7 +99,10 @@ export class ElevatedTerminationHost {
   async terminate(pids: number[]) {
     const normalized = normalizeTerminationPids(pids);
     if (!normalized.length) return;
-    await this.start();
+    if (this.state.status === "starting" && this.startPromise) await this.startPromise;
+    if (this.state.status !== "ready") {
+      throw Object.assign(new Error("高权限进程控制尚未授权"), { code: "ELEVATION_REQUIRED" });
+    }
     await this.request("terminate", normalized, this.options.requestTimeoutMs ?? 15_000);
   }
 
@@ -121,13 +135,7 @@ export class ElevatedTerminationHost {
       await this.listen(pipePath, (socket) => this.authenticateCandidate(socket, expectedPid, parentPid, nonce, resolveAuthenticated));
       const executablePath = this.options.resolveNativeHelperPath();
       if (!executablePath) throw new Error("native helper unavailable");
-      const raw = await this.options.runNativeHelper("launch", {
-        executablePath,
-        workingDirectory: dirname(executablePath),
-        arguments: ["terminate-server", "--pipe", pipeName, "--parent-pid", String(parentPid), "--nonce", nonce],
-        elevated: true,
-        waitForExit: false
-      } satisfies NativeLaunchRequest, 120_000);
+      const raw = await this.options.runNativeHelper("launch", buildElevatedTerminationLaunchRequest(executablePath, parentPid, pipeName, nonce), 120_000);
       const launch = normalizeNativeLaunchResult(JSON.parse(raw));
       if (!launch.ok) {
         if (launch.errorCode === 1223) throw Object.assign(new Error("管理员授权已取消"), { code: "ELEVATION_CANCELLED" });

@@ -1,6 +1,6 @@
-import { app, globalShortcut } from "electron";
+import { app, globalShortcut, shell } from "electron";
 import { randomUUID } from "node:crypto";
-import { cpus } from "node:os";
+import { cpus, release as osRelease } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
@@ -37,6 +37,8 @@ import { metricsFromFocusHints } from "./focus-hints.js";
 import { AppWindowService } from "./app-window-service.js";
 import { AppAdditionService } from "./app-addition-service.js";
 import { ElevatedTerminationHost, type ElevatedTerminationStatus } from "./elevated-termination-host.js";
+import { registerAppInfoIpc } from "./app-info-ipc.js";
+import { WindowsStoreAppService } from "./windows-store-apps.js";
 
 const isDev = process.env.VITE_DEV_SERVER_URL !== undefined;
 const appRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -46,6 +48,7 @@ const preloadPath = join(appRoot, "dist-electron", "preload", "preload.cjs");
 const appIconPath = () => app.isPackaged ? join(process.resourcesPath, "icon.ico") : join(appRoot, "build", "icon.ico");
 const trayIconPath = () => app.isPackaged ? join(process.resourcesPath, "tray-icon.png") : join(appRoot, "build", "tray-icon.png");
 const smokeMode = process.env.START_ENGINEER_SMOKE === "1" || process.env.STAR_ENGINEER_SMOKE === "1";
+const repositoryUrl = "https://github.com/EsspPao/Start-Engineer";
 const startEngineerUserData = smokeMode ? join(app.getPath("temp"), `start-engineer-smoke-${process.pid}`) : join(app.getPath("appData"), "start-engineer");
 if (!smokeMode) migrateLegacyUserData(startEngineerUserData, join(app.getPath("appData"), "commanddeck-next"));
 app.setPath("userData", startEngineerUserData);
@@ -77,6 +80,7 @@ const processControlService = new ProcessControlService({
   elevatedTerminationHost
 });
 const runPowerShell = (script: string) => processControlService.runPowerShell(script);
+const windowsStoreAppService = new WindowsStoreAppService({ runPowerShell });
 const groupService = new GroupService({
   groupsPath,
   foldersPath,
@@ -215,7 +219,8 @@ searchService = new SearchService({
   loadApps,
   saveApps,
   cacheIcon: (entry) => iconService.cache(entry),
-  randomId: randomUUID
+  randomId: randomUUID,
+  listWindowsStoreApps: () => windowsStoreAppService.list()
 });
 
 runtimeService = new RuntimeService({
@@ -248,12 +253,32 @@ launchService = new LaunchService({
   getManagedRunningStatus,
   getProcessSnapshots: () => getProcessSnapshots("full"),
   buildRuntimeSnapshot: (force) => buildRuntimeSnapshot("managed", force),
-  runtimeAssociatedPids
+  runtimeAssociatedPids,
+  resolveWindowsStoreApp: (entry) => windowsStoreAppService.resolve(entry)
 });
 
 const launchConfiguredApp = (id: string, options?: { waitForAssociation?: boolean }) => launchService.launch(id, options);
 
 function registerIpc() {
+  registerAppInfoIpc({
+    getAppInfo: () => ({
+      version: app.getVersion(),
+      electronVersion: process.versions.electron ?? "unknown",
+      chromeVersion: process.versions.chrome ?? "unknown",
+      nodeVersion: process.versions.node,
+      platform: process.platform,
+      arch: process.arch,
+      systemVersion: osRelease(),
+      userDataPath: app.getPath("userData"),
+      isPackaged: app.isPackaged,
+      repositoryUrl
+    }),
+    openUserDataDirectory: async () => {
+      const error = await shell.openPath(app.getPath("userData"));
+      if (error) throw new Error(error);
+    },
+    openProjectHomepage: async () => { await shell.openExternal(repositoryUrl); }
+  });
   registerLibraryIpc({
     apps: appService,
     groups: groupService,

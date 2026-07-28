@@ -15,6 +15,7 @@ export type AppEntry = {
   iconPixelSize?: number;
   launchArgs?: string;
   workingDirectory?: string;
+  appUserModelId?: string;
   launchedPid?: number;
   processAliases?: string[];
   associatedPids?: number[];
@@ -264,7 +265,8 @@ export type DiscoveredAppCandidate = {
   processName: string;
   groupId: string;
   category: string;
-  source: "start-menu" | "desktop" | "everything";
+  source: "windows-store" | "start-menu" | "desktop" | "everything";
+  appUserModelId?: string;
   shortcutPath?: string;
   workingDirectory?: string;
   launchArgs?: string;
@@ -302,7 +304,23 @@ export type AddDroppedExecutablesResult = {
   skippedPaths: string[];
 };
 
+export type AppInfo = {
+  version: string;
+  electronVersion: string;
+  chromeVersion: string;
+  nodeVersion: string;
+  platform: string;
+  arch: string;
+  systemVersion: string;
+  userDataPath: string;
+  isPackaged: boolean;
+  repositoryUrl: string;
+};
+
 export type StartEngineerApi = {
+  getAppInfo: () => Promise<AppInfo>;
+  openUserDataDirectory: () => Promise<void>;
+  openProjectHomepage: () => Promise<void>;
   listGroups: () => Promise<AppGroup[]>;
   createGroup: (input: GroupInput) => Promise<AppGroup[]>;
   updateGroup: (input: GroupUpdateInput) => Promise<AppGroup[]>;

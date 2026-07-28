@@ -29,8 +29,13 @@ export async function terminatePids(pids: number[], dependencies: ProcessTermina
   try {
     await dependencies.runElevated(remaining);
   } catch (reason) {
-    if (reason instanceof Error && "code" in reason && reason.code === "ELEVATION_CANCELLED") {
-      throw new Error("已取消管理员授权，未能结束应用进程");
+    if (reason instanceof Error && "code" in reason) {
+      if (reason.code === "ELEVATION_CANCELLED") {
+        throw new Error("已取消管理员授权，未能结束应用进程");
+      }
+      if (reason.code === "ELEVATION_REQUIRED") {
+        throw new Error("关闭该应用需要管理员授权，请重试并在 Windows UAC 中选择“是”");
+      }
     }
     // taskkill can report a non-zero exit code when one of the target PIDs has
     // already exited. The follow-up snapshot below is the source of truth.

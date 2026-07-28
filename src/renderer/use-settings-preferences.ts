@@ -148,8 +148,8 @@ export function useSettingsPreferences({
         : preferences.elevatedTerminationStatus === "starting"
           ? "正在请求本次运行的管理员授权"
           : preferences.runAsAdministrator
-            ? "将在启动时预先授权；本次可立即授权或按需授权"
-            : "需要结束高权限应用时授权一次，本次运行后续不再重复询问");
+            ? "将在启动时预先授权；本次也可点击按钮明确授权"
+            : "主界面保持普通权限；关闭高权限应用时按需请求 UAC");
 
   return {
     administratorStatus,

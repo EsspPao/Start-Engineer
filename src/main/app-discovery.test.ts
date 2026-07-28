@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDiscoveredApps, searchDiscoveredAppCandidates } from "./app-discovery.js";
+import { buildDiscoveredApps, buildWindowsStoreAppCandidates, searchDiscoveredAppCandidates } from "./app-discovery.js";
 
 describe("app discovery", () => {
   it("deduplicates shortcuts by executable path and assigns a sensible group", () => {
@@ -78,5 +78,35 @@ describe("app discovery", () => {
 
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({ name: "WeGame", source: "desktop" });
+  });
+
+  it("matches a Store candidate to the same legacy app after its versioned path changes", () => {
+    const groups = [{ id: "tools", name: "工具", icon: "wrench", isSystem: false, order: 0 }];
+    const [candidate] = buildWindowsStoreAppCandidates([{
+      name: "ChatGPT",
+      appUserModelId: "OpenAI.Codex_2p2nqsd0c76g0!App",
+      packageFamilyName: "OpenAI.Codex_2p2nqsd0c76g0",
+      executablePath: "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.721.4979.0_x64__2p2nqsd0c76g0\\app\\ChatGPT.exe",
+      processName: "ChatGPT",
+      workingDirectory: "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.721.4979.0_x64__2p2nqsd0c76g0\\app"
+    }], groups, () => "store-candidate");
+
+    const results = searchDiscoveredAppCandidates([candidate], "chat", [{
+      id: "existing-chatgpt",
+      name: "我的 ChatGPT",
+      category: "工具",
+      groupId: "tools",
+      executablePath: "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.715.7063.0_x64__2p2nqsd0c76g0\\app\\ChatGPT.exe",
+      processName: "ChatGPT",
+      accent: "#2f66e8"
+    }]);
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({
+      source: "windows-store",
+      appUserModelId: "OpenAI.Codex_2p2nqsd0c76g0!App",
+      alreadyAdded: true,
+      existingAppId: "existing-chatgpt"
+    });
   });
 });

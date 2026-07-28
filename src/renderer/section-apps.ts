@@ -31,12 +31,14 @@ function normalizeExecutablePath(value: string) {
   return value.trim().replace(/\//g, "\\").toLocaleLowerCase();
 }
 
-export function dedupeAllApps<T extends Pick<AppEntry, "id" | "executablePath">>(apps: T[]) {
+export function dedupeAllApps<T extends Pick<AppEntry, "id" | "executablePath" | "appUserModelId">>(apps: T[]) {
   const seen = new Set<string>();
   const result: T[] = [];
   for (const app of apps) {
     const pathKey = normalizeExecutablePath(app.executablePath);
-    const key = pathKey || `id:${app.id}`;
+    const key = app.appUserModelId?.trim().toLocaleLowerCase()
+      ? `aumid:${app.appUserModelId.trim().toLocaleLowerCase()}`
+      : pathKey || `id:${app.id}`;
     if (seen.has(key)) continue;
     seen.add(key);
     result.push(app);

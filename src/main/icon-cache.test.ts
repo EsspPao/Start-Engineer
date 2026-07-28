@@ -37,4 +37,12 @@ describe("shouldRefreshAppIcon", () => {
   it("does not retry entries without an executable", () => {
     expect(shouldRefreshAppIcon(entry({ executablePath: "" }), false)).toBe(false);
   });
+
+  it("refreshes a Windows Store entry from its stable application identity", () => {
+    expect(shouldRefreshAppIcon(entry({
+      executablePath: "",
+      appUserModelId: "OpenAI.Codex_2p2nqsd0c76g0!App",
+      iconDataUrl: undefined
+    }), false)).toBe(true);
+  });
 });

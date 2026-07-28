@@ -65,4 +65,43 @@ describe("app edit dialog", () => {
     expect(html).toContain("编辑应用信息");
     expect(html).not.toContain("修改启动程序");
   });
+
+  it("Windows Store 应用显示稳定标识而不是版本化安装路径", () => {
+    const storeApp = {
+      ...app,
+      appUserModelId: "OpenAI.Codex_2p2nqsd0c76g0!App",
+      executablePath: "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.721.4979.0_x64__2p2nqsd0c76g0\\app\\ChatGPT.exe"
+    };
+    const dialogHtml = renderToStaticMarkup(createElement(AppEditDialog, {
+      state: {
+        id: storeApp.id,
+        name: "ChatGPT",
+        executablePath: storeApp.executablePath,
+        launchArgs: "",
+        appUserModelId: storeApp.appUserModelId
+      },
+      onClose: vi.fn(),
+      onPickExecutable: vi.fn(async () => null),
+      onSave: vi.fn(async () => undefined)
+    }));
+    const menuHtml = renderToStaticMarkup(createElement(AppContextMenu, {
+      state: { kind: "app", x: 24, y: 24, appId: storeApp.id },
+      app: storeApp,
+      groups,
+      onClose: vi.fn(),
+      onLaunch: vi.fn(),
+      onKill: vi.fn(),
+      onEdit: vi.fn(),
+      onMove: vi.fn(async () => undefined),
+      onRemove: vi.fn(),
+      onNotice: vi.fn(),
+      onError: vi.fn()
+    }));
+
+    expect(dialogHtml).toContain("Windows 应用标识");
+    expect(dialogHtml).toContain("OpenAI.Codex_2p2nqsd0c76g0!App");
+    expect(dialogHtml).not.toContain("OpenAI.Codex_26.721.4979.0");
+    expect(dialogHtml).toContain("改用本地程序");
+    expect(menuHtml).toContain("复制 Windows 应用标识");
+  });
 });

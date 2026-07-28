@@ -15,8 +15,17 @@ describe("configuration migration", () => {
   it("migrates legacy apps without changing optional launch data", () => {
     const migrated = migrateAppEntry({
       name: "Demo", executablePath: "C:\\Apps\\demo.exe", launchArgs: "--silent", workingDirectory: "C:\\Apps",
-      iconCacheVersion: 2, iconPixelSize: 128
+      iconCacheVersion: 2, iconPixelSize: 128, appUserModelId: "Demo.Package_family!App"
     }, "tools", () => "generated");
-    expect(migrated).toMatchObject({ id: "generated", groupId: "tools", processName: "demo", launchArgs: "--silent", workingDirectory: "C:\\Apps", iconCacheVersion: 2, iconPixelSize: 128 });
+    expect(migrated).toMatchObject({
+      id: "generated",
+      groupId: "tools",
+      processName: "demo",
+      launchArgs: "--silent",
+      workingDirectory: "C:\\Apps",
+      iconCacheVersion: 2,
+      iconPixelSize: 128,
+      appUserModelId: "Demo.Package_family!App"
+    });
   });
 });

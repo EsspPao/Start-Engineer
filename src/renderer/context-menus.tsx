@@ -53,7 +53,7 @@ export function AppContextMenu({ state, app, groups, onClose, onLaunch, onKill, 
     <MenuButton disabled={!app.executablePath} onClick={() => { onClose(); void api().showItemInFolder(app.executablePath).catch((reason) => onError(reason.message)); }}>打开文件所在位置</MenuButton>
     <MenuDivider /><MenuButton onClick={() => invoke(() => onEdit(app))}>编辑应用信息</MenuButton><div className="menu-label">移动到分组</div>
     {groups.map((group) => <MenuButton key={group.id} disabled={app.groupId === group.id} onClick={() => { onClose(); void onMove(app.id, group.id); }}>{group.name}{app.groupId === group.id ? "（当前）" : ""}</MenuButton>)}
-    <MenuDivider /><MenuButton disabled={!app.executablePath} onClick={() => { onClose(); void api().writeClipboardText(app.executablePath).catch((reason) => onError(reason.message)); }}>复制程序路径</MenuButton><MenuButton danger onClick={() => invoke(() => onRemove(app))}>移除应用</MenuButton>
+    <MenuDivider /><MenuButton disabled={!app.executablePath && !app.appUserModelId} onClick={() => { onClose(); void api().writeClipboardText(app.appUserModelId || app.executablePath).catch((reason) => onError(reason.message)); }}>{app.appUserModelId ? "复制 Windows 应用标识" : "复制程序路径"}</MenuButton><MenuButton danger onClick={() => invoke(() => onRemove(app))}>移除应用</MenuButton>
   </ContextMenu>;
 }
 

@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AppEntry } from "../shared/types.js";
 import { APP_ICON_CACHE_VERSION, APP_ICON_TARGET_SIZE, shouldRefreshAppIcon } from "./icon-cache.js";
+import { windowsStoreShellTarget } from "./windows-store-apps.js";
 
 type IconServiceOptions = {
   iconCacheDir: () => string;
@@ -45,20 +46,21 @@ export class IconService {
   }
 
   async cache(entry: AppEntry) {
-    if (!entry.executablePath || !existsSync(entry.executablePath)) return this.fallbackEntry(entry);
+    const iconSource = entry.appUserModelId ? windowsStoreShellTarget(entry.appUserModelId) : entry.executablePath;
+    if (!iconSource || (!entry.appUserModelId && !existsSync(iconSource))) return this.fallbackEntry(entry);
     try {
       mkdirSync(this.options.iconCacheDir(), { recursive: true });
-      let image = await this.getShellIcon(entry.executablePath).catch((reason) => {
+      let image = await this.getShellIcon(iconSource).catch((reason) => {
         console.warn(`[icons] Shell extraction failed for ${entry.name}:`, reason);
         return null;
       });
-      if (!image) image = await app.getFileIcon(entry.executablePath, { size: "large" });
-      if (image.isEmpty()) return this.fallbackEntry(entry);
+      if (!image && existsSync(entry.executablePath)) image = await app.getFileIcon(entry.executablePath, { size: "large" });
+      if (!image || image.isEmpty()) return this.fallbackEntry(entry);
       const iconPath = join(this.options.iconCacheDir(), `${entry.id}.png`);
       const iconDataUrl = image.toDataURL();
       const size = image.getSize();
       writeFileSync(iconPath, image.toPNG());
-      this.processIconCache.set(entry.executablePath.toLowerCase(), iconDataUrl);
+      this.processIconCache.set(iconSource.toLowerCase(), iconDataUrl);
       return { ...entry, iconCachePath: iconPath, iconDataUrl, iconCacheVersion: APP_ICON_CACHE_VERSION, iconPixelSize: Math.min(size.width, size.height) };
     } catch (reason) {
       console.warn(`[icons] Icon cache failed for ${entry.name}:`, reason);

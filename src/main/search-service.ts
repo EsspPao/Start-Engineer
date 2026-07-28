@@ -1,9 +1,10 @@
 import { existsSync } from "node:fs";
 import { basename, dirname, extname, join } from "node:path";
 import type { AppEntry, AppGroup, AppPreferences, DiscoveredAppCandidate } from "../shared/types.js";
-import { buildDiscoveredApps, filterNewShortcuts, searchDiscoveredAppCandidates, type ShortcutInfo, type ShortcutSource } from "./app-discovery.js";
+import { buildDiscoveredApps, buildWindowsStoreAppCandidates, filterNewShortcuts, searchDiscoveredAppCandidates, type ShortcutInfo, type ShortcutSource } from "./app-discovery.js";
 import { searchEverything } from "./everything-search.js";
 import { runNativeHelper } from "./native-helper.js";
+import { inferPackageFamilyName, type WindowsStoreAppIdentity } from "./windows-store-apps.js";
 
 type SearchServiceOptions = {
   getPath: (name: "appData" | "desktop") => string;
@@ -16,6 +17,7 @@ type SearchServiceOptions = {
   saveApps: (apps: AppEntry[]) => AppEntry[] | void;
   cacheIcon: (entry: AppEntry) => Promise<AppEntry>;
   randomId: () => string;
+  listWindowsStoreApps?: () => Promise<WindowsStoreAppIdentity[]>;
 };
 
 const normalizePath = (value: string) => value.replace(/\//g, "\\").replace(/\\+$/, "").toLowerCase();
@@ -28,21 +30,41 @@ export class SearchService {
   constructor(private readonly options: SearchServiceOptions) {}
 
   async searchCandidates(query: string) {
-    const base = await this.discoveryShortcuts();
-    const everything = await this.everythingShortcuts(query);
-    this.candidates = buildDiscoveredApps([...base, ...everything], this.options.getGroups(), this.options.randomId);
+    const [base, everything, windowsStoreApps] = await Promise.all([
+      this.discoveryShortcuts(),
+      this.everythingShortcuts(query),
+      this.options.listWindowsStoreApps?.().catch(() => []) ?? Promise.resolve([])
+    ]);
+    const fileCandidates = buildDiscoveredApps([...base, ...everything], this.options.getGroups(), this.options.randomId);
+    const storeCandidates = buildWindowsStoreAppCandidates(windowsStoreApps, this.options.getGroups(), this.options.randomId);
+    this.candidates = this.mergeCandidates(storeCandidates, fileCandidates);
     return searchDiscoveredAppCandidates(this.candidates, query, this.options.loadApps());
   }
 
   async refreshIndex() {
-    this.shortcuts = await this.discoverShortcuts();
-    this.candidates = buildDiscoveredApps(this.shortcuts, this.options.getGroups(), this.options.randomId);
+    const [shortcuts, windowsStoreApps] = await Promise.all([
+      this.discoverShortcuts(),
+      this.options.listWindowsStoreApps?.().catch(() => []) ?? Promise.resolve([])
+    ]);
+    this.shortcuts = shortcuts;
+    this.candidates = this.mergeCandidates(
+      buildWindowsStoreAppCandidates(windowsStoreApps, this.options.getGroups(), this.options.randomId),
+      buildDiscoveredApps(this.shortcuts, this.options.getGroups(), this.options.randomId)
+    );
     return searchDiscoveredAppCandidates(this.candidates, "", this.options.loadApps());
   }
 
   async discoverImportCandidates() {
-    const shortcuts = filterNewShortcuts(await this.discoveryShortcuts(true), this.options.loadApps().map((entry) => entry.executablePath));
-    this.importCandidates = buildDiscoveredApps(shortcuts, this.options.getGroups(), this.options.randomId).slice(0, 80);
+    const currentApps = this.options.loadApps();
+    const [shortcuts, windowsStoreApps] = await Promise.all([
+      this.discoveryShortcuts(true),
+      this.options.listWindowsStoreApps?.().catch(() => []) ?? Promise.resolve([])
+    ]);
+    const newShortcuts = filterNewShortcuts(shortcuts, currentApps.map((entry) => entry.executablePath));
+    const fileCandidates = buildDiscoveredApps(newShortcuts, this.options.getGroups(), this.options.randomId);
+    const storeCandidates = buildWindowsStoreAppCandidates(windowsStoreApps, this.options.getGroups(), this.options.randomId)
+      .filter((candidate) => !this.findExistingCandidate(candidate, currentApps));
+    this.importCandidates = this.mergeCandidates(storeCandidates, fileCandidates).slice(0, 80);
     return this.importCandidates;
   }
 
@@ -60,17 +82,28 @@ export class SearchService {
   async addCandidate(candidateId: string, groupId: string) {
     const candidate = this.candidates.find((item) => item.id === candidateId);
     if (!candidate) throw new Error("未找到该应用候选");
-    const existing = this.options.loadApps().find((entry) => normalizePath(entry.executablePath) === normalizePath(candidate.executablePath));
-    if (existing) return { apps: this.options.loadApps(), appId: existing.id, added: false, alreadyAdded: true };
-    if (!existsSync(candidate.executablePath)) throw new Error("无法解析快捷方式");
+    const currentApps = this.options.loadApps();
+    const existing = this.findExistingCandidate(candidate, currentApps);
+    if (existing) {
+      if (candidate.appUserModelId) {
+        const repaired = await this.options.cacheIcon(this.storeEntryFromCandidate(candidate, existing.groupId, existing.category, existing));
+        const apps = currentApps.map((entry) => entry.id === existing.id ? repaired : entry);
+        this.options.saveApps(apps);
+        return { apps, appId: existing.id, added: false, alreadyAdded: true };
+      }
+      return { apps: currentApps, appId: existing.id, added: false, alreadyAdded: true };
+    }
+    if (!candidate.appUserModelId && !existsSync(candidate.executablePath)) throw new Error("无法解析快捷方式");
     const validGroupId = this.options.validGroupId(groupId);
     const group = this.options.getGroups().find((item) => item.id === validGroupId)!;
-    const entry = await this.options.cacheIcon({
-      id: this.options.randomId(), name: candidate.name, category: group.name, groupId: group.id,
-      executablePath: candidate.executablePath, processName: candidate.processName,
-      workingDirectory: candidate.workingDirectory || dirname(candidate.executablePath), launchArgs: candidate.launchArgs, accent: "#2f66e8"
-    });
-    const apps = [...this.options.loadApps(), entry];
+    const entry = await this.options.cacheIcon(candidate.appUserModelId
+      ? this.storeEntryFromCandidate(candidate, group.id, group.name)
+      : {
+        id: this.options.randomId(), name: candidate.name, category: group.name, groupId: group.id,
+        executablePath: candidate.executablePath, processName: candidate.processName,
+        workingDirectory: candidate.workingDirectory || dirname(candidate.executablePath), launchArgs: candidate.launchArgs, accent: "#2f66e8"
+      });
+    const apps = [...currentApps, entry];
     this.options.saveApps(apps);
     return { apps, appId: entry.id, added: true };
   }
@@ -81,13 +114,17 @@ export class SearchService {
     const imported: AppEntry[] = [];
     for (const candidate of this.importCandidates.filter((item) => selected.has(item.id))) {
       const key = candidate.executablePath.trim().toLowerCase();
-      if (!key || existing.has(key) || !existsSync(candidate.executablePath)) continue;
-      existing.add(key);
-      imported.push(await this.options.cacheIcon({
-        id: this.options.randomId(), name: candidate.name, category: candidate.category,
-        groupId: this.options.validGroupId(candidate.groupId), executablePath: candidate.executablePath,
-        processName: candidate.processName, workingDirectory: dirname(candidate.executablePath), accent: "#2f66e8"
-      }));
+      if ((!candidate.appUserModelId && (!key || !existsSync(candidate.executablePath))) || (key && existing.has(key))) continue;
+      if (this.findExistingCandidate(candidate, [...this.options.loadApps(), ...imported])) continue;
+      if (key) existing.add(key);
+      imported.push(await this.options.cacheIcon(candidate.appUserModelId
+        ? this.storeEntryFromCandidate(candidate, this.options.validGroupId(candidate.groupId), candidate.category)
+        : {
+          id: this.options.randomId(), name: candidate.name, category: candidate.category,
+          groupId: this.options.validGroupId(candidate.groupId), executablePath: candidate.executablePath,
+          processName: candidate.processName, workingDirectory: candidate.workingDirectory || dirname(candidate.executablePath),
+          launchArgs: candidate.launchArgs, accent: "#2f66e8"
+        }));
     }
     const apps = [...this.options.loadApps(), ...imported];
     this.options.saveApps(apps);
@@ -161,5 +198,54 @@ $rows | ConvertTo-Json -Compress`;
     if (!trimmed) return [];
     const parsed = JSON.parse(trimmed) as ShortcutInfo[] | ShortcutInfo;
     return Array.isArray(parsed) ? parsed : [parsed];
+  }
+
+  private mergeCandidates(...candidateSets: DiscoveredAppCandidate[][]) {
+    const merged = new Map<string, DiscoveredAppCandidate>();
+    const seenPaths = new Set<string>();
+    for (const candidate of candidateSets.flat()) {
+      const normalizedPath = normalizePath(candidate.executablePath);
+      if (normalizedPath && seenPaths.has(normalizedPath)) continue;
+      const key = candidate.appUserModelId
+        ? `aumid:${candidate.appUserModelId.toLocaleLowerCase()}`
+        : `path:${normalizedPath}`;
+      if (!merged.has(key)) {
+        merged.set(key, candidate);
+        if (normalizedPath) seenPaths.add(normalizedPath);
+      }
+    }
+    return [...merged.values()];
+  }
+
+  private findExistingCandidate(candidate: DiscoveredAppCandidate, apps: AppEntry[]) {
+    const appUserModelId = candidate.appUserModelId?.toLocaleLowerCase();
+    const packageFamilyName = appUserModelId?.split("!")[0];
+    return apps.find((entry) => {
+      if (appUserModelId && entry.appUserModelId?.toLocaleLowerCase() === appUserModelId) return true;
+      if (candidate.executablePath && normalizePath(entry.executablePath) === normalizePath(candidate.executablePath)) return true;
+      if (!entry.appUserModelId && packageFamilyName && inferPackageFamilyName(entry.executablePath).toLocaleLowerCase() === packageFamilyName) {
+        return entry.processName.trim().toLocaleLowerCase() === candidate.processName.trim().toLocaleLowerCase()
+          || entry.name.trim().toLocaleLowerCase() === candidate.name.trim().toLocaleLowerCase();
+      }
+      return false;
+    });
+  }
+
+  private storeEntryFromCandidate(candidate: DiscoveredAppCandidate, groupId: string, category: string, existing?: AppEntry): AppEntry {
+    const executablePath = candidate.executablePath;
+    return {
+      ...(existing ?? {
+        id: this.options.randomId(),
+        name: candidate.name,
+        accent: "#2f66e8"
+      }),
+      name: existing?.name || candidate.name,
+      category,
+      groupId,
+      executablePath,
+      processName: candidate.processName || existing?.processName || candidate.name,
+      ...(candidate.workingDirectory ? { workingDirectory: candidate.workingDirectory } : { workingDirectory: undefined }),
+      appUserModelId: candidate.appUserModelId
+    };
   }
 }

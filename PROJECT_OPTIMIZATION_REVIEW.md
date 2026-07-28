@@ -1,5 +1,7 @@
 # Start Engineer 项目优化分析文档
 
+> 历史审计快照：本文保留用于追踪早期设计判断，部分功能、主题、测试数量和发布状态已经过时。当前实现与维护约定请以 `PROJECT_OPTIMIZATION.md`、`README.md` 和实际代码为准。
+
 本文档基于当前仓库 `D:\Code\Start Engineer` 的真实代码生成，面向后续接手的 AI 或开发者。当前目标不是修复启动或打包问题，而是继续让 Start Engineer 更轻量、更稳定、更易用，并更接近一个成熟的 Windows 桌面应用。
 
 

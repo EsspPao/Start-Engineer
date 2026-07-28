@@ -12,7 +12,7 @@ export function ToastStack({ notice, error, onDismissNotice, onDismissError }: {
 }
 
 export function FirstRunImportDialog({ candidates, selectedIds, busy, onToggle, onSkip, onImport }: { candidates: DiscoveredAppCandidate[]; selectedIds: Set<string>; busy: boolean; onToggle: (id: string) => void; onSkip: () => void; onImport: () => void }) {
-  const sourceLabel = (source: DiscoveredAppCandidate["source"]) => source === "desktop" ? "桌面" : "开始菜单";
+  const sourceLabel = (source: DiscoveredAppCandidate["source"]) => source === "windows-store" ? "Microsoft Store" : source === "desktop" ? "桌面" : source === "everything" ? "本机结果" : "开始菜单";
   return <div className="modal-backdrop no-drag"><section className="dialog import-dialog" onPointerDown={(event) => event.stopPropagation()}><div className="import-heading"><span className="import-spark">✦</span><div><h2>发现可导入应用</h2><p>选择要加入 Start Engineer 的应用。</p></div></div><div className="import-list">{candidates.map((candidate) => <button key={candidate.id} className={`import-row ${selectedIds.has(candidate.id) ? "selected" : ""}`} onClick={() => onToggle(candidate.id)}><span className="import-check">{selectedIds.has(candidate.id) ? "✓" : ""}</span><span><strong>{candidate.name}</strong><small>{candidate.category} · {sourceLabel(candidate.source)}</small></span></button>)}</div><div className="dialog-actions"><button className="ghost" disabled={busy} onClick={onSkip}>跳过</button><button className="launch" disabled={busy || selectedIds.size === 0} onClick={onImport}>{busy ? "导入中..." : `导入 ${selectedIds.size} 个`}</button></div></section></div>;
 }
 

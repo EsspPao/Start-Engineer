@@ -2,6 +2,9 @@ import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type { AppEntry, AppFolderInput, AppFolderUpdateInput, FocusWindowHints, FolderLaunchProgress, GroupGridItemId, GroupInput, GroupUpdateInput, MoveFolderMemberInput, SnapshotMode, StartEngineerApi, UpdateAppInput, UpdatePreferencesInput, WindowAction } from "../shared/types.js";
 
 const api: StartEngineerApi = {
+  getAppInfo: () => ipcRenderer.invoke("app:getInfo"),
+  openUserDataDirectory: () => ipcRenderer.invoke("app:openUserDataDirectory"),
+  openProjectHomepage: () => ipcRenderer.invoke("app:openProjectHomepage"),
   listGroups: () => ipcRenderer.invoke("groups:list"),
   createGroup: (input: GroupInput) => ipcRenderer.invoke("groups:create", input),
   updateGroup: (input: GroupUpdateInput) => ipcRenderer.invoke("groups:update", input),

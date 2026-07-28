@@ -4,6 +4,18 @@
   "private": true,
   "description": "A lightweight Windows application launcher and process monitor.",
   "author": "EsspPao",
+  "homepage": "https://github.com/EsspPao/Start-Engineer#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/EsspPao/Start-Engineer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/EsspPao/Start-Engineer/issues"
+  },
+  "keywords": ["windows", "launcher", "electron", "process-monitor", "desktop"],
+  "engines": {
+    "node": ">=22"
+  },
   "main": "dist-electron/main/main.js",
   "type": "module",
   "scripts": {
@@ -16,7 +28,11 @@
     "start:build": "npm run build && electron .",
     "smoke": "node scripts/smoke.mjs",
     "prepackage:win": "node scripts/close-running-app.mjs",
-    "package:win": "npm run build && electron-builder --win nsis portable --publish never"
+    "package:win": "npm run build && electron-builder --win nsis portable --publish never",
+    "package:win:signed": "npm run build && electron-builder --win nsis portable --publish never --config.win.signAndEditExecutable=true",
+    "release:checksums": "node scripts/write-checksums.mjs",
+    "release:verify": "npm run typecheck && npm test && npm run build && npm run smoke",
+    "release:prepare": "npm run release:verify && npm run package:win && npm run release:checksums"
   },
   "dependencies": {
     "react": "^18.3.1",

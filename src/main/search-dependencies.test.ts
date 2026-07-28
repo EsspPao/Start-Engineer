@@ -1,5 +1,8 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildEverythingDownloadPlan, getManagedEverythingPaths, getSearchDependencyStatus } from "./search-dependencies.js";
+import { buildEverythingDownloadPlan, getManagedEverythingPaths, getSearchDependencyStatus, verifyFileSha256 } from "./search-dependencies.js";
 
 const existing = new Set<string>();
 const exists = (path: string) => existing.has(path);
@@ -31,8 +34,18 @@ describe("search dependency management", () => {
     const plan = buildEverythingDownloadPlan("C:\\Data");
 
     expect(plan.everything.url).toBe("https://www.voidtools.com/Everything-1.4.1.1032.x64.zip");
-    expect(plan.es.url).toBe("https://www.voidtools.com/ES-1.1.0.30.x64.zip");
+    expect(plan.es.url).toBe("https://www.voidtools.com/ES-1.1.0.37.x64.zip");
+    expect(plan.everything.sha256).toHaveLength(64);
+    expect(plan.es.sha256).toHaveLength(64);
     expect(plan.everything.finalDir).toContain("dependencies\\everything");
     expect(plan.es.finalDir).toContain("dependencies\\everything");
+  });
+
+  it("rejects a dependency whose SHA-256 does not match", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "start-engineer-hash-"));
+    const path = join(directory, "dependency.zip");
+    writeFileSync(path, "trusted content");
+    await expect(verifyFileSha256(path, "0".repeat(64))).rejects.toThrow("安全校验失败");
+    rmSync(directory, { recursive: true, force: true });
   });
 });

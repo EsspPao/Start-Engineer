@@ -6,6 +6,12 @@ native/**/bin/
 native/**/obj/
 coverage/
 release/
+release-*/
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
 *.log
 .DS_Store
 Thumbs.db

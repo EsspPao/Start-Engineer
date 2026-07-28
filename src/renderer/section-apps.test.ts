@@ -52,6 +52,12 @@ describe("section apps", () => {
     expect(appSectionApps("all-apps", [gamesSteam, officeSteam, app("notion", "office")], ["steam-office"]).map((item) => item.id)).toEqual(["steam-office", "notion"]);
   });
 
+  it("deduplicates a Windows Store app by stable AUMID after its package path changes", () => {
+    const oldChatGpt = { ...app("chatgpt-old", "office"), appUserModelId: "OpenAI.Codex_2p2nqsd0c76g0!App", executablePath: "C:\\Program Files\\WindowsApps\\OpenAI.Codex_1.0.0.0_x64__2p2nqsd0c76g0\\app\\ChatGPT.exe" };
+    const newChatGpt = { ...app("chatgpt-new", "office"), appUserModelId: "openai.codex_2p2nqsd0c76g0!app", executablePath: "C:\\Program Files\\WindowsApps\\OpenAI.Codex_2.0.0.0_x64__2p2nqsd0c76g0\\app\\ChatGPT.exe" };
+    expect(appSectionApps("all-apps", [oldChatGpt, newChatGpt], ["chatgpt-new"]).map((item) => item.id)).toEqual(["chatgpt-new"]);
+  });
+
   it("merges all apps reorder changes without depending on source groups", () => {
     expect(mergeAllAppsOrder(["steam", "notion"], ["wechat", "steam", "steam", "ghost"], ["steam", "notion", "wechat"])).toEqual(["wechat", "steam", "notion"]);
   });

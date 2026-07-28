@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import type { AppPreferences, SearchDependencyStatus } from "../shared/types.js";
-import { buildEverythingDownloadPlan, clearTempDependencyDir, downloadFile, expandZip, getManagedEverythingPaths, getSearchDependencyStatus } from "./search-dependencies.js";
+import { buildEverythingDownloadPlan, clearTempDependencyDir, downloadFile, expandZip, getManagedEverythingPaths, getSearchDependencyStatus, verifyFileSha256 } from "./search-dependencies.js";
 
 type SearchDependencyServiceOptions = {
   getUserDataPath: () => string;
@@ -10,6 +10,7 @@ type SearchDependencyServiceOptions = {
   exists?: (path: string) => boolean;
   download?: typeof downloadFile;
   expand?: typeof expandZip;
+  verify?: typeof verifyFileSha256;
   clearTemp?: typeof clearTempDependencyDir;
   startEverything?: (path: string) => void;
 };
@@ -44,6 +45,7 @@ export class SearchDependencyService {
     const paths = getManagedEverythingPaths(userDataPath);
     const download = this.options.download ?? downloadFile;
     const expand = this.options.expand ?? expandZip;
+    const verify = this.options.verify ?? verifyFileSha256;
     const clearTemp = this.options.clearTemp ?? clearTempDependencyDir;
     const exists = this.options.exists ?? existsSync;
     try {
@@ -52,10 +54,14 @@ export class SearchDependencyService {
       await download(plan.everything.url, plan.everything.tempZip, (downloadedBytes, totalBytes) => {
         this.statusCache = { state: "downloading", message: "正在下载 Everything 便携版", downloadedBytes, totalBytes };
       });
+      this.statusCache = { state: "extracting", message: "正在校验 Everything 下载文件" };
+      await verify(plan.everything.tempZip, plan.everything.sha256);
       this.statusCache = { state: "downloading", message: "正在下载 Everything 命令行工具" };
       await download(plan.es.url, plan.es.tempZip, (downloadedBytes, totalBytes) => {
         this.statusCache = { state: "downloading", message: "正在下载 Everything 命令行工具", downloadedBytes, totalBytes };
       });
+      this.statusCache = { state: "extracting", message: "正在校验 Everything 命令行工具" };
+      await verify(plan.es.tempZip, plan.es.sha256);
       this.statusCache = { state: "extracting", message: "正在解压 Everything 搜索依赖" };
       await expand(plan.everything.tempZip, plan.everything.finalDir);
       await expand(plan.es.tempZip, plan.es.finalDir);

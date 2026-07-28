@@ -19,7 +19,10 @@ const protectedProcessNames = new Set([
 type ProcessControlOptions = {
   ownProcessIds: () => ReadonlySet<number>;
   runNativeHelper: (command: NativeHelperCommand, payload: unknown, timeoutMs?: number) => Promise<string>;
-  elevatedTerminationHost?: { terminate: (pids: number[]) => Promise<void> };
+  elevatedTerminationHost?: {
+    start: () => Promise<void>;
+    terminate: (pids: number[]) => Promise<void>;
+  };
   systemRoot?: () => string;
 };
 
@@ -66,7 +69,13 @@ export class ProcessControlService {
     const normalized = normalizePids(pids);
     if (!normalized.length) return;
     if (this.options.elevatedTerminationHost) {
-      await this.options.elevatedTerminationHost.terminate(normalized);
+      try {
+        await this.options.elevatedTerminationHost.terminate(normalized);
+      } catch (reason) {
+        if (!hasErrorCode(reason, "ELEVATION_REQUIRED")) throw reason;
+        await this.options.elevatedTerminationHost.start();
+        await this.options.elevatedTerminationHost.terminate(normalized);
+      }
       return;
     }
     const args = buildTaskkillArgs(normalized);
@@ -78,7 +87,8 @@ export class ProcessControlService {
         workingDirectory: systemDirectory,
         arguments: args,
         elevated: true,
-        waitForExit: true
+        waitForExit: true,
+        hidden: true
       } satisfies NativeLaunchRequest, 120_000));
     } catch (reason) {
       if (reason instanceof Error && /native helper unavailable/i.test(reason.message)) {
@@ -100,7 +110,7 @@ export class ProcessControlService {
     const script = `
 $arguments = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encodedArgs}')) | ConvertFrom-Json
 try {
-  $process = Start-Process -FilePath 'taskkill.exe' -ArgumentList ([string[]]$arguments) -Verb RunAs -Wait -PassThru -ErrorAction Stop
+  $process = Start-Process -FilePath 'taskkill.exe' -ArgumentList ([string[]]$arguments) -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ErrorAction Stop
 } catch {
   if ($_.Exception.NativeErrorCode -eq 1223 -or $_.Exception.Message -match 'cancel|取消') { exit 1223 }
   throw
@@ -114,4 +124,8 @@ try {
       throw reason;
     }
   }
+}
+
+function hasErrorCode(reason: unknown, code: string) {
+  return reason instanceof Error && "code" in reason && reason.code === code;
 }

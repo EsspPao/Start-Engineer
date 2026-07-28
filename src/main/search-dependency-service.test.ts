@@ -14,6 +14,7 @@ function setup(overrides: { failDownload?: boolean } = {}) {
     savePreferences: (next) => { preferences = next; return next; },
     exists: (path) => existing.has(path),
     download: async () => { if (overrides.failDownload) throw new Error("网络不可用"); },
+    verify: async () => undefined,
     expand: async (_zip, destination) => {
       const paths = getManagedEverythingPaths("C:\\Data");
       if (destination === paths.root) {

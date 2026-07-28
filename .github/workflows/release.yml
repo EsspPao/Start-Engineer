@@ -1,0 +1,70 @@
+name: Build draft release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - run: npm ci
+      - name: Verify tag matches package version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $expected = "v$(node -p \"require('./package.json').version\")"
+          if ($env:GITHUB_REF_NAME -ne $expected) {
+            throw "Tag $env:GITHUB_REF_NAME does not match package version $expected"
+          }
+      - run: npm run release:verify
+      - name: Package Windows artifacts
+        shell: pwsh
+        env:
+          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          if ($env:CSC_LINK) {
+            npm run package:win:signed
+          } else {
+            npm run package:win
+          }
+      - run: npm run release:checksums
+      - uses: actions/upload-artifact@v4
+        with:
+          name: start-engineer-${{ github.ref_name }}-windows-x64
+          if-no-files-found: error
+          path: |
+            release/Start-Engineer-Setup-*.exe
+            release/Start-Engineer-Setup-*.exe.blockmap
+            release/Start-Engineer-Portable-*.exe
+            release/SHA256SUMS.txt
+      - name: Create draft GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "${{ github.ref_name }}"
+          release/Start-Engineer-Setup-*.exe
+          release/Start-Engineer-Setup-*.exe.blockmap
+          release/Start-Engineer-Portable-*.exe
+          release/SHA256SUMS.txt
+          --draft
+          --generate-notes
+          --verify-tag
+          --title "Start Engineer ${{ github.ref_name }}"

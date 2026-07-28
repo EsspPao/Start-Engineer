@@ -9,6 +9,7 @@ import { sortAppsForDisplay } from "./app-display";
 import { completePreviewOrder, hitTestAppOrder, reuseOrderIfEqual, type AppDragRect } from "./app-drag-order";
 import { matchesAppSearch, matchesProcessSearch } from "./search";
 import { buildLaunchFeedbackMessage } from "./launch-feedback";
+import { shouldOfferExecutableReplacement } from "./launch-error";
 import { ALL_APPS_SECTION_ID, firstAppGroupId, resolveLoadedSection } from "./navigation";
 import { shouldStartProcessPrewarm, STARTUP_DEFERRED_IMPORT_MS, STARTUP_DEFERRED_RUNTIME_MS, STARTUP_PROCESS_PREWARM_MS } from "./startup-schedule";
 import { findAppShortcut } from "../shared/app-shortcuts";
@@ -86,6 +87,9 @@ function playGroupTransferFeedback(targetGroupId: string, operation: Promise<unk
 
 const electronOnly = () => Promise.reject(new Error("此操作需要在 Electron 应用窗口中运行"));
 const fallbackApi: StartEngineerApi = {
+  getAppInfo: async () => ({ version: "0.1.0", electronVersion: "browser", chromeVersion: navigator.userAgent, nodeVersion: "unavailable", platform: navigator.platform, arch: "unknown", systemVersion: "browser preview", userDataPath: "Electron 应用中可用", isPackaged: false, repositoryUrl: "https://github.com/EsspPao/Start-Engineer" }),
+  openUserDataDirectory: electronOnly,
+  openProjectHomepage: async () => { window.open("https://github.com/EsspPao/Start-Engineer", "_blank", "noopener,noreferrer"); },
   listGroups: async () => fallbackGroups,
   createGroup: electronOnly,
   updateGroup: electronOnly,
@@ -1020,11 +1024,11 @@ function App() {
       setApps(result.apps);
       if (result.status === "failed") {
         setNotice("");
-        if (result.errorCode === 2 || /路径|不存在/.test(result.message ?? "")) {
+        const failedApp = runtimeApps.find((item) => item.id === id);
+        if (shouldOfferExecutableReplacement(failedApp, result)) {
           setInvalidAppIds((current) => new Set(current).add(id));
           setError(result.message || "程序路径不存在，请重新选择启动程序。");
-          const app = runtimeApps.find((item) => item.id === id);
-          if (app) editApp(app);
+          if (failedApp) editApp(failedApp);
           return;
         }
         setError(result.message || "启动失败，请检查程序路径和启动参数。");
@@ -1293,7 +1297,7 @@ function App() {
       }
     });
   };
-  const editApp = (app: AppEntry) => setEdit({ id: app.id, name: app.name, executablePath: app.executablePath, launchArgs: app.launchArgs ?? "" });
+  const editApp = (app: AppEntry) => setEdit({ id: app.id, name: app.name, executablePath: app.executablePath, launchArgs: app.launchArgs ?? "", appUserModelId: app.appUserModelId });
   const runKeyboardAppAction = useCallback((app: RuntimeApp, command: "activate" | "menu" | "edit", menuPosition?: { x: number; y: number }) => {
     const action = command === "activate" ? resolveAppKeyboardAction({
       isRunning: app.metrics.isRunning,

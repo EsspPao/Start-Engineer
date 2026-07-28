@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
-import type { SearchDependencyStatus } from "../shared/types";
+import type { AppInfo, SearchDependencyStatus } from "../shared/types";
+import { formatAppDiagnostics } from "./app-info";
 import { cleanErrorMessage } from "./error-message";
 
 function api() {
@@ -13,7 +14,41 @@ function ExpandIcon() {
 }
 
 export function SettingsCollapsibleSection({ title, description, expanded, onToggle, children }: { title: string; description: string; expanded: boolean; onToggle: () => void; children: React.ReactNode }) {
-  return <><section className={`settings-collapsible ${expanded ? "expanded" : ""}`}><button className="settings-collapse-toggle" aria-expanded={expanded} onClick={onToggle}><span><strong>{title}</strong><small>{description}</small></span><ExpandIcon /></button>{expanded ? <div className="settings-collapse-content">{children}</div> : null}</section>{title === "界面主题" ? <SearchDependencySettingsSection /> : null}</>;
+  return <><section className={`settings-collapsible ${expanded ? "expanded" : ""}`}><button className="settings-collapse-toggle" aria-expanded={expanded} onClick={onToggle}><span><strong>{title}</strong><small>{description}</small></span><ExpandIcon /></button>{expanded ? <div className="settings-collapse-content">{children}</div> : null}</section>{title === "界面主题" ? <><SearchDependencySettingsSection /><AboutSettingsSection /></> : null}</>;
+}
+
+function AboutSettingsSection() {
+  const [expanded, setExpanded] = useState(false);
+  const [info, setInfo] = useState<AppInfo | null>(null);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    void api().getAppInfo().then((next) => {
+      if (!cancelled) setInfo(next);
+    }).catch((reason) => {
+      if (!cancelled) setMessage(cleanErrorMessage(reason, "读取版本信息失败"));
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  const copyDiagnostics = async () => {
+    try {
+      const current = info ?? await api().getAppInfo();
+      setInfo(current);
+      await api().writeClipboardText(formatAppDiagnostics(current));
+      setMessage("诊断信息已复制，不包含应用列表或本地配置内容");
+    } catch (reason) {
+      setMessage(cleanErrorMessage(reason, "复制诊断信息失败"));
+    }
+  };
+
+  const run = (action: () => Promise<void>, fallback: string) => {
+    setMessage("");
+    void action().catch((reason) => setMessage(cleanErrorMessage(reason, fallback)));
+  };
+
+  return <section className={`settings-collapsible ${expanded ? "expanded" : ""}`}><button className="settings-collapse-toggle" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}><span><strong>关于与诊断</strong><small>{info ? `Start Engineer ${info.version} · Windows ${info.arch}` : "版本、数据目录和故障反馈信息。"}</small></span><ExpandIcon /></button>{expanded ? <div className="settings-collapse-content"><div className="about-panel"><div className="about-summary"><strong>Start Engineer {info?.version ?? ""}</strong><small>Windows 应用启动器与进程监控工具</small>{info ? <code>Electron {info.electronVersion} · Windows {info.systemVersion} · {info.arch}</code> : <small>正在读取运行环境…</small>}{message ? <em>{message}</em> : null}</div><div className="about-actions"><button className="launch" onClick={() => run(() => api().openProjectHomepage(), "打开项目主页失败")}>项目主页</button><button className="ghost" onClick={() => run(() => api().openUserDataDirectory(), "打开数据目录失败")}>打开数据目录</button><button className="shortcut-reset" onClick={() => void copyDiagnostics()}>复制诊断信息</button></div></div></div> : null}</section>;
 }
 
 function SearchDependencySettingsSection() {

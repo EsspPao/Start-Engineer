@@ -9,11 +9,13 @@ export type NativeHelperCommand = "scan" | "focus" | "launch" | "is-elevated" | 
 export type NativeRuntimeCommand = "launch" | "is-elevated" | "snapshot" | "ping";
 export type NativeLaunchRequest = {
   executablePath: string;
+  appUserModelId?: string;
   workingDirectory?: string;
   argumentLine?: string;
   arguments?: string[];
   elevated?: boolean;
   waitForExit?: boolean;
+  hidden?: boolean;
 };
 export type NativeLaunchResult = {
   ok: boolean;

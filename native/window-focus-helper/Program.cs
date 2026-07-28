@@ -136,11 +136,13 @@ internal sealed record FocusResult
 internal sealed record LaunchRequest
 {
     public string ExecutablePath { get; init; } = "";
+    public string AppUserModelId { get; init; } = "";
     public string WorkingDirectory { get; init; } = "";
     public string ArgumentLine { get; init; } = "";
     public string[] Arguments { get; init; } = [];
     public bool Elevated { get; init; }
     public bool WaitForExit { get; init; }
+    public bool Hidden { get; init; }
 }
 
 internal sealed record NativeLaunchResult
@@ -341,9 +343,10 @@ internal static class ShellIconExtractor
 {
     public static IconResult Extract(IconRequest request)
     {
-        if (string.IsNullOrWhiteSpace(request.Path) || !File.Exists(request.Path)) throw new FileNotFoundException("Icon source does not exist", request.Path);
+        var isShellTarget = request.Path.StartsWith("shell:AppsFolder\\", StringComparison.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(request.Path) || (!isShellTarget && !File.Exists(request.Path))) throw new FileNotFoundException("Icon source does not exist", request.Path);
         var size = Math.Clamp(request.PixelSize, 32, 512);
-        var resourceIcon = ExtractResourceIcon(request.Path, size);
+        var resourceIcon = isShellTarget ? null : ExtractResourceIcon(request.Path, size);
         if (resourceIcon is not null) return new IconResult { Ok = true, PngBase64 = Convert.ToBase64String(resourceIcon) };
         var iid = typeof(NativeMethods.IShellItemImageFactory).GUID;
         var result = NativeMethods.SHCreateItemFromParsingName(request.Path, IntPtr.Zero, ref iid, out var factory);
@@ -391,6 +394,15 @@ internal static class ProcessLauncher
 {
     public static NativeLaunchResult Launch(LaunchRequest request)
     {
+        if (!string.IsNullOrWhiteSpace(request.AppUserModelId))
+        {
+            var packagedArguments = request.ArgumentLine.Trim();
+            if (packagedArguments.Length == 0 && request.Arguments.Length > 0)
+            {
+                packagedArguments = string.Join(" ", request.Arguments.Select(QuoteArgument));
+            }
+            return LaunchPackaged(request.AppUserModelId.Trim(), packagedArguments);
+        }
         if (string.IsNullOrWhiteSpace(request.ExecutablePath))
         {
             return Failure(2, "Executable path is required");
@@ -410,16 +422,43 @@ internal static class ProcessLauncher
         }
 
         return request.Elevated
-            ? LaunchElevated(executablePath, workingDirectory, arguments, request.WaitForExit)
-            : LaunchNormal(executablePath, workingDirectory, arguments, request.WaitForExit);
+            ? LaunchElevated(executablePath, workingDirectory, arguments, request.WaitForExit, request.Hidden)
+            : LaunchNormal(executablePath, workingDirectory, arguments, request.WaitForExit, request.Hidden);
     }
 
-    private static NativeLaunchResult LaunchNormal(string executablePath, string workingDirectory, string arguments, bool waitForExit)
+    private static NativeLaunchResult LaunchPackaged(string appUserModelId, string arguments)
     {
-        var startup = new NativeMethods.StartupInfo { Size = Marshal.SizeOf<NativeMethods.StartupInfo>() };
+        NativeMethods.IApplicationActivationManager? manager = null;
+        try
+        {
+            manager = (NativeMethods.IApplicationActivationManager)new NativeMethods.ApplicationActivationManager();
+            var result = manager.ActivateApplication(appUserModelId, string.IsNullOrWhiteSpace(arguments) ? null : arguments, 0, out var processId);
+            return result < 0
+                ? Failure(result, "IApplicationActivationManager.ActivateApplication failed")
+                : new NativeLaunchResult { Ok = true, Pid = unchecked((int)processId), ErrorCode = 0 };
+        }
+        catch (COMException exception)
+        {
+            return Failure(exception.ErrorCode, exception.Message);
+        }
+        finally
+        {
+            if (manager is not null && Marshal.IsComObject(manager)) _ = Marshal.FinalReleaseComObject(manager);
+        }
+    }
+
+    private static NativeLaunchResult LaunchNormal(string executablePath, string workingDirectory, string arguments, bool waitForExit, bool hidden)
+    {
+        var startup = new NativeMethods.StartupInfo
+        {
+            Size = Marshal.SizeOf<NativeMethods.StartupInfo>(),
+            Flags = hidden ? 0x00000001 : 0,
+            ShowWindow = hidden ? (short)0 : (short)1
+        };
         var commandLine = new StringBuilder(QuoteArgument(executablePath));
         if (arguments.Length > 0) commandLine.Append(' ').Append(arguments);
-        if (!NativeMethods.CreateProcess(executablePath, commandLine, IntPtr.Zero, IntPtr.Zero, false, 0x00000400, IntPtr.Zero, workingDirectory, ref startup, out var processInfo))
+        var creationFlags = 0x00000400u | (hidden ? 0x08000000u : 0u);
+        if (!NativeMethods.CreateProcess(executablePath, commandLine, IntPtr.Zero, IntPtr.Zero, false, creationFlags, IntPtr.Zero, workingDirectory, ref startup, out var processInfo))
         {
             return Failure(Marshal.GetLastWin32Error(), "CreateProcessW failed");
         }
@@ -435,7 +474,7 @@ internal static class ProcessLauncher
         }
     }
 
-    private static NativeLaunchResult LaunchElevated(string executablePath, string workingDirectory, string arguments, bool waitForExit)
+    private static NativeLaunchResult LaunchElevated(string executablePath, string workingDirectory, string arguments, bool waitForExit, bool hidden)
     {
         var info = new NativeMethods.ShellExecuteInfo
         {
@@ -445,7 +484,7 @@ internal static class ProcessLauncher
             File = executablePath,
             Parameters = arguments,
             Directory = workingDirectory,
-            Show = 1
+            Show = hidden ? 0 : 1
         };
         if (!NativeMethods.ShellExecuteEx(ref info))
         {
@@ -1000,6 +1039,25 @@ internal static class ProcessLookup
 
 internal static partial class NativeMethods
 {
+    [ComImport]
+    [Guid("45BA127D-10A8-46EA-8AB7-56EA9078943C")]
+    public class ApplicationActivationManager
+    {
+    }
+
+    [ComImport]
+    [Guid("2E941141-7F97-4756-BA1D-9DECDE894A3D")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IApplicationActivationManager
+    {
+        [PreserveSig]
+        int ActivateApplication(
+            [MarshalAs(UnmanagedType.LPWStr)] string appUserModelId,
+            [MarshalAs(UnmanagedType.LPWStr)] string? arguments,
+            uint options,
+            out uint processId);
+    }
+
     public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
     [StructLayout(LayoutKind.Sequential)]

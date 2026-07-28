@@ -23,7 +23,8 @@ describe("ProcessControlService", () => {
     expect(runNativeHelper).toHaveBeenCalledWith("launch", expect.objectContaining({
       executablePath: "C:\\Windows\\System32\\taskkill.exe",
       arguments: ["/PID", "42", "/T", "/F"],
-      elevated: true
+      elevated: true,
+      hidden: true
     }), 120_000);
   });
 
@@ -36,15 +37,51 @@ describe("ProcessControlService", () => {
   });
 
   it("uses the constrained session host when available", async () => {
+    const start = vi.fn().mockResolvedValue(undefined);
     const terminate = vi.fn().mockResolvedValue(undefined);
     const runNativeHelper = vi.fn();
     const service = new ProcessControlService({
       ownProcessIds: () => new Set(),
       runNativeHelper,
-      elevatedTerminationHost: { terminate }
+      elevatedTerminationHost: { start, terminate }
     });
     await service.terminateElevatedPids([42, 42, -1]);
     expect(terminate).toHaveBeenCalledWith([42]);
+    expect(start).not.toHaveBeenCalled();
     expect(runNativeHelper).not.toHaveBeenCalled();
+  });
+
+  it("requests UAC on demand when the session helper is not authorized", async () => {
+    const elevationRequired = Object.assign(new Error("authorization required"), { code: "ELEVATION_REQUIRED" });
+    const start = vi.fn().mockResolvedValue(undefined);
+    const terminate = vi.fn().mockRejectedValueOnce(elevationRequired).mockResolvedValueOnce(undefined);
+    const runNativeHelper = vi.fn();
+    const service = new ProcessControlService({
+      ownProcessIds: () => new Set(),
+      runNativeHelper,
+      elevatedTerminationHost: { start, terminate }
+    });
+
+    await service.terminateElevatedPids([42]);
+
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(terminate).toHaveBeenNthCalledWith(1, [42]);
+    expect(terminate).toHaveBeenNthCalledWith(2, [42]);
+    expect(runNativeHelper).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a cancelled on-demand UAC prompt", async () => {
+    const elevationRequired = Object.assign(new Error("authorization required"), { code: "ELEVATION_REQUIRED" });
+    const cancelled = Object.assign(new Error("cancelled"), { code: "ELEVATION_CANCELLED" });
+    const service = new ProcessControlService({
+      ownProcessIds: () => new Set(),
+      runNativeHelper: vi.fn(),
+      elevatedTerminationHost: {
+        start: vi.fn().mockRejectedValue(cancelled),
+        terminate: vi.fn().mockRejectedValue(elevationRequired)
+      }
+    });
+
+    await expect(service.terminateElevatedPids([42])).rejects.toMatchObject({ code: "ELEVATION_CANCELLED" });
   });
 });

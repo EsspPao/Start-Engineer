@@ -58,6 +58,15 @@ describe("process termination", () => {
     })).rejects.toThrow("已取消管理员授权，未能结束应用进程");
   });
 
+  it("asks the user to retry if an elevated close still lacks authorization", async () => {
+    const error = Object.assign(new Error("authorization required"), { code: "ELEVATION_REQUIRED" });
+    await expect(terminatePids([10], {
+      runNormal: async () => { throw new Error("Access is denied"); },
+      runElevated: async () => { throw error; },
+      getRunningPids: vi.fn().mockResolvedValueOnce([10]).mockResolvedValueOnce([10])
+    })).rejects.toThrow("关闭该应用需要管理员授权");
+  });
+
   it("fails when a process remains or restarts after elevation", async () => {
     await expect(terminatePids([10], {
       runNormal: async () => undefined,
