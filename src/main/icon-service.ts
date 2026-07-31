@@ -2,7 +2,7 @@ import { app, nativeImage } from "electron";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AppEntry } from "../shared/types.js";
-import { APP_ICON_CACHE_VERSION, APP_ICON_TARGET_SIZE, shouldRefreshAppIcon } from "./icon-cache.js";
+import { APP_ICON_CACHE_VERSION, APP_ICON_TARGET_SIZE, isNearlySolidDarkIconBitmap, shouldRefreshAppIcon } from "./icon-cache.js";
 import { windowsStoreShellTarget } from "./windows-store-apps.js";
 
 type IconServiceOptions = {
@@ -54,8 +54,9 @@ export class IconService {
         console.warn(`[icons] Shell extraction failed for ${entry.name}:`, reason);
         return null;
       });
+      if (image && this.isLowQualityImage(image)) image = null;
       if (!image && existsSync(entry.executablePath)) image = await app.getFileIcon(entry.executablePath, { size: "large" });
-      if (!image || image.isEmpty()) return this.fallbackEntry(entry);
+      if (!image || image.isEmpty() || this.isLowQualityImage(image)) return this.fallbackEntry(entry);
       const iconPath = join(this.options.iconCacheDir(), `${entry.id}.png`);
       const iconDataUrl = image.toDataURL();
       const size = image.getSize();
@@ -90,6 +91,10 @@ export class IconService {
 
   private fallbackEntry(entry: AppEntry) {
     return { ...entry, iconCachePath: undefined, iconDataUrl: fallbackIconDataUrl(entry.name), iconCacheVersion: APP_ICON_CACHE_VERSION, iconPixelSize: 0 };
+  }
+
+  private isLowQualityImage(image: Electron.NativeImage) {
+    return isNearlySolidDarkIconBitmap(image.toBitmap());
   }
 
   private async getShellIcon(executablePath: string) {

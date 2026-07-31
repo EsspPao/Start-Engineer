@@ -9,8 +9,7 @@ import { getManagedEverythingPaths } from "./search-dependencies.js";
 type SearchIpcOptions = {
   getMainWindow: () => BrowserWindow | null;
   getUserDataPath: () => string;
-  discoverImportCandidates: () => unknown;
-  importDiscoveredApps: (ids: string[]) => unknown;
+  autoImportFirstRunApps: () => unknown;
   searchAppCandidates: (query: string) => unknown;
   addDiscoveredCandidate: (id: string, groupId: AppEntry["groupId"]) => unknown;
   refreshDiscoveryIndex: () => unknown;
@@ -25,8 +24,7 @@ type SearchIpcOptions = {
 };
 
 export function registerSearchIpc(options: SearchIpcOptions) {
-  ipcMain.handle("apps:discoverImportCandidates", () => options.discoverImportCandidates());
-  ipcMain.handle("apps:importDiscovered", (_event, ids: string[]) => options.importDiscoveredApps(Array.isArray(ids) ? ids : []));
+  ipcMain.handle("apps:autoImportFirstRun", () => options.autoImportFirstRunApps());
   ipcMain.handle("apps:searchCandidates", (_event, query: string) => options.searchAppCandidates(String(query ?? "")));
   ipcMain.handle("apps:searchInstallable", (_event, query: string) => searchInstallableApps(String(query ?? "")));
   ipcMain.handle("apps:openInstallableDownload", async (_event, candidateId: string) => {

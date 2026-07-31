@@ -5,6 +5,7 @@ import { buildDiscoveredApps, buildWindowsStoreAppCandidates, filterNewShortcuts
 import { searchEverything } from "./everything-search.js";
 import { runNativeHelper } from "./native-helper.js";
 import { inferPackageFamilyName, type WindowsStoreAppIdentity } from "./windows-store-apps.js";
+import { curateFirstRunImportCandidates } from "./first-run-import.js";
 
 type SearchServiceOptions = {
   getPath: (name: "appData" | "desktop") => string;
@@ -18,11 +19,13 @@ type SearchServiceOptions = {
   cacheIcon: (entry: AppEntry) => Promise<AppEntry>;
   randomId: () => string;
   listWindowsStoreApps?: () => Promise<WindowsStoreAppIdentity[]>;
+  loadFirstRunImportTemplate?: () => AppEntry[];
 };
 
 const normalizePath = (value: string) => value.replace(/\//g, "\\").replace(/\\+$/, "").toLowerCase();
 
 export class SearchService {
+  private firstRunAutoImport: Promise<AppEntry[]> | null = null;
   private importCandidates: DiscoveredAppCandidate[] = [];
   private shortcuts: ShortcutInfo[] | null = null;
   private candidates: DiscoveredAppCandidate[] = [];
@@ -58,14 +61,29 @@ export class SearchService {
     const currentApps = this.options.loadApps();
     const [shortcuts, windowsStoreApps] = await Promise.all([
       this.discoveryShortcuts(true),
-      this.options.listWindowsStoreApps?.().catch(() => []) ?? Promise.resolve([])
+      this.options.listWindowsStoreApps?.() ?? Promise.resolve([])
     ]);
     const newShortcuts = filterNewShortcuts(shortcuts, currentApps.map((entry) => entry.executablePath));
     const fileCandidates = buildDiscoveredApps(newShortcuts, this.options.getGroups(), this.options.randomId);
     const storeCandidates = buildWindowsStoreAppCandidates(windowsStoreApps, this.options.getGroups(), this.options.randomId)
       .filter((candidate) => !this.findExistingCandidate(candidate, currentApps));
-    this.importCandidates = this.mergeCandidates(storeCandidates, fileCandidates).slice(0, 80);
+    this.importCandidates = curateFirstRunImportCandidates({
+      candidates: this.mergeCandidates(storeCandidates, fileCandidates),
+      groups: this.options.getGroups(),
+      templateApps: this.options.loadFirstRunImportTemplate?.(),
+      createId: this.options.randomId,
+      pathExists: existsSync
+    });
     return this.importCandidates;
+  }
+
+  autoImportFirstRunApps() {
+    if (this.firstRunAutoImport) return this.firstRunAutoImport;
+    const operation = this.performFirstRunAutoImport().finally(() => {
+      if (this.firstRunAutoImport === operation) this.firstRunAutoImport = null;
+    });
+    this.firstRunAutoImport = operation;
+    return operation;
   }
 
   async resolveShortcut(filePath: string) {
@@ -113,24 +131,64 @@ export class SearchService {
     const existing = new Set(this.options.loadApps().map((entry) => entry.executablePath.trim().toLowerCase()));
     const imported: AppEntry[] = [];
     for (const candidate of this.importCandidates.filter((item) => selected.has(item.id))) {
+      if (candidate.isAvailable === false) continue;
       const key = candidate.executablePath.trim().toLowerCase();
       if ((!candidate.appUserModelId && (!key || !existsSync(candidate.executablePath))) || (key && existing.has(key))) continue;
       if (this.findExistingCandidate(candidate, [...this.options.loadApps(), ...imported])) continue;
       if (key) existing.add(key);
-      imported.push(await this.options.cacheIcon(candidate.appUserModelId
+      const entry: AppEntry = candidate.appUserModelId
         ? this.storeEntryFromCandidate(candidate, this.options.validGroupId(candidate.groupId), candidate.category)
         : {
           id: this.options.randomId(), name: candidate.name, category: candidate.category,
           groupId: this.options.validGroupId(candidate.groupId), executablePath: candidate.executablePath,
           processName: candidate.processName, workingDirectory: candidate.workingDirectory || dirname(candidate.executablePath),
           launchArgs: candidate.launchArgs, accent: "#2f66e8"
-        }));
+        };
+      const reusableIcon = Boolean(candidate.iconDataUrl && candidate.iconCachePath && existsSync(candidate.iconCachePath));
+      const cachedEntry = reusableIcon ? {
+        ...entry,
+        iconCachePath: candidate.iconCachePath,
+        iconDataUrl: candidate.iconDataUrl,
+        iconCacheVersion: candidate.iconCacheVersion,
+        iconPixelSize: candidate.iconPixelSize
+      } : await this.options.cacheIcon(entry);
+      if (this.findExistingCandidate(candidate, [...this.options.loadApps(), ...imported])) continue;
+      imported.push(cachedEntry);
     }
-    const apps = [...this.options.loadApps(), ...imported];
+    const latestApps = this.options.loadApps();
+    const uniqueImported: AppEntry[] = [];
+    for (const entry of imported) {
+      if (!this.findExistingCandidate(entry, [...latestApps, ...uniqueImported])) uniqueImported.push(entry);
+    }
+    const apps = [...latestApps, ...uniqueImported];
     this.options.saveApps(apps);
     this.options.savePreferences({ ...this.options.getPreferences(), firstRunImportCompleted: true });
     this.importCandidates = [];
     return apps;
+  }
+
+  private async performFirstRunAutoImport() {
+    const currentApps = this.options.loadApps();
+    const currentPreferences = this.options.getPreferences();
+    if (currentPreferences.firstRunImportCompleted) return currentApps;
+    if (currentApps.length) {
+      this.options.savePreferences({ ...currentPreferences, firstRunImportCompleted: true });
+      return currentApps;
+    }
+
+    const candidates = await this.discoverImportCandidates();
+    const latestApps = this.options.loadApps();
+    const latestPreferences = this.options.getPreferences();
+    if (latestPreferences.firstRunImportCompleted) {
+      this.importCandidates = [];
+      return latestApps;
+    }
+    if (latestApps.length) {
+      this.importCandidates = [];
+      this.options.savePreferences({ ...latestPreferences, firstRunImportCompleted: true });
+      return latestApps;
+    }
+    return this.importCandidatesById(candidates.filter((candidate) => candidate.isAvailable !== false).map((candidate) => candidate.id));
   }
 
   private shortcutRoots() {
@@ -217,7 +275,7 @@ $rows | ConvertTo-Json -Compress`;
     return [...merged.values()];
   }
 
-  private findExistingCandidate(candidate: DiscoveredAppCandidate, apps: AppEntry[]) {
+  private findExistingCandidate(candidate: Pick<DiscoveredAppCandidate, "appUserModelId" | "executablePath" | "processName" | "name">, apps: AppEntry[]) {
     const appUserModelId = candidate.appUserModelId?.toLocaleLowerCase();
     const packageFamilyName = appUserModelId?.split("!")[0];
     return apps.find((entry) => {

@@ -19,7 +19,7 @@ import { collapsedFolderKeyboardSelection, expandedFolderKeyboardSelection, isEs
 import { SearchResultsPanel } from "./search-results-panel";
 import { AppEditDialog, type AppEditState } from "./app-edit-dialog";
 import { AppContextMenu, GroupContextMenu, ProcessContextMenu, type DisplayProcess, type MenuState } from "./context-menus";
-import { ConfirmDialog, FirstRunImportDialog, ToastStack, type ConfirmState } from "./overlay-components";
+import { ConfirmDialog, ToastStack, type ConfirmState } from "./overlay-components";
 import { focusHintsForApp, focusResultMessage, type RuntimeApp } from "./window-focus-feedback";
 import { BrandLogo, Icon } from "./ui-icons";
 import { GroupDeleteDialog, GroupEditDialog, type GroupDeleteState, type GroupEditState } from "./group-management";
@@ -106,8 +106,7 @@ const fallbackApi: StartEngineerApi = {
   moveFolder: async () => ({ apps: [], folders: [], gridOrders: [] }),
   moveFolderMember: async () => ({ apps: [], folders: [], gridOrders: [] }),
   listApps: async () => [],
-  discoverImportCandidates: async () => [],
-  importDiscoveredApps: async () => [],
+  autoImportFirstRunApps: async () => [],
   searchAppCandidates: async () => [],
   searchInstallableApps: async () => [],
   openInstallableAppDownload: electronOnly,
@@ -204,9 +203,6 @@ function App() {
   const [drag, setDrag] = useState<DragState>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [importCandidates, setImportCandidates] = useState<DiscoveredAppCandidate[]>([]);
-  const [selectedImportIds, setSelectedImportIds] = useState<Set<string>>(new Set());
-  const [importingApps, setImportingApps] = useState(false);
   const [launchingAppIds, setLaunchingAppIds] = useState<Set<string>>(new Set());
   const [folderLaunchStatuses, setFolderLaunchStatuses] = useState<Record<string, FolderLaunchVisualStatus>>({});
   const [invalidAppIds, setInvalidAppIds] = useState<Set<string>>(new Set());
@@ -214,6 +210,7 @@ function App() {
   const unifiedDragCandidate = useRef<UnifiedDragCandidate | null>(null);
   const suppressFolderClick = useRef(false);
   const iconRefreshStarted = useRef(false);
+  const firstRunAutoImportStarted = useRef(false);
   const runtimePollingStarted = useRef(false);
   const processPrewarmStarted = useRef(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -323,17 +320,15 @@ function App() {
       setPreferences(nextPreferences);
       setActiveSection((current) => resolveLoadedSection(current, loadedGroups));
       startupImportTimer = window.setTimeout(() => {
-        if (cancelled || nextPreferences.firstRunImportCompleted || nextApps.length !== 0) return;
-        void api().discoverImportCandidates().then(async (candidates) => {
+        if (cancelled || nextPreferences.firstRunImportCompleted || nextApps.length !== 0 || firstRunAutoImportStarted.current) return;
+        firstRunAutoImportStarted.current = true;
+        void api().autoImportFirstRunApps().then((imported) => {
           if (cancelled) return;
-          if (!candidates.length) {
-            const updated = await api().updatePreferences({ firstRunImportCompleted: true });
-            if (!cancelled) setPreferences(updated);
-            return;
-          }
-          setImportCandidates(candidates);
-          setSelectedImportIds(new Set(candidates.map((candidate) => candidate.id)));
-        }).catch((reason) => setError(cleanErrorMessage(reason, "扫描可导入应用失败")));
+          setApps(imported);
+          setPreferences((current) => ({ ...current, firstRunImportCompleted: true }));
+        }).catch((reason) => {
+          if (!cancelled) setError(cleanErrorMessage(reason, "首次应用自动添加失败"));
+        });
       }, STARTUP_DEFERRED_IMPORT_MS);
       if (!iconRefreshStarted.current) {
         iconRefreshStarted.current = true;
@@ -572,34 +567,6 @@ function App() {
       throw reason;
     }
   }, [preferences]);
-
-  const dismissFirstRunImport = useCallback(async () => {
-    setImportCandidates([]);
-    setSelectedImportIds(new Set());
-    try {
-      setPreferences(await api().updatePreferences({ firstRunImportCompleted: true }));
-    } catch (reason) {
-      setError(cleanErrorMessage(reason, "保存首次导入状态失败"));
-    }
-  }, []);
-
-  const importSelectedApps = useCallback(async () => {
-    if (importingApps) return;
-    setImportingApps(true);
-    try {
-      const imported = await api().importDiscoveredApps([...selectedImportIds]);
-      setApps(imported);
-      setPreferences((current) => ({ ...current, firstRunImportCompleted: true }));
-      setImportCandidates([]);
-      setSelectedImportIds(new Set());
-      setNotice(selectedImportIds.size ? `已导入 ${selectedImportIds.size} 个应用` : "已跳过应用导入");
-      await refreshRuntimeData("managed", true);
-    } catch (reason) {
-      setError(cleanErrorMessage(reason, "导入应用失败"));
-    } finally {
-      setImportingApps(false);
-    }
-  }, [importingApps, refreshRuntimeData, selectedImportIds]);
 
   const saveTheme = useCallback(async (uiTheme: UiTheme) => {
     const previous = preferences;
@@ -872,7 +839,7 @@ function App() {
       ? `${visibleApps.length} 个应用 / ${activeGroupApps.filter((app) => app.metrics.isRunning).length} 个运行中`
       : activeSection === "settings"
         ? "管理应用分组与启动配置"
-        : `${visibleApps.length} 个应用`;
+        : undefined;
   const openInternalResult = useCallback((result: Extract<InternalSearchResult, { kind: "app" }>) => {
     setSearchPanelOpen(false);
     setActiveSection(result.groupId);
@@ -1356,7 +1323,7 @@ function App() {
       ? (activeItemId.startsWith("app:") ? runtimeApps.find((app) => app.id === activeItemId.slice(4)) : undefined)
       : displayedApps.find((app) => app.id === selectedAppId) ?? displayedApps[0];
     const selectedFolderId = usesUnifiedGrid && activeItemId.startsWith("folder:") ? activeItemId.slice(7) : "";
-    const hasModal = Boolean(confirm || edit || groupEdit || groupDelete || importCandidates.length);
+    const hasModal = Boolean(confirm || edit || groupEdit || groupDelete);
     const selectedCardRect = () => {
       const isExpandedMember = expandedFolderMemberItemIds.includes(activeItemId as GroupGridItemId);
       const selector = usesUnifiedGrid && activeItemId
@@ -1469,7 +1436,7 @@ function App() {
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("start-engineer:group-navigation", onNativeGroupNavigation);
     };
-  }, [activeFolders, activeSection, appGroups, closeExpandedFolder, closeMenu, confirm, displayedApps, edit, expandedFolderId, expandedFolderMemberItemIds, groupDelete, groupEdit, importCandidates.length, isAllAppsSection, isAppSection, menu, preferences.keyboardShortcuts, query, runKeyboardAppAction, runtimeApps, searchPanelOpen, selectableGridItemOrder, selectedAppId, selectedGridItemId]);
+  }, [activeFolders, activeSection, appGroups, closeExpandedFolder, closeMenu, confirm, displayedApps, edit, expandedFolderId, expandedFolderMemberItemIds, groupDelete, groupEdit, isAllAppsSection, isAppSection, menu, preferences.keyboardShortcuts, query, runKeyboardAppAction, runtimeApps, searchPanelOpen, selectableGridItemOrder, selectedAppId, selectedGridItemId]);
 
   return (
     <main className={`app-shell drag-region ${fileDropActive ? "file-drop-active" : ""}`} style={{ ...themeAttributes.wallpaperStyle, "--ui-scale": preferences.uiLayout.uiScale / 100, "--ui-scale-width": `${10000 / preferences.uiLayout.uiScale}vw`, "--ui-scale-height": `${10000 / preferences.uiLayout.uiScale}vh`, "--ui-background-color": preferences.uiLayout.backgroundColor || "transparent" } as unknown as React.CSSProperties} data-theme={themeAttributes.theme} data-wallpaper-intensity={themeAttributes.wallpaperIntensity} data-wallpaper-variant={themeAttributes.wallpaperVariant} data-ui-card-size={preferences.uiLayout.cardSize} data-ui-grid-density={preferences.uiLayout.gridDensity} data-ui-sidebar-width={preferences.uiLayout.sidebarWidth} data-ui-brand-icon-size={preferences.uiLayout.brandIconSize} data-ui-background-tone={preferences.uiLayout.backgroundTone} data-ui-custom-background={preferences.uiLayout.backgroundColor ? "true" : "false"} data-ui-show-running-status={preferences.uiLayout.showRunningStatus ? "true" : "false"} data-ui-show-search-bar={preferences.uiLayout.showSearchBar ? "true" : "false"} data-ui-show-batch-actions={preferences.uiLayout.showBatchActions ? "true" : "false"} onPointerDown={closeFloatingUi} onDragEnter={handleFileDragEnter} onDragOver={handleFileDragOver} onDragLeave={handleFileDragLeave} onDrop={handleFileDrop}>
@@ -1496,7 +1463,7 @@ function App() {
 
       <section className="window">
         <header className="topbar">
-          <div className="page-heading"><span>{pageSubtitle}</span><h1>{pageTitle}</h1></div>
+          <div className="page-heading">{pageSubtitle ? <span>{pageSubtitle}</span> : null}<h1>{pageTitle}</h1></div>
           <section className="searchbar no-drag" onPointerDown={(event) => event.stopPropagation()}><label><Icon name="search" /><input ref={searchInputRef} value={query} onFocus={() => { closeMenu(); if (query.trim()) setSearchPanelOpen(true); }} onKeyDown={(event) => { if (event.key === "ArrowDown") { event.preventDefault(); setSearchPanelOpen(Boolean(query.trim())); setSearchSelectedIndex((index) => Math.min(index + 1, Math.max(0, searchResultCount - 1))); } else if (event.key === "ArrowUp") { event.preventDefault(); setSearchPanelOpen(Boolean(query.trim())); setSearchSelectedIndex((index) => Math.max(0, index - 1)); } else if (event.key === "Enter") { event.preventDefault(); openSelectedSearchResult(event.ctrlKey || event.metaKey); } else if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); const action = resolveSearchEscapeAction(true, query); if (action === "clear-query") { setQuery(""); setDiscoveredResults([]); setInstallableResults([]); setFileResults([]); setSearchSelectedIndex(0); setSearchPanelOpen(false); } else { event.currentTarget.blur(); setSearchPanelOpen(false); restoreFocusAfterSearch(); } } }} onChange={(event) => setQuery(event.target.value)} placeholder={SEARCH_INPUT_PLACEHOLDER} /></label><button className={`search-button ${query ? "clear" : ""}`} onClick={() => { closeMenu(); if (query) { setQuery(""); setInstallableResults([]); setFileResults([]); setSearchPanelOpen(false); } else searchInputRef.current?.focus(); }} aria-label={query ? "清除搜索" : "聚焦搜索框"}>{query ? "×" : <Icon name="search" />}</button>{searchPanelOpen && query.trim() ? <SearchResultsPanel query={query} loading={searchLoading} error={searchError} selectedIndex={searchSelectedIndex} managedResults={managedSearchResults} discoveredResults={discoveredResults} installableResults={installableResults} fileResults={fileResults} onSelectIndex={setSearchSelectedIndex} onOpenManaged={runManagedSearchResult} onAddDiscovered={(candidate) => void addDiscoveredApp(candidate)} onOpenInstallable={openInstallableSearchResult} onOpenFile={openFileSearchResult} /> : null}</section>
           <div className="window-controls no-drag">
             <button title="最小化" aria-label="最小化" onClick={() => void api().windowAction("minimize")}>−</button>
@@ -1516,7 +1483,6 @@ function App() {
       {menu?.kind === "app" ? <AppContextMenu state={menu} app={runtimeApps.find((item) => item.id === menu.appId)} groups={appGroups} onClose={closeMenu} onLaunch={launchApp} onKill={requestCloseApp} onEdit={editApp} onMove={activeSection === "settings" ? moveAppWithinSettings : moveAppToGroup} onRemove={(app) => setConfirm({ title: "移除应用", message: `确定从 Start Engineer 中移除 ${app.name} 吗？本地程序文件不会被删除。`, confirmLabel: "移除应用", onConfirm: async () => { await runAppAction(() => api().removeApp(app.id)); setSelectedAppId(""); } })} onNotice={setNotice} onError={setError} /> : null}
       {menu?.kind === "group" ? <GroupContextMenu state={menu} groups={appGroups} onClose={closeMenu} onCreate={() => setGroupEdit({ name: "", icon: "grid" })} onEdit={(group) => setGroupEdit({ id: group.id, name: group.name, icon: group.icon })} onDelete={requestDeleteGroup} onReorder={reorderGroups} /> : null}
       {confirm ? <ConfirmDialog state={confirm} onClose={() => setConfirm(null)} onError={(message) => { setConfirm(null); setError(cleanErrorMessage(message)); }} /> : null}
-      {importCandidates.length ? <FirstRunImportDialog candidates={importCandidates} selectedIds={selectedImportIds} busy={importingApps} onToggle={(id) => setSelectedImportIds((current) => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next; })} onSkip={dismissFirstRunImport} onImport={importSelectedApps} /> : null}
       {edit ? <AppEditDialog state={edit} onClose={() => setEdit(null)} onPickExecutable={(id) => api().pickExecutable(id)} onSave={(input) => runAppAction(() => api().updateApp(input))} /> : null}
       {groupEdit ? <GroupEditDialog state={groupEdit} onClose={() => setGroupEdit(null)} onSave={saveGroup} /> : null}
       {groupDelete ? <GroupDeleteDialog state={groupDelete} groups={appGroups} appCount={apps.filter((item) => item.groupId === groupDelete.groupId).length} onChangeTarget={(targetGroupId) => setGroupDelete({ ...groupDelete, targetGroupId })} onClose={() => setGroupDelete(null)} onConfirm={removeGroup} /> : null}

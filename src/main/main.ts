@@ -1,5 +1,6 @@
 import { app, globalShortcut, shell } from "electron";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { cpus, release as osRelease } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -39,6 +40,7 @@ import { AppAdditionService } from "./app-addition-service.js";
 import { ElevatedTerminationHost, type ElevatedTerminationStatus } from "./elevated-termination-host.js";
 import { registerAppInfoIpc } from "./app-info-ipc.js";
 import { WindowsStoreAppService } from "./windows-store-apps.js";
+import { prepareFirstRunImportTestUserData } from "./first-run-import-test.js";
 
 const isDev = process.env.VITE_DEV_SERVER_URL !== undefined;
 const appRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -49,8 +51,11 @@ const appIconPath = () => app.isPackaged ? join(process.resourcesPath, "icon.ico
 const trayIconPath = () => app.isPackaged ? join(process.resourcesPath, "tray-icon.png") : join(appRoot, "build", "tray-icon.png");
 const smokeMode = process.env.START_ENGINEER_SMOKE === "1" || process.env.STAR_ENGINEER_SMOKE === "1";
 const repositoryUrl = "https://github.com/EsspPao/Start-Engineer";
-const startEngineerUserData = smokeMode ? join(app.getPath("temp"), `start-engineer-smoke-${process.pid}`) : join(app.getPath("appData"), "start-engineer");
-if (!smokeMode) migrateLegacyUserData(startEngineerUserData, join(app.getPath("appData"), "commanddeck-next"));
+const normalStartEngineerUserData = join(app.getPath("appData"), "start-engineer");
+if (!smokeMode) migrateLegacyUserData(normalStartEngineerUserData, join(app.getPath("appData"), "commanddeck-next"));
+const startEngineerUserData = smokeMode
+  ? join(app.getPath("temp"), `start-engineer-smoke-${process.pid}`)
+  : prepareFirstRunImportTestUserData(normalStartEngineerUserData);
 app.setPath("userData", startEngineerUserData);
 const configPath = () => join(app.getPath("userData"), "apps.json");
 const groupsPath = () => join(app.getPath("userData"), "groups.json");
@@ -58,6 +63,7 @@ const foldersPath = () => join(app.getPath("userData"), "folders.json");
 const groupGridPath = () => join(app.getPath("userData"), "group-grid-order.json");
 const preferencesPath = () => join(app.getPath("userData"), "preferences.json");
 const iconCacheDir = () => join(app.getPath("userData"), "icons");
+const firstRunImportTemplatePath = () => join(app.getPath("userData"), "first-run-import-template.json");
 const nativeRuntime = new NativeRuntimeHost();
 const elevatedTerminationHost = new ElevatedTerminationHost({ runNativeHelper, resolveNativeHelperPath });
 let administratorMessage = "";
@@ -120,6 +126,14 @@ const normalizeGridOrder = (groupId: string, itemIds: readonly string[], apps?: 
 const validGridItems = (groupId: string, apps?: AppEntry[], folders?: AppFolder[]) => groupService.validGridItems(groupId, apps, folders);
 const folderMutationResult = (apps: AppEntry[], folders: AppFolder[]) => groupService.mutateFolders(apps, folders);
 const validAppGroup = (groupId?: string) => groupService.validGroupId(groupId);
+const loadFirstRunImportTemplate = () => {
+  try {
+    const value = JSON.parse(readFileSync(firstRunImportTemplatePath(), "utf8")) as unknown;
+    return Array.isArray(value) ? value as AppEntry[] : [];
+  } catch {
+    return [];
+  }
+};
 
 const loginArgs = ["--autostart"];
 preferencesService = new PreferencesService({
@@ -199,9 +213,8 @@ appAdditionService = new AppAdditionService({
 
 const searchAppCandidates = (query: string) => searchService.searchCandidates(query);
 const refreshDiscoveryIndex = () => searchService.refreshIndex();
-const discoverImportCandidates = () => searchService.discoverImportCandidates();
+const autoImportFirstRunApps = () => searchService.autoImportFirstRunApps();
 const addDiscoveredCandidate = (candidateId: string, groupId: AppEntry["groupId"]) => searchService.addCandidate(candidateId, groupId);
-const importDiscoveredApps = (candidateIds: string[]) => searchService.importCandidatesById(candidateIds);
 
 const windowManager = new AppWindowManager({
   runPowerShell,
@@ -220,7 +233,8 @@ searchService = new SearchService({
   saveApps,
   cacheIcon: (entry) => iconService.cache(entry),
   randomId: randomUUID,
-  listWindowsStoreApps: () => windowsStoreAppService.list()
+  listWindowsStoreApps: () => windowsStoreAppService.list(),
+  loadFirstRunImportTemplate
 });
 
 runtimeService = new RuntimeService({
@@ -317,8 +331,7 @@ function registerIpc() {
   registerSearchIpc({
     getMainWindow: () => appWindowService.getMainWindow(),
     getUserDataPath: () => app.getPath("userData"),
-    discoverImportCandidates,
-    importDiscoveredApps,
+    autoImportFirstRunApps,
     searchAppCandidates,
     addDiscoveredCandidate,
     refreshDiscoveryIndex,

@@ -30,4 +30,17 @@ describe("renderer responsibility boundaries", () => {
     expect(unifiedDragHook).toContain("APP_MERGE_HOVER_MS");
     expect(entry).not.toContain("const updateMergeFeedback");
   });
+
+  it("omits the ambiguous application count below ordinary group titles", () => {
+    expect(entry).toContain(': undefined;');
+    expect(entry).toContain("{pageSubtitle ? <span>{pageSubtitle}</span> : null}<h1>{pageTitle}</h1>");
+    expect(entry).not.toContain(': `${visibleApps.length} 个应用`;');
+  });
+
+  it("runs first-use import without rendering another chooser", () => {
+    expect(entry).toContain("api().autoImportFirstRunApps()");
+    expect(entry).not.toContain("FirstRunImportDialog");
+    expect(entry).not.toContain("selectedImportIds");
+    expect(entry).not.toContain("importingApps");
+  });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AppEntry } from "../shared/types.js";
-import { APP_ICON_CACHE_VERSION, shouldRefreshAppIcon } from "./icon-cache.js";
+import { APP_ICON_CACHE_VERSION, isNearlySolidDarkIconBitmap, shouldRefreshAppIcon } from "./icon-cache.js";
 
 const entry = (overrides: Partial<AppEntry> = {}): AppEntry => ({
   id: "app-1",
@@ -44,5 +44,26 @@ describe("shouldRefreshAppIcon", () => {
       appUserModelId: "OpenAI.Codex_2p2nqsd0c76g0!App",
       iconDataUrl: undefined
     }), false)).toBe(true);
+  });
+});
+
+describe("icon quality", () => {
+  it("rejects an opaque nearly black square", () => {
+    const bitmap = new Uint8Array(16 * 16 * 4);
+    for (let index = 0; index < bitmap.length; index += 4) bitmap[index + 3] = 255;
+    expect(isNearlySolidDarkIconBitmap(bitmap)).toBe(true);
+  });
+
+  it("keeps transparent and visibly colored icons", () => {
+    const transparent = new Uint8Array(16 * 16 * 4);
+    const colored = new Uint8Array(16 * 16 * 4);
+    for (let index = 0; index < colored.length; index += 4) {
+      colored[index] = index % 3 === 0 ? 250 : 10;
+      colored[index + 1] = 120;
+      colored[index + 2] = 40;
+      colored[index + 3] = 255;
+    }
+    expect(isNearlySolidDarkIconBitmap(transparent)).toBe(false);
+    expect(isNearlySolidDarkIconBitmap(colored)).toBe(false);
   });
 });

@@ -271,6 +271,11 @@ export type DiscoveredAppCandidate = {
   workingDirectory?: string;
   launchArgs?: string;
   iconPath?: string;
+  iconCachePath?: string;
+  iconDataUrl?: string;
+  iconCacheVersion?: number;
+  iconPixelSize?: number;
+  isAvailable?: boolean;
   alreadyAdded?: boolean;
   existingAppId?: string;
   existingGroupId?: string;
@@ -337,8 +342,7 @@ export type StartEngineerApi = {
   moveFolder: (folderId: string, targetGroupId: string) => Promise<FolderMutationResult>;
   moveFolderMember: (input: MoveFolderMemberInput) => Promise<FolderMutationResult>;
   listApps: () => Promise<AppEntry[]>;
-  discoverImportCandidates: () => Promise<DiscoveredAppCandidate[]>;
-  importDiscoveredApps: (candidateIds: string[]) => Promise<AppEntry[]>;
+  autoImportFirstRunApps: () => Promise<AppEntry[]>;
   searchAppCandidates: (query: string) => Promise<DiscoveredAppCandidate[]>;
   searchInstallableApps: (query: string) => Promise<InstallableAppCandidate[]>;
   openInstallableAppDownload: (candidateId: string) => Promise<void>;
