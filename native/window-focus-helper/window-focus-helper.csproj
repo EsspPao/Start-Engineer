@@ -6,6 +6,11 @@
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
     <AssemblyName>window-focus-helper</AssemblyName>
+    <AssemblyTitle>Start Engineer Window Helper</AssemblyTitle>
+    <Product>Start Engineer</Product>
+    <Company>EsspPao</Company>
+    <Description>Native Windows integration helper for Start Engineer.</Description>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 </Project>

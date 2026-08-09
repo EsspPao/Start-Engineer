@@ -5,7 +5,8 @@ import { encodeUiLayoutShareCode } from "../shared/ui-layout-share";
 import { cleanErrorMessage } from "./error-message";
 
 type PreferenceSaveKind = "startup" | "close" | "shortcut" | "theme" | "layout" | "wallpaperIntensity" | "wallpaperVariant" | "administrator" | "search" | "runningSort" | "appNames";
-type SettingsSection = "general" | "theme";
+type SettingsSection = "theme" | "advanced";
+export type SettingsView = "preferences" | "groups";
 
 type UseSettingsPreferencesOptions = {
   client: StartEngineerApi;
@@ -23,6 +24,8 @@ export function useSettingsPreferences({
   onThemeChange,
 }: UseSettingsPreferencesOptions) {
   const [expandedSettings, setExpandedSettings] = useState<Set<SettingsSection>>(new Set());
+  const [activeSettingsView, setActiveSettingsView] = useState<SettingsView>("preferences");
+  const [aboutDialogOpen, setAboutDialogOpen] = useState(false);
   const [savingPreference, setSavingPreference] = useState<PreferenceSaveKind | null>(null);
   const [recordingShortcut, setRecordingShortcut] = useState(false);
   const [shortcutMessage, setShortcutMessage] = useState("");
@@ -152,6 +155,8 @@ export function useSettingsPreferences({
             : "主界面保持普通权限；关闭高权限应用时按需请求 UAC");
 
   return {
+    aboutDialogOpen,
+    activeSettingsView,
     administratorStatus,
     changeUiScale,
     copyLayoutShareCode,
@@ -167,6 +172,8 @@ export function useSettingsPreferences({
     saveWallpaperIntensity,
     savingPreference,
     selectTheme,
+    setAboutDialogOpen,
+    setActiveSettingsView,
     setLayoutEditing,
     setLayoutShareCode,
     setPreferences,

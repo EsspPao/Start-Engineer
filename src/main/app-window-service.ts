@@ -3,6 +3,7 @@ import type { AppPreferences } from "../shared/types.js";
 import { resolveUiTheme, themeUsesMica } from "../shared/theme.js";
 import { splashHtmlDataUrl, splashWindowOptions, wireSplashToMainWindow } from "./splash-window.js";
 import { startEngineerGroupShortcutDirection } from "./window-shortcuts.js";
+import { hardenWebContents } from "./web-contents-security.js";
 import { pathToFileURL } from "node:url";
 
 type AppWindowServiceOptions = {
@@ -127,8 +128,10 @@ export class AppWindowService {
       backgroundColor: "#00000000",
       title: "Start Engineer",
       icon: this.options.appIconPath(),
-      webPreferences: { preload: this.options.preloadPath, contextIsolation: true, nodeIntegration: false }
+      webPreferences: { preload: this.options.preloadPath, contextIsolation: true, nodeIntegration: false, sandbox: true }
     });
+
+    hardenWebContents(this.mainWindow.webContents);
 
     this.mainWindow.on("close", (event) => {
       if (!this.quitting && this.options.loadPreferences().closeBehavior === "tray") {

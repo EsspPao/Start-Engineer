@@ -48,7 +48,7 @@ describe("dropped app importing", () => {
 
   it("resolves a dropped Windows shortcut and preserves its launch metadata", async () => {
     const result = await addDroppedExecutablesToApps({
-      filePaths: ["C:\\Users\\Xbfe\\Desktop\\Typora.lnk"],
+      filePaths: ["C:\\Users\\ExampleUser\\Desktop\\Typora.lnk"],
       groupId: "office",
       groups,
       apps: [],

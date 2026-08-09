@@ -29,9 +29,9 @@ describe("app discovery", () => {
       { name: "Notion Update Helper", targetPath: "C:\\Program Files\\Notion\\Update.exe", source: "start-menu" },
       { name: "Notion", targetPath: "C:\\Program Files\\Notion\\Notion.exe", source: "start-menu", shortcutPath: "C:\\Start\\Notion.lnk", workingDirectory: "C:\\Program Files\\Notion", launchArgs: "--profile default" },
       { name: "Notion", targetPath: "C:\\Program Files\\Notion\\Notion.exe", source: "desktop" },
-      { name: "Notion Calendar", targetPath: "C:\\Users\\Xbfe\\AppData\\Local\\Programs\\Notion Calendar\\Notion Calendar.exe", source: "everything" },
+      { name: "Notion Calendar", targetPath: "C:\\Users\\ExampleUser\\AppData\\Local\\Programs\\Notion Calendar\\Notion Calendar.exe", source: "everything" },
       { name: "Notion Uninstall", targetPath: "C:\\Program Files\\Notion\\Uninstall.exe", source: "everything" },
-      { name: "Notion Cache Tool", targetPath: "C:\\Users\\Xbfe\\AppData\\Local\\Temp\\NotionCache.exe", source: "everything" },
+      { name: "Notion Cache Tool", targetPath: "C:\\Users\\ExampleUser\\AppData\\Local\\Temp\\NotionCache.exe", source: "everything" },
     ], groups, () => "candidate-id");
 
     const results = searchDiscoveredAppCandidates(candidates, "notion", [{
@@ -71,7 +71,7 @@ describe("app discovery", () => {
     const groups = [{ id: "games", name: "游戏", icon: "gamepad", isSystem: false, order: 0 }];
     const candidates = buildDiscoveredApps([
       { name: "WeGame", targetPath: "D:\\Apps\\WeGame\\wegame.exe", source: "everything" },
-      { name: "WeGame", targetPath: "D:\\Apps\\WeGame\\wegame.exe", source: "desktop", shortcutPath: "C:\\Users\\Xbfe\\Desktop\\WeGame.lnk" },
+      { name: "WeGame", targetPath: "D:\\Apps\\WeGame\\wegame.exe", source: "desktop", shortcutPath: "C:\\Users\\ExampleUser\\Desktop\\WeGame.lnk" },
     ], groups, () => `id-${Math.random()}`);
 
     const results = searchDiscoveredAppCandidates(candidates, "wegame", []);

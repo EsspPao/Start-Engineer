@@ -73,7 +73,7 @@ Start Engineer 会从 Windows 已注册应用中识别 Microsoft Store / MSIX �
 
 ## 本地开发
 
-要求：Windows 10/11、Node.js 22+、npm、.NET SDK 8。
+要求：Windows 10/11、Node.js 22.12+、npm、.NET SDK 8。
 
 ```powershell
 npm ci

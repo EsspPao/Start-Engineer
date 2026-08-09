@@ -211,7 +211,7 @@ describe("focus-window", () => {
       executablePath: "E:\\Weixin\\Weixin.exe",
       processName: "Weixin"
     }), undefined, [
-      { pid: 30, name: "WeChatAppEx", path: "C:\\Users\\Xbfe\\AppData\\Roaming\\Tencent\\xwechat\\WeChatAppEx.exe", parentPid: 0 }
+      { pid: 30, name: "WeChatAppEx", path: "C:\\Users\\ExampleUser\\AppData\\Roaming\\Tencent\\xwechat\\WeChatAppEx.exe", parentPid: 0 }
     ]);
 
     expect(stages.namePids).toEqual(expect.arrayContaining([30]));

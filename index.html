@@ -3,18 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: file:; font-src 'self' data:; connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*; object-src 'none'; frame-src 'none'; child-src 'none'; base-uri 'none'; form-action 'none'" />
     <title>Start Engineer</title>
-    <script>
-      (() => {
-        const legacy = localStorage.getItem("star-engineer-ui-theme");
-        const saved = localStorage.getItem("start-engineer-ui-theme") ?? legacy;
-        const allowed = ["fluent", "midnight", "utility", "glass", "system"];
-        const selected = allowed.includes(saved || "") ? saved : "utility";
-        document.documentElement.dataset.theme = selected === "system"
-          ? (matchMedia("(prefers-color-scheme: dark)").matches ? "midnight" : "utility")
-          : selected;
-      })();
-    </script>
+    <script src="/theme-bootstrap.js"></script>
   </head>
   <body>
     <div id="root"></div>

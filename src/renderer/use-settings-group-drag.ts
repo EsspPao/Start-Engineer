@@ -10,6 +10,15 @@ type SettingsGroupDragOptions = {
   onMoveApp: (appId: string, groupId: string) => Promise<void>;
 };
 
+export function retainExpandedSettingsGroup(current: ReadonlySet<string>, groups: AppGroup[]) {
+  const retained = [...current].find((id) => groups.some((group) => group.id === id));
+  return new Set(retained ? [retained] : []);
+}
+
+export function toggleExpandedSettingsGroup(current: ReadonlySet<string>, id: string) {
+  return current.has(id) ? new Set<string>() : new Set([id]);
+}
+
 export function useSettingsGroupDrag({ groups, apps, onReorder, onMoveApp }: SettingsGroupDragOptions) {
   const [ordered, setOrdered] = useState(groups);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -24,7 +33,7 @@ export function useSettingsGroupDrag({ groups, apps, onReorder, onMoveApp }: Set
 
   useEffect(() => {
     setOrdered(groups);
-    setExpanded((current) => new Set([...current].filter((id) => groups.some((group) => group.id === id))));
+    setExpanded((current) => retainExpandedSettingsGroup(current, groups));
   }, [groups]);
   useEffect(() => { latestOrdered.current = ordered; }, [ordered]);
 
@@ -145,10 +154,6 @@ export function useSettingsGroupDrag({ groups, apps, onReorder, onMoveApp }: Set
     suppressAppClick,
     draggedApp: apps.find((app) => app.id === appDrag?.appId),
     previewGroup: ordered.find((group) => group.id === sortPreview?.id),
-    toggle: (id: string) => setExpanded((current) => {
-      const next = new Set(current);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    })
+    toggle: (id: string) => setExpanded((current) => toggleExpandedSettingsGroup(current, id))
   };
 }

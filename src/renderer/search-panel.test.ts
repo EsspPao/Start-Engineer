@@ -23,7 +23,7 @@ describe("SearchResultsPanel", () => {
       managedResults: [{ kind: "app", id: "managed", name: "Demo App", groupId: "office", processName: "Demo", isRunning: true }],
       discoveredResults: [{ id: "candidate", name: "Demo Tool", executablePath: "C:\\Program Files\\Demo\\Demo.exe", processName: "Demo", groupId: "office", category: "办公", source: "start-menu" }],
       installableResults: [],
-      fileResults: [{ name: "demo.txt", path: "C:\\Users\\Xbfe\\Desktop\\demo.txt", kind: "file", sizeBytes: 12, modifiedAt: "2026-06-29" }]
+      fileResults: [{ name: "demo.txt", path: "C:\\Users\\ExampleUser\\Desktop\\demo.txt", kind: "file", sizeBytes: 12, modifiedAt: "2026-06-29" }]
     }));
 
     expect(html).toContain("已添加应用");
@@ -62,12 +62,12 @@ describe("SearchResultsPanel", () => {
       managedResults: [],
       discoveredResults: [],
       installableResults: [],
-      fileResults: [{ name: "report.pdf", path: "C:\\Users\\Xbfe\\Documents\\report.pdf", kind: "file", sizeBytes: 1024, modifiedAt: "2026-06-29" }]
+      fileResults: [{ name: "report.pdf", path: "C:\\Users\\ExampleUser\\Documents\\report.pdf", kind: "file", sizeBytes: 1024, modifiedAt: "2026-06-29" }]
     }));
 
     expect(html).toContain("Everything 搜索结果");
     expect(html).toContain("report.pdf");
-    expect(html).toContain("C:\\Users\\Xbfe\\Documents\\report.pdf");
+    expect(html).toContain("C:\\Users\\ExampleUser\\Documents\\report.pdf");
     expect(html).toContain("打开");
   });
 

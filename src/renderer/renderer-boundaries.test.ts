@@ -37,6 +37,12 @@ describe("renderer responsibility boundaries", () => {
     expect(entry).not.toContain(': `${visibleApps.length} 个应用`;');
   });
 
+  it("removes the application search controls from the settings header", () => {
+    expect(entry).toContain('activeSection === "settings" ? "settings-mode" : ""');
+    expect(entry).toContain('{activeSection !== "settings" ? <section className="searchbar no-drag"');
+    expect(entry).toContain('command === "search" && activeSection !== "settings"');
+  });
+
   it("runs first-use import without rendering another chooser", () => {
     expect(entry).toContain("api().autoImportFirstRunApps()");
     expect(entry).not.toContain("FirstRunImportDialog");

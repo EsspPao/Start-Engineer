@@ -33,12 +33,12 @@ describe("Everything search adapter", () => {
   it("parses CSV rows into file and folder results", () => {
     const csv = [
       '"Name","Path","Size","Date Modified"',
-      '"demo.txt","C:\\Users\\Xbfe\\Desktop","12","2026-06-16 00:00:00"',
+      '"demo.txt","C:\\Users\\ExampleUser\\Desktop","12","2026-06-16 00:00:00"',
       '"Projects","D:\\Code","","2026-06-15 23:00:00"'
     ].join("\r\n");
 
     expect(parseEverythingCsv(csv)).toEqual([
-      { name: "demo.txt", path: "C:\\Users\\Xbfe\\Desktop\\demo.txt", kind: "file", sizeBytes: 12, modifiedAt: "2026-06-16 00:00:00" },
+      { name: "demo.txt", path: "C:\\Users\\ExampleUser\\Desktop\\demo.txt", kind: "file", sizeBytes: 12, modifiedAt: "2026-06-16 00:00:00" },
       { name: "Projects", path: "D:\\Code\\Projects", kind: "folder", modifiedAt: "2026-06-15 23:00:00" }
     ]);
   });

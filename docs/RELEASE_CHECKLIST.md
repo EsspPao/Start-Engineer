@@ -8,7 +8,7 @@
 - [ ] 将仓库可见性从 Private 改为 Public。
 - [ ] 启用 Private vulnerability reporting。
 - [ ] 为 `main` 启用分支保护，要求 `CI / verify` 通过后才能合并。
-- [ ] 配置 Dependabot 或同等依赖告警。
+- [x] 配置 Dependabot；公开仓库并推送配置后确认首次扫描成功。
 - [ ] 购买 Windows 代码签名证书；把证书和密码保存为 `WIN_CSC_LINK`、`WIN_CSC_KEY_PASSWORD` Actions secrets。
 - [ ] 设置仓库描述、Topics 和可选主页链接。
 
@@ -20,6 +20,7 @@
 - [ ] 将 `CHANGELOG.md` 的“未发布”内容移动到目标版本并填写日期。
 - [ ] 更新 `PROJECT_OPTIMIZATION.md` 的验证基线和发布产物名称。
 - [ ] 运行 `npm ci`。
+- [ ] 确认 `package-lock.json` 不含非官方 registry URL，并运行 `npm audit --audit-level=moderate`。
 - [ ] 运行 `npm run release:prepare`。
 - [ ] 在干净 Windows x64 用户环境测试安装、首次启动、拖放、搜索、托盘、卸载和便携版启动。
 - [ ] 用 `Get-AuthenticodeSignature` 检查签名状态（配置证书时必须为 `Valid`）。
@@ -32,7 +33,7 @@
 - [ ] 下载 Actions 产物，在独立环境再次验证 SHA-256、签名和启动。
 - [ ] 审核自动生成的发布说明后，手动发布草稿。
 
-默认 `npm run package:win` 为兼容普通 Windows 开发环境而关闭可执行文件签名编辑。签名发布必须使用 `npm run package:win:signed`，或让 GitHub Release 工作流在检测到证书 Secrets 后自动选择该命令。
+默认 `npm run package:win` 会写入 Start Engineer 产品元数据、`asInvoker` 执行级别并显式构建 Windows x64，同时在没有证书时保持 Authenticode 未签名。签名发布使用 `npm run package:win:signed`；GitHub Release 工作流检测到证书 Secrets 后会选择该命令。公开候选包必须复核安装后的主 EXE 不再显示 Electron / GitHub, Inc. 元数据。
 
 ## 暂不自动化的检查
 

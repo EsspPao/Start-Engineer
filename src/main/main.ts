@@ -55,7 +55,7 @@ const normalStartEngineerUserData = join(app.getPath("appData"), "start-engineer
 if (!smokeMode) migrateLegacyUserData(normalStartEngineerUserData, join(app.getPath("appData"), "commanddeck-next"));
 const startEngineerUserData = smokeMode
   ? join(app.getPath("temp"), `start-engineer-smoke-${process.pid}`)
-  : prepareFirstRunImportTestUserData(normalStartEngineerUserData);
+  : prepareFirstRunImportTestUserData(normalStartEngineerUserData, !app.isPackaged);
 app.setPath("userData", startEngineerUserData);
 const configPath = () => join(app.getPath("userData"), "apps.json");
 const groupsPath = () => join(app.getPath("userData"), "groups.json");

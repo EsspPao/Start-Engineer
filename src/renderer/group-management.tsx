@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useId, useRef, useState } from "react";
 import type { AppGroup, GroupInput } from "../shared/types";
 import { cleanErrorMessage } from "./error-message";
 import { Icon } from "./ui-icons";
@@ -8,17 +8,60 @@ const groupIcons = ["compass", "briefcase", "wrench", "grid", "star", "gamepad",
 export type GroupEditState = { id?: string; name: string; icon: string } | null;
 export type GroupDeleteState = { groupId: string; targetGroupId: string } | null;
 
-function GroupActionIcon({ kind }: { kind: "drag" | "expand" | "edit" | "delete" }) {
+function GroupActionIcon({ kind }: { kind: "drag" | "expand" | "edit" | "delete" | "more" }) {
   const common = { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
   if (kind === "drag") return <svg {...common} className="action-icon drag-dots"><circle cx="8" cy="7" r="1" fill="currentColor" stroke="none" /><circle cx="16" cy="7" r="1" fill="currentColor" stroke="none" /><circle cx="8" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="16" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="8" cy="17" r="1" fill="currentColor" stroke="none" /><circle cx="16" cy="17" r="1" fill="currentColor" stroke="none" /></svg>;
   if (kind === "expand") return <svg {...common} className="action-icon expand-chevron"><path d="m8 10 4 4 4-4" /></svg>;
   if (kind === "edit") return <svg {...common} className="action-icon edit-pencil"><path d="M4 20h4l11-11a2.8 2.8 0 0 0-4-4L4 16v4Z" /><path d="m13.5 6.5 4 4" /></svg>;
-  return <svg {...common} className="action-icon delete-trash"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5" /></svg>;
+  if (kind === "delete") return <svg {...common} className="action-icon delete-trash"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5" /></svg>;
+  return <svg {...common} className="action-icon more-dots"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none" /><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none" /></svg>;
+}
+
+export function GroupActionsMenu({ id, groupName, canDelete, onEdit, onDelete }: { id: string; groupName: string; canDelete: boolean; onEdit: () => void; onDelete: () => void }) {
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp" && event.key !== "Home" && event.key !== "End") return;
+    event.preventDefault();
+    const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]:not(:disabled)')];
+    if (!items.length) return;
+    const currentIndex = items.indexOf(document.activeElement as HTMLButtonElement);
+    const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : event.key === "ArrowDown" ? (currentIndex + 1 + items.length) % items.length : (currentIndex - 1 + items.length) % items.length;
+    items[nextIndex]?.focus();
+  };
+  return <div id={id} className="group-actions-menu" role="menu" aria-label={`${groupName}分组操作`} onKeyDown={handleKeyDown}><button type="button" className="menu-item group-actions-menu-item" role="menuitem" onClick={onEdit}><GroupActionIcon kind="edit" /><span>编辑分组</span></button><button type="button" className="menu-item group-actions-menu-item danger" role="menuitem" disabled={!canDelete} title={canDelete ? undefined : "至少保留一个分组"} onClick={onDelete}><GroupActionIcon kind="delete" /><span>删除分组{!canDelete ? <small className="group-action-disabled-reason">至少保留一个分组</small> : null}</span></button></div>;
 }
 
 export function GroupManagerItem({ group, apps, expanded, sorting, appDrag, register, onToggle, onSortStart, onEdit, onDelete, canDelete, onAdd, onOpenApp, onAppContextMenu, onAppPointerDown }: { group: AppGroup; apps: RuntimeApp[]; expanded: boolean; sorting: boolean; appDrag: { appId: string; targetGroup?: string } | null; register: (element: HTMLDivElement | null) => void; onToggle: () => void; onSortStart: (event: React.PointerEvent) => void; onEdit: () => void; onDelete: () => void; canDelete: boolean; onAdd: () => void; onOpenApp: (app: RuntimeApp) => void; onAppContextMenu: (event: React.MouseEvent, app: RuntimeApp) => void; onAppPointerDown: (event: React.PointerEvent, app: RuntimeApp) => void }) {
   const sourceGroup = apps.some((app) => app.id === appDrag?.appId);
-  return <div ref={register} data-sort-group={group.id} data-settings-drop-group={group.id} className={`group-manager-item ${expanded ? "expanded" : ""} ${sorting ? "sorting-placeholder" : ""} ${appDrag ? sourceGroup ? "app-drop-disabled" : appDrag.targetGroup === group.id ? "app-drop-active" : "app-drop-ready" : ""}`}><div className="group-manager-row"><button className="drag-handle" title="拖动排序" aria-label={`拖动 ${group.name} 排序`} onPointerDown={onSortStart}><GroupActionIcon kind="drag" /></button><button className="group-manager-main" onClick={onToggle} aria-expanded={expanded}><span className="group-manager-icon"><Icon name={group.icon} /></span><span className="group-manager-name"><strong>{group.name}</strong><span>{apps.length} 个应用</span></span><span className="expand-arrow"><GroupActionIcon kind="expand" /></span></button><button className="icon-action" title="编辑分组" aria-label={`编辑 ${group.name}`} onClick={onEdit}><GroupActionIcon kind="edit" /></button><button className="icon-action danger" title="删除分组" aria-label={`删除 ${group.name}`} disabled={!canDelete} onClick={onDelete}><GroupActionIcon kind="delete" /></button></div>{expanded ? <div className="group-expand"><GroupAppGrid apps={apps} onAdd={onAdd} onOpenApp={onOpenApp} onContextMenu={onAppContextMenu} onPointerDown={onAppPointerDown} /></div> : null}</div>;
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const actionsRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuId = useId();
+
+  useEffect(() => {
+    if (!actionsOpen) return;
+    window.requestAnimationFrame(() => actionsRef.current?.querySelector<HTMLButtonElement>('button[role="menuitem"]:not(:disabled)')?.focus());
+    const closeFromOutside = (event: PointerEvent) => {
+      if (!actionsRef.current?.contains(event.target as Node)) setActionsOpen(false);
+    };
+    const closeFromKeyboard = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setActionsOpen(false);
+      triggerRef.current?.focus();
+    };
+    document.addEventListener("pointerdown", closeFromOutside, true);
+    document.addEventListener("keydown", closeFromKeyboard);
+    return () => {
+      document.removeEventListener("pointerdown", closeFromOutside, true);
+      document.removeEventListener("keydown", closeFromKeyboard);
+    };
+  }, [actionsOpen]);
+
+  const runAction = (action: () => void) => {
+    setActionsOpen(false);
+    action();
+  };
+
+  return <div ref={register} data-sort-group={group.id} data-settings-drop-group={group.id} className={`group-manager-item ${actionsOpen ? "actions-open" : ""} ${expanded ? "expanded" : ""} ${sorting ? "sorting-placeholder" : ""} ${appDrag ? sourceGroup ? "app-drop-disabled" : appDrag.targetGroup === group.id ? "app-drop-active" : "app-drop-ready" : ""}`}><div className="group-manager-row"><button type="button" className="drag-handle" title="拖动排序" aria-label={`拖动 ${group.name} 排序`} onPointerDown={onSortStart}><GroupActionIcon kind="drag" /></button><button type="button" className="group-manager-main" onClick={onToggle} aria-expanded={expanded}><span className="group-manager-icon"><Icon name={group.icon} /></span><span className="group-manager-name"><strong>{group.name}</strong><span>{apps.length} 个应用</span></span><span className="expand-arrow"><GroupActionIcon kind="expand" /></span></button><div ref={actionsRef} className={`group-manager-actions ${actionsOpen ? "open" : ""}`}><button ref={triggerRef} type="button" className="icon-action group-actions-trigger" title="更多操作" aria-label={`${group.name}的更多操作`} aria-haspopup="menu" aria-expanded={actionsOpen} aria-controls={actionsOpen ? menuId : undefined} onClick={() => setActionsOpen((open) => !open)}><GroupActionIcon kind="more" /></button>{actionsOpen ? <GroupActionsMenu id={menuId} groupName={group.name} canDelete={canDelete} onEdit={() => runAction(onEdit)} onDelete={() => runAction(onDelete)} /> : null}</div></div>{expanded ? <div className="group-expand"><GroupAppGrid apps={apps} onAdd={onAdd} onOpenApp={onOpenApp} onContextMenu={onAppContextMenu} onPointerDown={onAppPointerDown} /></div> : null}</div>;
 }
 
 function GroupAppGrid({ apps, onAdd, onOpenApp, onContextMenu, onPointerDown }: { apps: RuntimeApp[]; onAdd: () => void; onOpenApp: (app: RuntimeApp) => void; onContextMenu: (event: React.MouseEvent, app: RuntimeApp) => void; onPointerDown: (event: React.PointerEvent, app: RuntimeApp) => void }) {

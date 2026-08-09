@@ -7,11 +7,72 @@ describe("Windows packaging preflight", () => {
     const packageJson = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8"));
     const script = readFileSync(join(process.cwd(), "scripts/close-running-app.mjs"), "utf8");
     expect(packageJson.scripts["prepackage:win"]).toBe("node scripts/close-running-app.mjs");
+    expect(packageJson.scripts["prepackage:win:signed"]).toBe("node scripts/close-running-app.mjs");
+    expect(packageJson.scripts["prerelease:prepare"]).toBe("node scripts/close-running-app.mjs");
     expect(script).toContain("tasklist.exe");
     expect(script).toContain("Get-Process -Name 'Start Engineer'");
     expect(script).toContain("taskkill.exe");
     expect(script).toContain('"/PID"');
     expect(script).toContain("Start Engineer.exe");
     expect(script).toContain("-Verb RunAs");
+  });
+
+  it("cleans stale compiler output and excludes tests from packaged files", () => {
+    const packageJson = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8"));
+    const cleanScript = readFileSync(join(process.cwd(), "scripts/clean-build-output.mjs"), "utf8");
+    const verifyScript = readFileSync(join(process.cwd(), "scripts/verify-build-artifacts.mjs"), "utf8");
+
+    expect(packageJson.scripts["build"]).toContain("npm run clean:build");
+    expect(packageJson.scripts["build"]).toContain("verify-build-artifacts.mjs");
+    expect(packageJson.build.files).toContain("!dist-electron/**/*.test.*");
+    expect(packageJson.build.files).toContain("!dist-electron/**/*.spec.*");
+    expect(cleanScript).toContain('["dist", "dist-electron", "dist-native"]');
+    expect(cleanScript).toContain("relativeTarget.startsWith");
+    expect(verifyScript).toContain("Test artifacts must not be packaged");
+  });
+
+  it("cleans only known stale release outputs before packaging artifacts", () => {
+    const packageJson = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8"));
+    const cleanReleaseScript = readFileSync(join(process.cwd(), "scripts/clean-release-output.mjs"), "utf8");
+
+    expect(packageJson.scripts["package:win:artifacts"]).toContain("npm run clean:release");
+    expect(packageJson.scripts["package:win:artifacts:signed"]).toContain("npm run clean:release");
+    expect(cleanReleaseScript).toContain("versionedArtifactPattern");
+    expect(cleanReleaseScript).toContain('entry.name.startsWith("win-unpacked")');
+    expect(cleanReleaseScript).toContain("relativeTarget.startsWith");
+  });
+
+  it("removes unused files copied from the installed Electron distribution", () => {
+    const packageJson = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8"));
+    const afterPackScript = readFileSync(join(process.cwd(), "scripts/after-pack.cjs"), "utf8");
+
+    expect(packageJson.build.electronDist).toBe("node_modules/electron/dist");
+    expect(packageJson.build.afterPack).toBe("scripts/after-pack.cjs");
+    expect(afterPackScript).toContain('"default_app.asar"');
+    expect(afterPackScript).toContain('"app-update.yml"');
+    expect(afterPackScript).toContain('resolve(appOutDir, "version")');
+    expect(afterPackScript).toContain("relativeTarget.startsWith");
+  });
+
+  it("publishes a self-contained helper without debug symbols", () => {
+    const packageJson = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8"));
+    const helperBuild = readFileSync(join(process.cwd(), "scripts/build-window-helper.mjs"), "utf8");
+    const helperProject = readFileSync(join(process.cwd(), "native/window-focus-helper/window-focus-helper.csproj"), "utf8");
+
+    expect(helperBuild).toContain('"--self-contained"');
+    expect(helperBuild).toContain('"true"');
+    expect(helperBuild).toContain("PublishSingleFile=true");
+    expect(helperBuild).toContain("DebugSymbols=false");
+    expect(helperBuild).toContain("debugSymbols.length > 0");
+    expect(helperBuild).toContain('["is-elevated"]');
+    expect(helperBuild).toContain("typeof smokeResult?.isElevated");
+    expect(helperBuild).toContain('process.env.CI !== "true"');
+    expect(helperBuild).toContain("-p:FileVersion=${fileVersion}");
+    expect(helperBuild).toContain("-p:InformationalVersion=${appVersion}");
+    expect(helperProject).toContain("<IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>");
+    expect(packageJson.build.extraResources[2].filter).toContain("!**/*.pdb");
+    expect(packageJson.build.files).toContain("THIRD_PARTY_NOTICES.md");
+    expect(packageJson.build.files).toContain("licenses/**/*");
+    expect(packageJson.build.win.requestedExecutionLevel).toBe("asInvoker");
   });
 });

@@ -4,11 +4,23 @@
 
 请以后续实际代码为准，尤其是 `src/shared/types.ts`、`src/main/main.ts`、`src/renderer/main.tsx`、`src/main/window-manager.ts`、`native/window-focus-helper/Program.cs`。本文只把代码中已经存在的能力写为“当前能力”；尚未落地的设想会明确放在“风险 / 建议 / 路线图”中。
 
-最后核对日期：`2026-08-01`。当前开发基线以 `main@faa7756` 为起点，并加入公开发布准备：用户 README、隐私/安全/贡献/排障/更新日志、GitHub CI 与草稿 Release、安装版和便携版 SHA-256 清单、可选签名构建、应用内关于与诊断，以及 Everything/ES 下载哈希校验。既有合并卡片键盘交互、透明图标提取、快捷方式拖入、右键菜单视口适配、“普通权限主界面 + 会话级高权限进程控制”和多主题外观继续保留；Wallpaper Glass 与 Clear Desktop 自身保持独立。主界面默认保持普通权限；关闭应用先尝试普通 `taskkill`，只有确认目标仍在运行时才按需请求 UAC，授权成功后由隐藏的受限 helper 完成关闭并在本次会话复用。Microsoft Store / MSIX 应用改用稳定 AUMID 作为启动身份，旧 WindowsApps 版本路径会在首次启动时原位迁移，因此 ChatGPT 等应用升级后不再要求用户重新选择 EXE；即使原生激活失败，也只提示检查 Store 安装状态，不进入普通 EXE 重选流程。普通分组页标题只显示分组名称，不再展示会被合并卡片语义扭曲的应用数量；进程、聚合应用和设置页仍保留有明确用途的副标题。首次启动在后台按默认模板筛选少量候选，只自动添加当前电脑已确认存在的应用；缺失项静默跳过，不再显示额外选择界面或成功提示。主进程以单一原子任务完成扫描、复核和导入：并发请求复用同一任务，Store 扫描失败会保留待处理状态供下次启动重试，图标提取前后及最终保存前都会重新读取应用库并去重，避免与用户手动添加产生重复卡片。QA 测试模式使用隔离用户数据目录，每次启动从正常配置生成首次导入模板、复用已验证的透明图标且不会写入正常配置。普通图标提取会拒绝几乎整张不透明纯黑的无效资源并回退到 EXE 图标或生成图标。当前基线已完整通过 TypeScript 类型检查、native helper 构建、完整 Vitest 测试（85 个测试文件、376 项测试）、生产构建、Electron 冒烟、Windows 安装版/便携版打包、SHA-256 生成和便携版首次启动实测；制品位于 `release`。
+最后核对日期：`2026-08-10`。当前开发基线以 `main@25315f6` 为起点，并继续进行尚未提交的公开发布准备：用户 README、隐私/安全/贡献/排障/更新日志、GitHub CI 与草稿 Release、安装版和便携版 SHA-256 清单、可选签名构建、应用内关于与诊断，以及 Everything/ES 下载哈希校验。既有合并卡片键盘交互、透明图标提取、快捷方式拖入、右键菜单视口适配、“普通权限主界面 + 会话级高权限进程控制”和多主题外观继续保留；Wallpaper Glass 与 Clear Desktop 自身保持独立。主界面默认保持普通权限；关闭应用先尝试普通 `taskkill`，只有确认目标仍在运行时才按需请求 UAC，授权成功后由隐藏的受限 helper 完成关闭并在本次会话复用。Microsoft Store / MSIX 应用改用稳定 AUMID 作为启动身份，旧 WindowsApps 版本路径会在首次启动时原位迁移，因此 ChatGPT 等应用升级后不再要求用户重新选择 EXE；即使原生激活失败，也只提示检查 Store 安装状态，不进入普通 EXE 重选流程。普通分组页标题只显示分组名称，不再展示会被合并卡片语义扭曲的应用数量；进程、聚合应用和设置页仍保留有明确用途的副标题。首次启动在后台按默认模板筛选少量候选，只自动添加当前电脑已确认存在的应用；缺失项静默跳过，不再显示额外选择界面或成功提示。主进程以单一原子任务完成扫描、复核和导入：并发请求复用同一任务，Store 扫描失败会保留待处理状态供下次启动重试，图标提取前后及最终保存前都会重新读取应用库并去重，避免与用户手动添加产生重复卡片。QA 测试模式使用隔离用户数据目录，每次启动从正常配置生成首次导入模板、复用已验证的透明图标且不会写入正常配置。普通图标提取会拒绝几乎整张不透明纯黑的无效资源并回退到 EXE 图标或生成图标。设置页已按渐进披露重整：默认只显示“启动与操作”、当前外观摘要和折叠的高级设置，分组管理切换到独立页签，完整主题、界面编辑器、应用内快捷键、搜索依赖与诊断均按需打开；顶栏不再重复显示全局搜索框。“关于”降为页脚入口和可访问弹窗，分组默认收起且单次只展开一组，编辑/删除收进支持方向键与 Esc 的更多菜单。本轮代码已通过 TypeScript 类型检查、88 个测试文件共 404 项测试、生产构建和真实 Electron 视觉/键盘验收；安装版、便携版与 SHA-256 清单也已在本轮文档落盘后重新生成并完成产物复核。
 
 维护硬性约定：每次代码、配置、样式、测试或构建流程发生改动，都必须在同一提交中同步更新本文档，至少记录受影响能力、验证结果或新的维护注意事项，避免文档再次落后于实际代码。
 
 发布硬性约定：每次完成改动并通过必要验证后，都必须重新生成 Windows 安装版和便携版，确保 `release` 中的交付文件与当前代码一致。
+
+构建洁净度约定：`npm run build` 必须先删除仓库内的 `dist`、`dist-electron` 与 `dist-native`，再编译并执行产物检查；`electron-builder` 还会显式排除 `*.test.*` / `*.spec.*` 和 helper PDB。窗口 helper 以 win-x64 自包含单文件发布并执行一次真实 `is-elevated` 冒烟，因此用户不必预装 .NET 8 Desktop Runtime。这些约束避免历史测试 JavaScript、已删除模块、调试符号、本机源码路径或 framework-dependent helper 被收入公开包。清理脚本必须校验目标仍位于项目目录内，不得把可变路径直接交给递归删除。
+
+发布目录洁净度约定：Windows 打包前必须运行 `scripts/clean-release-output.mjs`，只删除 `release` 下 Start Engineer 的版本化 EXE / blockmap、builder 元数据、校验和与 `win-unpacked*` 目录，保留任何不认识的文件并校验删除目标没有越出 `release`。`release:prepare` 和 GitHub Release 工作流复用已经通过验证的生产构建，再执行 artifact-only 打包，避免 self-contained helper 被重复构建而挤压 Actions 超时时间；本地普通与签名打包入口仍会先关闭运行中的 Start Engineer。
+
+GitHub Actions 供应链约定：`checkout`、`setup-node`、`setup-dotnet`、`upload-artifact` 与 `download-artifact` 必须固定到 GitHub 官方仓库已核验的完整 commit SHA，并在行尾保留对应语义版本注释；Dependabot 负责后续更新。不要为了写法简短退回浮动的 `@v4` 标签。`workflow_dispatch` 只用于生成 Actions Artifact；只有 `push` 事件中的匹配 `v*` 标签才允许进入草稿 Release job，避免手动选择标签运行工作流时意外创建发布记录。
+
+发布依赖基线为 Node.js `>=22.12.0`、Electron `43.3.0`、electron-builder `26.15.3`、Vite `8.2.1`、Vitest `4.1.10` 与 `@vitejs/plugin-react` `6.0.5`。`package-lock.json` 的下载地址必须全部指向官方 `registry.npmjs.org`，根级 `postinstall` 显式下载 Electron 运行时；electron-builder 的 `electronDist` 直接复用这份已安装运行时，不能再从 GitHub 重复下载同版本压缩包。`scripts/after-pack.cjs` 会在打包后定点移除该目录自带但应用不使用的 `default_app.asar`、`version` 与 `app-update.yml`，并验证目标仍位于当前 `appOutDir`。2026-08-08 从空 `node_modules` 执行 `npm ci` 成功，Electron 二进制为 `v43.3.0`，官方 `npm audit --audit-level=moderate` 返回 0 个漏洞。依赖再次变更后必须重新做同样检查。
+
+helper 构建冒烟在 GitHub CI 中是强制门槛；本地受限执行沙箱若明确返回 `EPERM`，脚本会记录警告并只跳过执行步骤，仍检查单文件和无 PDB。普通开发机的其他失败、无效 JSON 或非零退出码仍会使构建失败；正式候选包还必须在干净 Windows x64 环境真实运行 helper。helper 项目必须关闭 .NET SDK 的源码 revision 自动追加，使 `ProductVersion` 与应用公开版本一致，而不是暴露内部 Git 提交哈希。
+
+公开源码隐私约定：测试夹具使用 `ExampleUser` 等虚构用户名，不新增真实 Windows 用户目录。既有 Git 历史曾出现本机用户名；公开仓库前需由所有者决定接受历史暴露，或单独授权执行一次经过备份与复核的历史重写，常规发布准备不得擅自改写远程历史。
 
 ## 1. 项目定位与当前状态
 
@@ -43,26 +55,38 @@ Start Engineer 当前是一个 Windows 桌面启动台与进程监控工具，�
 - Electron 主界面默认保持普通权限，资源管理器可原生拖入 `.exe` / `.lnk`；关闭操作先尝试普通权限，只有目标 PID 仍在运行时才按需触发 UAC。授权成功后，本次运行复用受限 native helper，不再反复弹出 UAC。helper 始终隐藏控制台窗口，并在 GUI 退出或管道断开后自动退出。
 - 支持窗口大小和位置记忆。
 - 支持 Splash Window，降低双击 EXE 后的空白等待感。
+- 主窗口启用 Chromium sandbox、context isolation 与禁用 Node integration；主进程拒绝渲染层导航、新窗口和所有网页权限请求，页面 CSP 禁止对象、frame、表单和外部默认资源。主题预加载已移到同源静态脚本，`script-src` 不需要 `unsafe-inline`；对外网页只允许走受约束的主进程 `shell.openExternal` 入口。
 - `Apple Gallery`、`Fluent Workspace`、`Midnight Control`、`Modern Utility`、`Refined Glass` 参照 Wallpaper Glass 共用同一套玻璃外观和交互层级，只保留配色差异；`Wallpaper Glass` 原有背景、按钮与融合强度链路保持不变，`Clear Desktop` 继续作为独立透明主题。
 - `Wallpaper Glass` 支持深色/浅色变体和 0-100 数值融合强度，滑条拖动时实时预览。
 - 支持受约束 UI 编辑：整体缩放、自定义背景色、卡片大小、网格密度、侧栏宽度、顶部图标大小、背景色调，以及名称/搜索栏/运行状态/底部操作的显示开关。
 - 支持 UI 分享码 `seui:v1:...` 导入导出。
-- 设置页提供“关于与诊断”：读取真实应用/运行时/Windows 版本，打开用户数据目录、项目主页，并复制不包含应用列表或配置内容的诊断摘要。
+- 设置页默认使用“偏好 / 分组管理”双页签；偏好首页只常显启动与操作、当前外观摘要和折叠的高级设置，完整主题、界面编辑器、应用内快捷键与搜索依赖均按需展开。
+- 设置顶栏不显示与设置任务无关的全局搜索框；`Ctrl+F` 在设置页不会误聚焦隐藏输入框。
+- “关于 Start Engineer”降为设置页页脚的低强调入口；弹窗读取真实应用/运行时/Windows 版本，可打开数据目录、项目主页并复制不包含应用列表或配置内容的诊断摘要，支持遮罩、Esc、焦点循环与焦点恢复。
+- 首次导入 QA 标记只允许未打包开发构建使用；安装版和便携版即使用户数据目录误留标记也会忽略，不能切换到隐藏测试配置。
 - 支持应用卡片拖拽排序、拖到侧栏移动分组，以及设置页分组拖拽排序。
 - 普通分组页顶部只显示分组名称，不显示容易与合并卡片成员数混淆的应用数量；进程、聚合应用和设置页副标题不受影响。
 
 当前验证与打包脚本：
 
+- `npm run electron:install`
 - `npm test`
 - `npm run typecheck`
 - `npm run build`
+- `npm run clean:release`
 - `npm run smoke`
 - `npm run package:win`
 - `npm run release:checksums`
 - `npm run release:verify`
 - `npm run release:prepare`
 
+`npm run build` 会通过 `scripts/clean-build-output.mjs` 清除上一轮 Web / Electron 编译目录，并在完成后用 `scripts/verify-build-artifacts.mjs` 确认关键入口存在且没有测试产物；公开包不能依赖开发者手动清理旧文件。
+
+Electron 43 的 npm 包不再自行声明 `postinstall` 下载运行时；项目顶层 `postinstall` 会显式执行 `install-electron`，首次 `npm install` / `npm ci` 必须完成该步骤。若企业网络拦截 GitHub Release 下载，应明确配置 Electron 官方支持的镜像或缓存，不能提交缺少 `node_modules/electron/dist` 的“成功安装”状态。
+
 `npm run package:win` 会先执行 `scripts/close-running-app.mjs`：同时通过 `tasklist` 和 PowerShell 进程查询识别安装版、便携版及临时目录中的 Start Engineer 实例，优先正常结束，必要时按 PID 强制结束；仍有高权限残留时会请求管理员权限。预检确认程序完全退出后才开始覆盖 `release` 产物，避免打包文件被占用。
+
+`package:win:artifacts` / `package:win:artifacts:signed` 是给已完成 `npm run build` 的 Release 流水线复用的内部入口：它们会先定点清理旧发布产物，但不会再次编译。日常手工打包仍使用 `package:win` 或 `package:win:signed`，不要直接用 artifact-only 入口代替构建验证。
 
 当前打包配置：
 
@@ -72,8 +96,10 @@ Start Engineer 当前是一个 Windows 桌面启动台与进程监控工具，�
 - 输出目录：`release`
 - 安装包：`release/Start-Engineer-Setup-0.1.0.exe`
 - 便携版：`release/Start-Engineer-Portable-0.1.0.exe`
-- 默认 `package:win` 保持 `signAndEditExecutable: false`，使未启用 Windows 符号链接权限的开发机也能稳定生成未签名包；`package:win:signed` 显式开启签名/资源编辑。GitHub Release 工作流只有检测到 `WIN_CSC_LINK` 与 `WIN_CSC_KEY_PASSWORD` Secrets 时才调用签名构建。
+- 默认 `package:win` 启用可执行文件资源编辑、写入 `asInvoker` 并显式构建 x64，使安装后的主 EXE 带 Start Engineer 产品元数据且主界面不会自行提权；没有证书时仍是 Authenticode 未签名。`package:win:signed` 保留显式签名入口，GitHub Release 工作流只有检测到 `WIN_CSC_LINK` 与 `WIN_CSC_KEY_PASSWORD` Secrets 时才调用它。
 - `electron-builder.extraResources` 会把 `dist-native/window-focus-helper/win-x64` 打进资源目录。
+- `electron-builder.files` 对 `dist-electron` 的测试/规格文件做防御性排除；即使未来构建流程回归，也不能把测试 JavaScript 带入 `app.asar`。
+- 自包含 helper 的产品/文件版本跟随 `package.json`，公开包同时携带 `THIRD_PARTY_NOTICES.md` 和 .NET Runtime MIT 许可证；升级目标框架或 runtime pack 时要同步上游第三方声明链接并复核许可证。
 - `release:checksums` 为安装版与便携版生成 `release/SHA256SUMS.txt`；公开 Release 必须同时附带该文件。
 
 ## 2. 设计原则
@@ -172,12 +198,12 @@ Start Engineer 应尽可能支持键盘操作，让用户可以在不依赖鼠�
 
 ### 3.1 技术栈
 
-- Electron 33
+- Electron 43
 - React 18
 - TypeScript 5
-- Vite 5
-- Vitest
-- electron-builder
+- Vite 8
+- Vitest 4
+- electron-builder 26
 - 原生 CSS 变量主题系统
 - C# / .NET 8 Windows helper：`native/window-focus-helper`
 
@@ -943,28 +969,18 @@ UI 分享码：
 
 ### 5.11 设置页
 
-当前设置页包含：
+当前设置页使用两级信息架构：
 
-- 常规设置折叠面板。
-- 快捷键折叠面板。
-- 界面主题折叠面板。
-- 搜索依赖折叠面板。
-- 分组管理。
-- 开机启动。
-- 关闭行为。
-- 全局快捷键。
-- 可录制的应用内快捷键和恢复全部默认。
-- 可选“启动时预先授权关闭高权限应用”；默认关闭并改为首次实际需要时请求 UAC，状态区区分正在授权、本次已授权、取消/失败和外部显式提权 GUI。
-- 运行应用置顶。
-- 实时 UI 编辑、自定义背景色和分享码导入导出。
-- 搜索提供方。
-- Wallpaper Glass 变体和强度。
-- Everything 依赖状态/准备。
-- 分组展开查看应用。
+- 顶层页签只有“偏好”和“分组管理”，默认进入偏好；页签支持左右方向键、Home 和 End。
+- 偏好首页常显“启动与操作”，包含开机启动、关闭行为与全局快速唤出。
+- “外观”默认只显示当前主题摘要；“更换主题”后才加载主题预设、Wallpaper Glass 控制和完整界面编辑器。
+- “高级设置”默认收起，包含运行应用置顶、唯一一处“显示应用名称”、高权限关闭预授权、搜索范围、完整应用内快捷键与 Everything 依赖。
+- 搜索依赖默认自动管理；只有进入高级设置或失败排障时才呈现状态、修复和手动选择入口。
+- “关于 Start Engineer”位于页脚，诊断功能收在模态弹窗内，不再占用顶层折叠面板。
+- 分组管理拥有独立页签；默认全部收起，同一时间最多展开一组，编辑/删除位于“更多操作”菜单，最后一个分组明确禁止删除。
+- 设置页面不渲染顶栏全局搜索框，从视觉和键盘路径上减少无关入口。
 
-已知趋势：
-
-- 设置项已经偏多，继续加功能前应考虑拆成更清晰的“常规 / 外观 / 搜索 / 快捷键 / 高级 / 关于”。
+维护约束：后续新增设置时，先判断能否自动化或放入现有高级区；不得恢复多个同级大折叠面板，也不得把诊断、依赖路径等低频信息重新放回默认首屏。
 
 ## 6. 当前已知问题与风险
 
@@ -1053,7 +1069,7 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 - 崩溃上报。
 - 完整新手引导。
 - 许可证选择；在明确授权条款前不得把仓库切换为公开。
-- GitHub 仓库可见性、Private vulnerability reporting、分支保护、Dependabot 与第一个正式 Release。
+- GitHub 仓库可见性、Private vulnerability reporting、分支保护与第一个正式 Release；Dependabot 配置已进入仓库，公开并推送后仍需确认首次扫描成功。
 
 发布操作与人工复核见 `docs/RELEASE_CHECKLIST.md`。当前明确采用手动更新策略，README 必须保留未签名与无自动更新提示。
 
@@ -1137,14 +1153,14 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 
 ### 7.4 设置页信息架构重整
 
-目标：避免设置页继续膨胀。
+状态：已完成第一轮重整。
 
-建议：
+- 使用“偏好 / 分组管理”页签代替五个同级折叠面板。
+- 日常设置常显，主题详情和高级功能默认折叠。
+- 搜索依赖与诊断退居上下文入口，不占用默认首屏。
+- 分组次要操作收进更多菜单，并补齐菜单和弹窗的键盘焦点闭环。
 
-- 拆成分类导航。
-- 高级功能默认折叠。
-- 说明文字迁移到 Tooltip。
-- 增加“关于/诊断”页。
+下一步仅根据真实用户测试调整文案、默认项和间距；不要在没有使用证据时继续新增分类。
 
 ### 7.5 错误模型统一
 

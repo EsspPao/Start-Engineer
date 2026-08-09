@@ -18,6 +18,14 @@ describe("first-run import test mode", () => {
     expect(existsSync(`${normalUserData}-first-run-import-test`)).toBe(false);
   });
 
+  it("ignores the QA marker in packaged builds", () => {
+    const normalUserData = createFixture();
+    writeFileSync(join(normalUserData, firstRunImportTestMarkerName), "enabled\n", "utf8");
+
+    expect(prepareFirstRunImportTestUserData(normalUserData, false)).toBe(normalUserData);
+    expect(existsSync(`${normalUserData}-first-run-import-test`)).toBe(false);
+  });
+
   it("creates a fresh isolated first-run profile on every launch", () => {
     const normalUserData = createFixture();
     writeFileSync(join(normalUserData, firstRunImportTestMarkerName), "enabled\n", "utf8");

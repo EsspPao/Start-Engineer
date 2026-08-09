@@ -3,8 +3,8 @@ import { join } from "node:path";
 
 export const firstRunImportTestMarkerName = ".first-run-import-test.enabled";
 
-export function prepareFirstRunImportTestUserData(normalUserData: string) {
-  if (!existsSync(join(normalUserData, firstRunImportTestMarkerName))) return normalUserData;
+export function prepareFirstRunImportTestUserData(normalUserData: string, allowTestMode = true) {
+  if (!allowTestMode || !existsSync(join(normalUserData, firstRunImportTestMarkerName))) return normalUserData;
 
   const testUserData = `${normalUserData}-first-run-import-test`;
   mkdirSync(testUserData, { recursive: true });
