@@ -51,15 +51,15 @@
     "release:prepare": "npm run release:verify && npm run package:win:artifacts && npm run release:checksums"
   },
   "devDependencies": {
-    "@types/node": "24.13.3",
-    "@types/react": "^18.3.12",
-    "@types/react-dom": "^18.3.1",
+    "@types/node": "26.2.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "6.0.5",
     "electron": "43.3.0",
     "electron-builder": "26.15.3",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "typescript": "^5.9.3",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "typescript": "^7.0.2",
     "vite": "8.2.1",
     "vitest": "4.1.10"
   },
