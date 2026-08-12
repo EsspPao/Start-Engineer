@@ -31,6 +31,7 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json",
     "build:helper": "node scripts/build-window-helper.mjs",
+    "smoke:helper": "node scripts/smoke-window-helper.mjs",
     "clean:build": "node scripts/clean-build-output.mjs",
     "clean:release": "node scripts/clean-release-output.mjs",
     "build": "npm run clean:build && npm run build:helper && tsc -p tsconfig.json && vite build && tsc -p tsconfig.electron.json && node scripts/verify-build-artifacts.mjs",
@@ -39,18 +40,15 @@
     "smoke": "node scripts/smoke.mjs",
     "prepackage:win": "node scripts/close-running-app.mjs",
     "package:win": "npm run build && npm run package:win:artifacts",
-    "package:win:artifacts": "npm run clean:release && electron-builder --win nsis portable --x64 --publish never",
+    "package:win:artifacts": "npm run clean:release && electron-builder --win nsis portable --x64 --publish never && npm run verify:footprint",
     "prepackage:win:signed": "node scripts/close-running-app.mjs",
     "package:win:signed": "npm run build && npm run package:win:artifacts:signed",
-    "package:win:artifacts:signed": "npm run clean:release && electron-builder --win nsis portable --x64 --publish never --config.win.signAndEditExecutable=true",
+    "package:win:artifacts:signed": "npm run clean:release && electron-builder --win nsis portable --x64 --publish never --config.win.signAndEditExecutable=true && npm run verify:footprint",
+    "verify:footprint": "node scripts/verify-package-footprint.mjs",
     "release:checksums": "node scripts/write-checksums.mjs",
     "release:verify": "npm run typecheck && npm test && npm run build && npm run smoke",
     "prerelease:prepare": "node scripts/close-running-app.mjs",
     "release:prepare": "npm run release:verify && npm run package:win:artifacts && npm run release:checksums"
-  },
-  "dependencies": {
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@types/node": "24.13.3",
@@ -59,6 +57,8 @@
     "@vitejs/plugin-react": "6.0.5",
     "electron": "43.3.0",
     "electron-builder": "26.15.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "typescript": "^5.9.3",
     "vite": "8.2.1",
     "vitest": "4.1.10"
@@ -67,6 +67,10 @@
     "appId": "com.essppao.startengineer",
     "productName": "Start Engineer",
     "asar": true,
+    "electronLanguages": [
+      "zh-CN",
+      "en-US"
+    ],
     "electronDist": "node_modules/electron/dist",
     "afterPack": "scripts/after-pack.cjs",
     "directories": {
@@ -111,6 +115,7 @@
     },
     "nsis": {
       "oneClick": false,
+      "differentialPackage": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,

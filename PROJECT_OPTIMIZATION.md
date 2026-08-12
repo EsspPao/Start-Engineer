@@ -4,21 +4,21 @@
 
 请以后续实际代码为准，尤其是 `src/shared/types.ts`、`src/main/main.ts`、`src/renderer/main.tsx`、`src/main/window-manager.ts`、`native/window-focus-helper/Program.cs`。本文只把代码中已经存在的能力写为“当前能力”；尚未落地的设想会明确放在“风险 / 建议 / 路线图”中。
 
-最后核对日期：`2026-08-10`。当前开发基线以 `main@25315f6` 为起点，并继续进行尚未提交的公开发布准备：用户 README、隐私/安全/贡献/排障/更新日志、GitHub CI 与草稿 Release、安装版和便携版 SHA-256 清单、可选签名构建、应用内关于与诊断，以及 Everything/ES 下载哈希校验。既有合并卡片键盘交互、透明图标提取、快捷方式拖入、右键菜单视口适配、“普通权限主界面 + 会话级高权限进程控制”和多主题外观继续保留；Wallpaper Glass 与 Clear Desktop 自身保持独立。主界面默认保持普通权限；关闭应用先尝试普通 `taskkill`，只有确认目标仍在运行时才按需请求 UAC，授权成功后由隐藏的受限 helper 完成关闭并在本次会话复用。Microsoft Store / MSIX 应用改用稳定 AUMID 作为启动身份，旧 WindowsApps 版本路径会在首次启动时原位迁移，因此 ChatGPT 等应用升级后不再要求用户重新选择 EXE；即使原生激活失败，也只提示检查 Store 安装状态，不进入普通 EXE 重选流程。普通分组页标题只显示分组名称，不再展示会被合并卡片语义扭曲的应用数量；进程、聚合应用和设置页仍保留有明确用途的副标题。首次启动在后台按默认模板筛选少量候选，只自动添加当前电脑已确认存在的应用；缺失项静默跳过，不再显示额外选择界面或成功提示。主进程以单一原子任务完成扫描、复核和导入：并发请求复用同一任务，Store 扫描失败会保留待处理状态供下次启动重试，图标提取前后及最终保存前都会重新读取应用库并去重，避免与用户手动添加产生重复卡片。QA 测试模式使用隔离用户数据目录，每次启动从正常配置生成首次导入模板、复用已验证的透明图标且不会写入正常配置。普通图标提取会拒绝几乎整张不透明纯黑的无效资源并回退到 EXE 图标或生成图标。设置页已按渐进披露重整：默认只显示“启动与操作”、当前外观摘要和折叠的高级设置，分组管理切换到独立页签，完整主题、界面编辑器、应用内快捷键、搜索依赖与诊断均按需打开；顶栏不再重复显示全局搜索框。“关于”降为页脚入口和可访问弹窗，分组默认收起且单次只展开一组，编辑/删除收进支持方向键与 Esc 的更多菜单。本轮代码已通过 TypeScript 类型检查、88 个测试文件共 404 项测试、生产构建和真实 Electron 视觉/键盘验收；安装版、便携版与 SHA-256 清单也已在本轮文档落盘后重新生成并完成产物复核。
+最后核对日期：`2026-08-10`。当前轻量化开发分支以 `main@9610101` 为起点。既有合并卡片键盘交互、透明图标提取、快捷方式拖入、右键菜单视口适配、“普通权限主界面 + 会话级高权限进程控制”、渐进披露设置页和多主题外观继续保留；Wallpaper Glass 与 Clear Desktop 自身保持独立。主界面默认保持普通权限；关闭应用先尝试普通 `taskkill`，只有确认目标仍在运行时才按需请求 UAC，授权成功后由隐藏的受限 helper 完成关闭并在本次会话复用。Microsoft Store / MSIX 应用使用稳定 AUMID 作为启动身份，旧 WindowsApps 版本路径会在首次启动时原位迁移。首次启动在后台按默认模板筛选少量候选，只自动添加当前电脑已确认存在的应用；缺失项静默跳过。设置页默认只显示“启动与操作”、当前外观摘要和折叠的高级设置，分组管理位于独立页签，“关于”保持低强调弹窗入口。本轮进一步完成发布体积治理：helper 从 154.19 MiB 降至约 14.05 MiB，安装版从约 143.29 MiB 降至约 82.97 MiB，便携版从约 143.05 MiB 降至约 82.73 MiB；已通过 TypeScript 类型检查、88 个测试文件共 405 项测试和 helper 全协议黑盒烟测，最终生产构建、Electron smoke 与重打包结果以本轮结束时记录为准。
 
 维护硬性约定：每次代码、配置、样式、测试或构建流程发生改动，都必须在同一提交中同步更新本文档，至少记录受影响能力、验证结果或新的维护注意事项，避免文档再次落后于实际代码。
 
 发布硬性约定：每次完成改动并通过必要验证后，都必须重新生成 Windows 安装版和便携版，确保 `release` 中的交付文件与当前代码一致。
 
-构建洁净度约定：`npm run build` 必须先删除仓库内的 `dist`、`dist-electron` 与 `dist-native`，再编译并执行产物检查；`electron-builder` 还会显式排除 `*.test.*` / `*.spec.*` 和 helper PDB。窗口 helper 以 win-x64 自包含单文件发布并执行一次真实 `is-elevated` 冒烟，因此用户不必预装 .NET 8 Desktop Runtime。这些约束避免历史测试 JavaScript、已删除模块、调试符号、本机源码路径或 framework-dependent helper 被收入公开包。清理脚本必须校验目标仍位于项目目录内，不得把可变路径直接交给递归删除。
+构建洁净度约定：`npm run build` 必须先删除仓库内的 `dist`、`dist-electron` 与 `dist-native`，再编译并执行产物检查；`electron-builder` 还会显式排除 `*.test.*` / `*.spec.*` 和 helper PDB。窗口 helper 以 win-x64、.NET 8 Core 自包含、partial trim 单文件发布；仅通过独立 `System.Drawing.Common` 保留图标编码，不得重新启用会捆绑 WinForms/WPF 的 `UseWindowsForms`。因此用户不必预装 .NET 运行时，同时避免整套 Windows Desktop Runtime 进入发布包。这些约束避免历史测试 JavaScript、已删除模块、调试符号、本机源码路径或 framework-dependent helper 被收入公开包。清理脚本必须校验目标仍位于项目目录内，不得把可变路径直接交给递归删除。
 
 发布目录洁净度约定：Windows 打包前必须运行 `scripts/clean-release-output.mjs`，只删除 `release` 下 Start Engineer 的版本化 EXE / blockmap、builder 元数据、校验和与 `win-unpacked*` 目录，保留任何不认识的文件并校验删除目标没有越出 `release`。`release:prepare` 和 GitHub Release 工作流复用已经通过验证的生产构建，再执行 artifact-only 打包，避免 self-contained helper 被重复构建而挤压 Actions 超时时间；本地普通与签名打包入口仍会先关闭运行中的 Start Engineer。
 
 GitHub Actions 供应链约定：`checkout`、`setup-node`、`setup-dotnet`、`upload-artifact` 与 `download-artifact` 必须固定到 GitHub 官方仓库已核验的完整 commit SHA，并在行尾保留对应语义版本注释；Dependabot 负责后续更新。不要为了写法简短退回浮动的 `@v4` 标签。`workflow_dispatch` 只用于生成 Actions Artifact；只有 `push` 事件中的匹配 `v*` 标签才允许进入草稿 Release job，避免手动选择标签运行工作流时意外创建发布记录。
 
-发布依赖基线为 Node.js `>=22.12.0`、Electron `43.3.0`、electron-builder `26.15.3`、Vite `8.2.1`、Vitest `4.1.10` 与 `@vitejs/plugin-react` `6.0.5`。`package-lock.json` 的下载地址必须全部指向官方 `registry.npmjs.org`，根级 `postinstall` 显式下载 Electron 运行时；electron-builder 的 `electronDist` 直接复用这份已安装运行时，不能再从 GitHub 重复下载同版本压缩包。`scripts/after-pack.cjs` 会在打包后定点移除该目录自带但应用不使用的 `default_app.asar`、`version` 与 `app-update.yml`，并验证目标仍位于当前 `appOutDir`。2026-08-08 从空 `node_modules` 执行 `npm ci` 成功，Electron 二进制为 `v43.3.0`，官方 `npm audit --audit-level=moderate` 返回 0 个漏洞。依赖再次变更后必须重新做同样检查。
+发布依赖基线为 Node.js `>=22.12.0`、Electron `43.3.0`、electron-builder `26.15.3`、Vite `8.2.1`、Vitest `4.1.10` 与 `@vitejs/plugin-react` `6.0.5`。`package-lock.json` 的下载地址必须全部指向官方 `registry.npmjs.org`，根级 `postinstall` 显式下载 Electron 运行时；electron-builder 的 `electronDist` 直接复用这份已安装运行时，不能再从 GitHub 重复下载同版本压缩包。React / React DOM 只作为 Vite 构建依赖，不能作为生产依赖重复进入 `app.asar`；其 MIT 文本由 `licenses/REACT_LICENSE.txt` 单独随包保留。Electron 仅携带 `zh-CN` 与 `en-US` 回退语言。`scripts/after-pack.cjs` 会在打包后定点移除该目录自带但应用不使用的 `default_app.asar`、`version` 与 `app-update.yml`，并验证目标仍位于当前 `appOutDir`。2026-08-08 从空 `node_modules` 执行 `npm ci` 成功，Electron 二进制为 `v43.3.0`，官方 `npm audit --audit-level=moderate` 返回 0 个漏洞。依赖再次变更后必须重新做同样检查。
 
-helper 构建冒烟在 GitHub CI 中是强制门槛；本地受限执行沙箱若明确返回 `EPERM`，脚本会记录警告并只跳过执行步骤，仍检查单文件和无 PDB。普通开发机的其他失败、无效 JSON 或非零退出码仍会使构建失败；正式候选包还必须在干净 Windows x64 环境真实运行 helper。helper 项目必须关闭 .NET SDK 的源码 revision 自动追加，使 `ProductVersion` 与应用公开版本一致，而不是暴露内部 Git 提交哈希。
+helper 构建冒烟在 GitHub CI 中是强制门槛；`scripts/smoke-window-helper.mjs` 会真实覆盖 `is-elevated`、窗口扫描/聚焦、进程快照、快捷方式 COM、Shell 图标、隐藏启动与常驻 JSON Lines 协议。本地受限执行沙箱若明确返回 `EPERM`，脚本会记录警告并只跳过执行步骤，仍检查单文件和无 PDB。普通开发机的其他失败、无效 JSON 或非零退出码仍会使构建失败；正式候选包还必须在干净 Windows x64 环境验证 Store 图标与 UAC 终止握手。helper 项目必须保持 `BuiltInComInteropSupport=true` 并把自身声明为 trimmer root；删除任一项都会破坏快捷方式或 Shell 图标。还必须关闭 .NET SDK 的源码 revision 自动追加，使 `ProductVersion` 与应用公开版本一致，而不是暴露内部 Git 提交哈希。
 
 公开源码隐私约定：测试夹具使用 `ExampleUser` 等虚构用户名，不新增真实 Windows 用户目录。既有 Git 历史曾出现本机用户名；公开仓库前需由所有者决定接受历史暴露，或单独授权执行一次经过备份与复核的历史重写，常规发布准备不得擅自改写远程历史。
 
@@ -73,9 +73,11 @@ Start Engineer 当前是一个 Windows 桌面启动台与进程监控工具，�
 - `npm test`
 - `npm run typecheck`
 - `npm run build`
+- `npm run smoke:helper`
 - `npm run clean:release`
 - `npm run smoke`
 - `npm run package:win`
+- `npm run verify:footprint`
 - `npm run release:checksums`
 - `npm run release:verify`
 - `npm run release:prepare`
@@ -88,6 +90,8 @@ Electron 43 的 npm 包不再自行声明 `postinstall` 下载运行时；项目
 
 `package:win:artifacts` / `package:win:artifacts:signed` 是给已完成 `npm run build` 的 Release 流水线复用的内部入口：它们会先定点清理旧发布产物，但不会再次编译。日常手工打包仍使用 `package:win` 或 `package:win:signed`，不要直接用 artifact-only 入口代替构建验证。
 
+每次 Windows 打包结束都会运行 `scripts/verify-package-footprint.mjs`：helper 不得超过 20 MiB，安装版和便携版各不得超过 110 MiB，语言包必须精确为 `zh-CN` / `en-US`，`app.asar` 不得再次出现生产 `node_modules`。这些是防止依赖或打包配置回退的硬门槛；确有必要调整预算时，必须先解释新增体积来源并更新本文档。
+
 当前打包配置：
 
 - 包名：`start-engineer`
@@ -98,6 +102,8 @@ Electron 43 的 npm 包不再自行声明 `postinstall` 下载运行时；项目
 - 便携版：`release/Start-Engineer-Portable-0.1.0.exe`
 - 默认 `package:win` 启用可执行文件资源编辑、写入 `asInvoker` 并显式构建 x64，使安装后的主 EXE 带 Start Engineer 产品元数据且主界面不会自行提权；没有证书时仍是 Authenticode 未签名。`package:win:signed` 保留显式签名入口，GitHub Release 工作流只有检测到 `WIN_CSC_LINK` 与 `WIN_CSC_KEY_PASSWORD` Secrets 时才调用它。
 - `electron-builder.extraResources` 会把 `dist-native/window-focus-helper/win-x64` 打进资源目录。
+- 当前没有应用内自动更新，因此 NSIS 关闭 `differentialPackage`，让安装版与便携版复用更高效的归档；未来接入差分更新时必须重新测量体积并恢复相应 blockmap 流程。
+- Electron 语言包只保留 `zh-CN.pak` 与 `en-US.pak`；不要删除 `resources.pak`、ICU、GPU / SwiftShader、FFmpeg 或 Chromium 许可证文件来追求表面体积，这些文件关系到玻璃渲染、Unicode、远程桌面兼容与许可证合规。
 - `electron-builder.files` 对 `dist-electron` 的测试/规格文件做防御性排除；即使未来构建流程回归，也不能把测试 JavaScript 带入 `app.asar`。
 - 自包含 helper 的产品/文件版本跟随 `package.json`，公开包同时携带 `THIRD_PARTY_NOTICES.md` 和 .NET Runtime MIT 许可证；升级目标框架或 runtime pack 时要同步上游第三方声明链接并复核许可证。
 - `release:checksums` 为安装版与便携版生成 `release/SHA256SUMS.txt`；公开 Release 必须同时附带该文件。

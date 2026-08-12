@@ -22,10 +22,6 @@ const args = [
   "Release",
   "-r",
   "win-x64",
-  "--self-contained",
-  "true",
-  "-p:PublishSingleFile=true",
-  "-p:IncludeNativeLibrariesForSelfExtract=true",
   "-p:DebugSymbols=false",
   "-p:DebugType=None",
   `-p:Version=${appVersion}`,
@@ -56,18 +52,14 @@ child.on("exit", (code) => {
     return;
   }
 
-  const smoke = spawnSync(executable, ["is-elevated"], { encoding: "utf8", input: "", timeout: 20_000, windowsHide: true });
-  if (smoke.error?.code === "EPERM" && process.env.CI !== "true") {
-    console.warn("Native helper smoke check was blocked by the local execution policy; CI will enforce it.");
-    return;
-  }
-  let smokeResult;
-  try {
-    smokeResult = JSON.parse(smoke.stdout || "{}");
-  } catch {
-    smokeResult = undefined;
-  }
-  if (smoke.status !== 0 || typeof smokeResult?.isElevated !== "boolean") {
+  const smoke = spawnSync(process.execPath, [resolve(root, "scripts/smoke-window-helper.mjs"), executable], {
+    cwd: root,
+    encoding: "utf8",
+    timeout: 120_000,
+    windowsHide: true
+  });
+  if (smoke.stdout) process.stdout.write(smoke.stdout);
+  if (smoke.status !== 0 || smoke.error) {
     console.error(`Native helper smoke check failed: ${smoke.stderr || smoke.error?.message || "invalid response"}`);
     process.exitCode = 1;
   }

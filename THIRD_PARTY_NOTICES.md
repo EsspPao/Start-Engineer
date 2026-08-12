@@ -3,12 +3,12 @@
 Start Engineer 使用以下主要第三方项目。完整依赖及精确版本以 `package-lock.json` 为准。
 
 - Electron — MIT License
-- React / React DOM — MIT License
+- React / React DOM — MIT License；许可证随包位于 `licenses/REACT_LICENSE.txt`
 - Vite — MIT License
 - TypeScript — Apache License 2.0
 - Vitest — MIT License
 - electron-builder — MIT License
-- .NET 8 Runtime / Windows Desktop Runtime（自包含窗口 helper）— MIT License；许可证随包位于 `licenses/DOTNET_RUNTIME_LICENSE.txt`，上游完整第三方声明见 <https://github.com/dotnet/runtime/blob/v8.0.27/THIRD-PARTY-NOTICES.TXT>
+- .NET 8 Runtime / System.Drawing.Common（自包含窗口 helper）— MIT License；许可证随包位于 `licenses/DOTNET_RUNTIME_LICENSE.txt`，上游完整第三方声明见 <https://github.com/dotnet/runtime/blob/v8.0.27/THIRD-PARTY-NOTICES.TXT>
 
 可选搜索能力会在用户主动操作后下载：
 

@@ -54,19 +54,25 @@ describe("Windows packaging preflight", () => {
     expect(afterPackScript).toContain("relativeTarget.startsWith");
   });
 
-  it("publishes a self-contained helper without debug symbols", () => {
+  it("publishes a trimmed self-contained helper and exercises its native protocol", () => {
     const packageJson = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8"));
     const helperBuild = readFileSync(join(process.cwd(), "scripts/build-window-helper.mjs"), "utf8");
+    const helperSmoke = readFileSync(join(process.cwd(), "scripts/smoke-window-helper.mjs"), "utf8");
     const helperProject = readFileSync(join(process.cwd(), "native/window-focus-helper/window-focus-helper.csproj"), "utf8");
 
-    expect(helperBuild).toContain('"--self-contained"');
-    expect(helperBuild).toContain('"true"');
-    expect(helperBuild).toContain("PublishSingleFile=true");
+    expect(helperProject).toContain("<SelfContained>true</SelfContained>");
+    expect(helperProject).toContain("<PublishSingleFile>true</PublishSingleFile>");
+    expect(helperProject).toContain("<PublishTrimmed>true</PublishTrimmed>");
+    expect(helperProject).toContain("<BuiltInComInteropSupport>true</BuiltInComInteropSupport>");
+    expect(helperProject).not.toContain("<UseWindowsForms>true</UseWindowsForms>");
+    expect(helperProject).toContain('PackageReference Include="System.Drawing.Common" Version="8.0.29"');
     expect(helperBuild).toContain("DebugSymbols=false");
     expect(helperBuild).toContain("debugSymbols.length > 0");
-    expect(helperBuild).toContain('["is-elevated"]');
-    expect(helperBuild).toContain("typeof smokeResult?.isElevated");
-    expect(helperBuild).toContain('process.env.CI !== "true"');
+    expect(helperBuild).toContain("smoke-window-helper.mjs");
+    for (const command of ["is-elevated", "scan", "focus", "snapshot", "shortcuts", "icon", "launch", "runtime"]) {
+      expect(helperSmoke).toContain(`\"${command}\"`);
+    }
+    expect(helperSmoke).toContain('process.env.CI !== "true"');
     expect(helperBuild).toContain("-p:FileVersion=${fileVersion}");
     expect(helperBuild).toContain("-p:InformationalVersion=${appVersion}");
     expect(helperProject).toContain("<IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>");
@@ -74,5 +80,21 @@ describe("Windows packaging preflight", () => {
     expect(packageJson.build.files).toContain("THIRD_PARTY_NOTICES.md");
     expect(packageJson.build.files).toContain("licenses/**/*");
     expect(packageJson.build.win.requestedExecutionLevel).toBe("asInvoker");
+  });
+
+  it("enforces the lightweight package boundary", () => {
+    const packageJson = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8"));
+    const footprint = readFileSync(join(process.cwd(), "scripts/verify-package-footprint.mjs"), "utf8");
+
+    expect(packageJson.dependencies).toBeUndefined();
+    expect(packageJson.devDependencies.react).toBeTruthy();
+    expect(packageJson.devDependencies["react-dom"]).toBeTruthy();
+    expect(packageJson.build.electronLanguages).toEqual(["zh-CN", "en-US"]);
+    expect(packageJson.build.nsis.differentialPackage).toBe(false);
+    expect(packageJson.scripts["package:win:artifacts"]).toContain("npm run verify:footprint");
+    expect(packageJson.scripts["package:win:artifacts:signed"]).toContain("npm run verify:footprint");
+    expect(footprint).toContain("const artifactBudget = 110 * mebibyte");
+    expect(footprint).toContain("Unexpected Electron locales");
+    expect(footprint).toContain("duplicate development dependencies");
   });
 });
