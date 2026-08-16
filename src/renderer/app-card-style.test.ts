@@ -42,6 +42,13 @@ describe("app card styles", () => {
     expect(styles).not.toContain("merge-target-arm");
   });
 
+  it("animates an entire multi-app card into another card and confirms the completed merge", () => {
+    expect(styles).toMatch(/\.folder-card-wrap\.merge-ready \.app-card\s*\{[^}]*folder-merge-target-ready/i);
+    expect(styles).toMatch(/\.folder-drag-preview\.merge-preview-pending > div,[^{]*\{[^}]*folder-merge-source-icons/i);
+    expect(styles).toMatch(/\.folder-card-wrap\.merge-complete \.app-card\s*\{[^}]*folder-merge-complete/i);
+    expect(styles).toContain("@keyframes folder-merge-complete-icons");
+  });
+
   it("uses one iPhone-style progress ring before showing terminal folder member states", () => {
     for (const status of ["queued", "launching", "waiting", "launched", "alreadyRunning", "failed"]) {
       expect(styles).toContain(`.folder-member-launch.${status}`);

@@ -138,7 +138,48 @@ describe("window-manager", () => {
       processName: "wegame"
     }), metrics())).resolves.toEqual({ focused: true });
     expect(activateRunningApp).toHaveBeenCalledTimes(1);
-    expect(waitAfterSafeActivation).toHaveBeenCalledTimes(1);
+    expect(waitAfterSafeActivation).not.toHaveBeenCalled();
+    expect(runHelper).not.toHaveBeenCalled();
+  });
+
+  it("activates MuMu exactly once without a delayed scan or refocus", async () => {
+    const callOrder: string[] = [];
+    const runHelper = vi.fn(async () => {
+      throw new Error("MuMu activation must not schedule a window scan or focus");
+    });
+    const activateRunningApp = vi.fn(async () => {
+      callOrder.push("activate");
+      return { launched: true };
+    });
+    const getProcesses = vi.fn(async () => {
+      throw new Error("MuMu activation must not enumerate processes after activation");
+    });
+    const waitAfterSafeActivation = vi.fn(async () => undefined);
+    const manager = new AppWindowManager({
+      runPowerShell: vi.fn(async () => "not-found"),
+      runWindowFocusHelper: runHelper,
+      getProcesses,
+      activateRunningApp,
+      waitAfterSafeActivation
+    });
+    manager.rememberWindow("app-1", candidate({ handle: 6001, iconic: true }));
+    const mumu = app({
+      name: "MuMu模拟器",
+      executablePath: "E:\\Game\\MuMuPlayer\\nx_main\\MuMuNxMain.exe",
+      processName: "MuMuNxMain"
+    });
+
+    await expect(manager.focusAppWindow(mumu, metrics({
+      pids: [6676],
+      matchedPids: [6676],
+      associatedPids: [],
+      matchedProcessNames: ["MuMuNxMain"],
+      matchedPaths: ["E:\\Game\\MuMuPlayer\\nx_main\\MuMuNxMain.exe"]
+    }))).resolves.toEqual({ focused: true });
+    expect(activateRunningApp).toHaveBeenCalledOnce();
+    expect(callOrder).toEqual(["activate"]);
+    expect(waitAfterSafeActivation).not.toHaveBeenCalled();
+    expect(getProcesses).not.toHaveBeenCalled();
     expect(runHelper).not.toHaveBeenCalled();
   });
 

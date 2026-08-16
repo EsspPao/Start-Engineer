@@ -39,6 +39,25 @@ describe("GroupService", () => {
     expect(getApps().filter((entry) => ["a", "b"].includes(entry.id)).every((entry) => entry.groupId === "office")).toBe(true);
   });
 
+  it("merges every source-folder member into the target folder and removes the source card", () => {
+    const { service } = setup([app("a"), app("b"), app("c"), app("d")]);
+    service.saveGridOrders([{ groupId: "games", itemIds: ["app:a", "app:b", "app:c", "app:d"] }]);
+    const source = service.createFolder({ groupId: "games", name: "来源", appIds: ["a", "b"] })[0];
+    const target = service.createFolder({ groupId: "games", name: "目标", appIds: ["c", "d"] }).find((folder) => folder.name === "目标")!;
+
+    const result = service.mergeFolders(source.id, target.id);
+
+    expect(result.folders).toHaveLength(1);
+    expect(result.folders[0]).toMatchObject({ id: target.id, name: "目标", appIds: ["c", "d", "a", "b"] });
+    expect(result.gridOrders.find((order) => order.groupId === "games")?.itemIds).toEqual([`folder:${target.id}`]);
+  });
+
+  it("rejects merging a multi-app card into itself", () => {
+    const { service } = setup();
+    const folder = service.createFolder({ groupId: "games", appIds: ["a", "b"] })[0];
+    expect(() => service.mergeFolders(folder.id, folder.id)).toThrow("目标多应用卡片无效");
+  });
+
   it("rejects incomplete mixed-grid orders", () => {
     const { service } = setup();
     expect(() => service.reorderGrid("games", ["app:a"])).toThrow("网格排序数据无效");

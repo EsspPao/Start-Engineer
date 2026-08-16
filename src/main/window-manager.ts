@@ -3,6 +3,7 @@ import {
   collectFocusCandidateStages,
   findFocusWindowCandidateForStages,
   focusWindowHandleDetailed,
+  isMuMuLikeApp,
   isWeGameLikeApp,
   isWeChatLikeApp,
   listFocusWindowCandidatesForStages,
@@ -176,6 +177,13 @@ export class AppWindowManager {
 
   async focusAppWindow(app: AppEntry, metrics?: AppMetrics): Promise<FocusAppWindowResult> {
     const requestId = ++this.latestRequestId;
+    // MuMu owns its single-instance restoration path. Directly restoring one of
+    // its Qt/renderer handles can only highlight the taskbar entry while leaving
+    // the main surface minimized. Invoke the application's activation entry once
+    // and stop: a delayed HWND restore would override a user's immediate minimize.
+    if (isMuMuLikeApp(app)) {
+      return this.activateSelfManagedAppOnce(app, requestId);
+    }
     const fastStages = focusStagesFromCandidates(app, metrics, [], false);
     const cached = this.cache.get(app.id);
     if (cached) {
@@ -188,7 +196,7 @@ export class AppWindowManager {
     // WeGame owns its tray restoration flow. Restoring one of its renderer hosts
     // directly can surface an empty black window instead of the main client.
     if (isWeGameLikeApp(app)) {
-      return this.activateWeGameFromTray(app, requestId);
+      return this.activateSelfManagedAppOnce(app, requestId);
     }
 
     const fastResult = await this.focusCandidate(app, "fast", fastStages, requestId);
@@ -252,7 +260,7 @@ export class AppWindowManager {
     return result;
   }
 
-  private async activateWeGameFromTray(app: AppEntry, requestId: number): Promise<FocusAppWindowResult> {
+  private async activateSelfManagedAppOnce(app: AppEntry, requestId: number): Promise<FocusAppWindowResult> {
     if (!this.dependencies.activateRunningApp) {
       return { focused: false, reason: "fallbackRelaunchDisabled" };
     }
@@ -268,8 +276,6 @@ export class AppWindowManager {
       return { focused: false, reason: "no-window" };
     }
 
-    await (this.dependencies.waitAfterSafeActivation ?? defaultSafeActivationWait)();
-    if (requestId !== this.latestRequestId) return { focused: false, reason: "stale" };
     this.lastAttempts.set(app.id, {
       restoreMethod: "fallbackRelaunch",
       restoreResult: "success"

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import { dirname } from "node:path";
 import type { AppEntry, LaunchAppResult } from "../shared/types";
-import { LaunchService } from "./launch-service";
+import { LaunchService, runningActivationEntry } from "./launch-service";
 
 const app: AppEntry = {
   id: "game",
@@ -83,6 +84,53 @@ describe("administrator-required application launch", () => {
     expect(runPowerShell).toHaveBeenCalledTimes(2);
     expect(runPowerShell.mock.calls[0][0]).toContain("if ($false) { $options.Verb = 'RunAs' }");
     expect(runPowerShell.mock.calls[1][0]).toContain("if ($true) { $options.Verb = 'RunAs' }");
+  });
+});
+
+describe("running application activation", () => {
+  it("uses MuMu's single-instance shortcut activation without changing the saved entry", () => {
+    const mumu = {
+      ...app,
+      name: "MuMu模拟器",
+      executablePath: "E:\\Game\\MuMuPlayer\\nx_main\\MuMuNxMain.exe",
+      processName: "MuMuNxMain",
+      launchArgs: "--channel stable"
+    };
+
+    expect(runningActivationEntry(mumu)).toMatchObject({
+      launchArgs: "--channel stable --from-shortcut"
+    });
+    expect(mumu.launchArgs).toBe("--channel stable");
+  });
+
+  it("does not duplicate MuMu's activation argument or modify ordinary apps", () => {
+    expect(runningActivationEntry({ ...app, name: "MuMu模拟器", launchArgs: "--from-shortcut" }).launchArgs).toBe("--from-shortcut");
+    expect(runningActivationEntry(app)).toBe(app);
+  });
+
+  it("passes the MuMu activation argument to the native launcher", async () => {
+    const mumu = {
+      ...app,
+      name: "MuMu模拟器",
+      executablePath: process.execPath,
+      workingDirectory: dirname(process.execPath),
+      processName: "MuMuNxMain"
+    };
+    const request = vi.fn().mockResolvedValue({ ok: true });
+    const service = new LaunchService({
+      nativeRuntime: { request } as never,
+      runPowerShell: vi.fn(),
+      loadApps: () => [mumu],
+      saveApps: (apps) => apps,
+      getApp: () => mumu,
+      getManagedRunningStatus: async () => [],
+      getProcessSnapshots: async () => [],
+      buildRuntimeSnapshot: async () => ({ apps: [mumu], metrics: [], processes: [] }),
+      runtimeAssociatedPids: new Map()
+    });
+
+    await expect(service.activateRunningApp(mumu)).resolves.toEqual({ launched: true });
+    expect(request).toHaveBeenCalledWith("launch", expect.objectContaining({ argumentLine: "--from-shortcut" }));
   });
 });
 

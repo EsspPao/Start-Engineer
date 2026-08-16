@@ -24,6 +24,7 @@ export function registerLibraryIpc(options: LibraryIpcOptions) {
   ipcMain.handle("folders:remove", (_event, id: string) => groups.removeFolder(id));
   ipcMain.handle("folders:launch", (event, id: string) => options.launchFolder(event, id));
   ipcMain.handle("folders:move", (_event, id: string, groupId: string) => groups.moveFolder(id, groupId));
+  ipcMain.handle("folders:merge", (_event, sourceFolderId: string, targetFolderId: string) => groups.mergeFolders(sourceFolderId, targetFolderId));
   ipcMain.handle("folders:moveMember", (_event, input: MoveFolderMemberInput) => groups.moveFolderMember(input));
 
   ipcMain.handle("groupGrid:list", () => groups.saveGridOrders(groups.loadGridOrders()));

@@ -23,12 +23,14 @@ type SearchServiceOptions = {
 };
 
 const normalizePath = (value: string) => value.replace(/\//g, "\\").replace(/\\+$/, "").toLowerCase();
+const RECENT_SEARCH_CANDIDATE_LIMIT = 512;
 
 export class SearchService {
   private firstRunAutoImport: Promise<AppEntry[]> | null = null;
   private importCandidates: DiscoveredAppCandidate[] = [];
   private shortcuts: ShortcutInfo[] | null = null;
   private candidates: DiscoveredAppCandidate[] = [];
+  private recentSearchCandidates = new Map<string, DiscoveredAppCandidate>();
 
   constructor(private readonly options: SearchServiceOptions) {}
 
@@ -41,7 +43,9 @@ export class SearchService {
     const fileCandidates = buildDiscoveredApps([...base, ...everything], this.options.getGroups(), this.options.randomId);
     const storeCandidates = buildWindowsStoreAppCandidates(windowsStoreApps, this.options.getGroups(), this.options.randomId);
     this.candidates = this.mergeCandidates(storeCandidates, fileCandidates);
-    return searchDiscoveredAppCandidates(this.candidates, query, this.options.loadApps());
+    const results = searchDiscoveredAppCandidates(this.candidates, query, this.options.loadApps());
+    this.rememberSearchCandidates(results);
+    return results;
   }
 
   async refreshIndex() {
@@ -98,7 +102,8 @@ export class SearchService {
   }
 
   async addCandidate(candidateId: string, groupId: string) {
-    const candidate = this.candidates.find((item) => item.id === candidateId);
+    const candidate = this.candidates.find((item) => item.id === candidateId)
+      ?? this.recentSearchCandidates.get(candidateId);
     if (!candidate) throw new Error("未找到该应用候选");
     const currentApps = this.options.loadApps();
     const existing = this.findExistingCandidate(candidate, currentApps);
@@ -273,6 +278,18 @@ $rows | ConvertTo-Json -Compress`;
       }
     }
     return [...merged.values()];
+  }
+
+  private rememberSearchCandidates(candidates: DiscoveredAppCandidate[]) {
+    for (const candidate of candidates) {
+      this.recentSearchCandidates.delete(candidate.id);
+      this.recentSearchCandidates.set(candidate.id, candidate);
+    }
+    while (this.recentSearchCandidates.size > RECENT_SEARCH_CANDIDATE_LIMIT) {
+      const oldestId = this.recentSearchCandidates.keys().next().value;
+      if (typeof oldestId !== "string") break;
+      this.recentSearchCandidates.delete(oldestId);
+    }
   }
 
   private findExistingCandidate(candidate: Pick<DiscoveredAppCandidate, "appUserModelId" | "executablePath" | "processName" | "name">, apps: AppEntry[]) {

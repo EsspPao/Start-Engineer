@@ -179,11 +179,11 @@ describe("GroupPage", () => {
 describe("UnifiedGroupPage", () => {
   const folder: AppFolder = { id: "bundle", groupId: "tools", name: "多应用卡片", appIds: ["one", "two", "three"], order: 0 };
   const allApps = [makeApp("one", false), makeApp("two", false), makeApp("three", false), makeApp("outer", false)];
-  const renderUnified = (expandedFolderId = "", folderLaunchStatuses: Record<string, FolderLaunchVisualStatus> = {}, selectedItemId: GroupGridItemId | "" = "", runningMemberCount = 0) => {
+  const renderUnified = (expandedFolderId = "", folderLaunchStatuses: Record<string, FolderLaunchVisualStatus> = {}, selectedItemId: GroupGridItemId | "" = "", runningMemberCount = 0, recentlyMergedFolderId = "") => {
     const runningIds = new Set(folder.appIds.slice(0, runningMemberCount));
     const renderedApps = allApps.map((app) => runningIds.has(app.id) ? { ...app, metrics: metrics(app.id, true) } : app);
     return renderToStaticMarkup(createElement(UnifiedGroupPage, {
-    apps: [renderedApps[3]], allApps: renderedApps, folders: [folder], itemOrder: ["folder:bundle", "app:outer"], expandedFolderId,
+    apps: [renderedApps[3]], allApps: renderedApps, folders: [folder], itemOrder: ["folder:bundle", "app:outer"], expandedFolderId, recentlyMergedFolderId,
     launchingAppIds: new Set<string>(), folderLaunchStatuses, selectedItemId, invalidAppIds: new Set<string>(), runningCount: 0, showAppNames: true,
     onSelectApp: vi.fn(), onSelectFolder: vi.fn(), onFocusApp: vi.fn(), onLaunchApp: vi.fn(), onLaunchingFeedback: vi.fn(), onCloseAll: vi.fn(), onAdd: vi.fn(), onContextMenu: vi.fn(), onAppPointerDown: vi.fn(), onFolderPointerDown: vi.fn(), onToggleFolder: vi.fn(), onLaunchFolder: vi.fn(), onRequestCloseFolder: vi.fn(), onRequestClose: vi.fn()
   }));
@@ -212,6 +212,11 @@ describe("UnifiedGroupPage", () => {
     const html = renderUnified("", {}, "folder:bundle");
     expect(html).toContain('class="app-card-wrap folder-card-wrap current');
     expect(html).toContain('aria-pressed="true"');
+  });
+
+  it("marks the target card for one merge-complete animation cycle", () => {
+    const html = renderUnified("", {}, "folder:bundle", 0, "bundle");
+    expect(html).toContain("folder-card-wrap current merge-complete");
   });
 
   it("shows one close control only when every folder member is running", () => {

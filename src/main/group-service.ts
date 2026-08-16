@@ -170,6 +170,25 @@ export class GroupService {
     );
   }
 
+  mergeFolders(sourceFolderId: string, targetFolderId: string) {
+    if (!sourceFolderId || sourceFolderId === targetFolderId) throw new Error("目标多应用卡片无效");
+    const folders = this.loadFolders();
+    const source = folders.find((folder) => folder.id === sourceFolderId);
+    const target = folders.find((folder) => folder.id === targetFolderId);
+    if (!source || !target) throw new Error("多应用卡片不存在");
+    const targetGroup = this.loadGroups().find((group) => group.id === target.groupId);
+    if (!targetGroup) throw new Error("目标分组不存在");
+    const mergedAppIds = [...new Set([...target.appIds, ...source.appIds])];
+    const sourceAppIds = new Set(source.appIds);
+    const apps = this.options.getApps().map((entry) => sourceAppIds.has(entry.id)
+      ? { ...entry, groupId: target.groupId, category: targetGroup.name }
+      : entry);
+    const nextFolders = folders
+      .filter((folder) => folder.id !== source.id)
+      .map((folder) => folder.id === target.id ? { ...folder, appIds: mergedAppIds } : folder);
+    return this.mutateFolders(apps, nextFolders);
+  }
+
   moveFolderMember(input: MoveFolderMemberInput) {
     const source = this.loadFolders().find((folder) => folder.id === input.sourceFolderId);
     const app = this.options.getApps().find((entry) => entry.id === input.appId);

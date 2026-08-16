@@ -89,6 +89,11 @@ export function isWeGameLikeApp(app: AppEntry) {
   return haystack.includes("wegame") || haystack.includes("腾讯游戏平台");
 }
 
+export function isMuMuLikeApp(app: AppEntry) {
+  const haystack = `${app.name} ${app.processName} ${app.executablePath} ${(app.processAliases ?? []).join(" ")}`.toLowerCase();
+  return haystack.includes("mumu") || haystack.includes("网易模拟器");
+}
+
 function descendantPids(processes: FocusProcessSnapshot[], roots: number[]) {
   const candidates = new Set(validPids(roots));
   const descendants = new Set<number>();
@@ -742,6 +747,7 @@ if ($iconicBefore) {
 $foreground = [WindowFocusHandle]::SetForegroundWindow($handle)
 Start-Sleep -Milliseconds 35
 $visible = [WindowFocusHandle]::IsWindowVisible($handle)
+$iconic = [WindowFocusHandle]::IsIconic($handle)
 $foregroundHandle = [WindowFocusHandle]::GetForegroundWindow()
 $foregroundPid = 0
 if ($foregroundHandle -ne [IntPtr]::Zero) {
@@ -765,15 +771,16 @@ if (-not ($foregroundHandle -eq $handle -or ([int]$foregroundPid -eq [int]$targe
     if ($foregroundThread -ne 0) { [void][WindowFocusHandle]::AttachThreadInput($currentThread, $foregroundThread, $false) }
   }
   $visible = [WindowFocusHandle]::IsWindowVisible($handle)
+  $iconic = [WindowFocusHandle]::IsIconic($handle)
   $foregroundHandle = [WindowFocusHandle]::GetForegroundWindow()
   $foregroundPid = 0
   if ($foregroundHandle -ne [IntPtr]::Zero) {
     [void][WindowFocusHandle]::GetWindowThreadProcessId($foregroundHandle, [ref]$foregroundPid)
   }
 }
-("foreground:handle={0}; pid={1}; targetPid={2}; visible={3}; setForeground={4}" -f $foregroundHandle.ToInt64(), [int]$foregroundPid, [int]$targetPid, $visible, $foreground)
-if ($foregroundHandle -eq $handle -or ([int]$foregroundPid -eq [int]$targetPid -and $visible)) { "focused" }
-elseif ($visible) { "foreground-blocked" }
+("foreground:handle={0}; pid={1}; targetPid={2}; visible={3}; iconic={4}; setForeground={5}" -f $foregroundHandle.ToInt64(), [int]$foregroundPid, [int]$targetPid, $visible, $iconic, $foreground)
+if (-not $iconic -and ($foregroundHandle -eq $handle -or ([int]$foregroundPid -eq [int]$targetPid -and $visible))) { "focused" }
+elseif ($visible -and -not $iconic) { "foreground-blocked" }
 else { "tray-hidden" }
 `;
 }

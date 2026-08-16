@@ -23,6 +23,7 @@ const api: StartEngineerApi = {
   listGroupGridOrders: () => ipcRenderer.invoke("groupGrid:list"),
   reorderGroupItems: (groupId: string, itemIds: GroupGridItemId[]) => ipcRenderer.invoke("groupGrid:reorder", groupId, itemIds),
   moveFolder: (folderId: string, targetGroupId: string) => ipcRenderer.invoke("folders:move", folderId, targetGroupId),
+  mergeFolders: (sourceFolderId: string, targetFolderId: string) => ipcRenderer.invoke("folders:merge", sourceFolderId, targetFolderId),
   moveFolderMember: (input: MoveFolderMemberInput) => ipcRenderer.invoke("folders:moveMember", input),
   listApps: () => ipcRenderer.invoke("apps:list"),
   autoImportFirstRunApps: () => ipcRenderer.invoke("apps:autoImportFirstRun"),

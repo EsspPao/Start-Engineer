@@ -7,6 +7,8 @@ type AppGroupId = AppEntry["groupId"];
 export type MergeTarget = { kind: "app" | "folder"; id: string };
 export type DragState = { appId: string; itemId?: GroupGridItemId; folderId?: string; sourceFolderId?: string; x: number; y: number; grabOffsetX: number; grabOffsetY: number; width: number; height: number; targetGroup?: AppGroupId; targetFolderId?: string; mergeCandidateTarget?: MergeTarget; targetAppId?: string; reorderGroupId?: AppGroupId; previewOrder?: string[] } | null;
 export type UnifiedDragCandidate = { kind: "app" | "folder"; appId?: string; folderId?: string; sourceFolderId?: string; itemId: GroupGridItemId; startX: number; startY: number; grabOffsetX: number; grabOffsetY: number; width: number; height: number; initialOrder?: GroupGridItemId[]; initialRects?: AppDragRect[] };
+type MergeRect = Pick<DOMRect, "left" | "right" | "top" | "bottom" | "width" | "height">;
+type MergePointerHit = { folderId?: string; folderRect?: MergeRect; appId?: string; appRect?: MergeRect };
 
 type FolderMutation = Awaited<ReturnType<StartEngineerApi["moveFolderMember"]>>;
 
@@ -22,12 +24,30 @@ type UseUnifiedGridDragOptions = {
   setGroupGridOrders: Dispatch<SetStateAction<GroupGridOrder[]>>;
   setError: (message: string) => void;
   onGroupTransfer: (targetGroupId: string, operation: Promise<unknown>) => void;
+  onFolderMergeComplete: (targetFolderId: string) => void;
 };
 
 const APP_MERGE_HOVER_MS = 380;
 
+function isInsideMergeZone(x: number, y: number, rect: MergeRect, horizontalInset: number, verticalInset: number) {
+  return x >= rect.left + rect.width * horizontalInset
+    && x <= rect.right - rect.width * horizontalInset
+    && y >= rect.top + rect.height * verticalInset
+    && y <= rect.bottom - rect.height * verticalInset;
+}
+
+export function resolveMergeCandidateTarget(candidate: Pick<UnifiedDragCandidate, "kind" | "appId" | "folderId" | "sourceFolderId">, x: number, y: number, hit: MergePointerHit): MergeTarget | undefined {
+  if (candidate.kind === "folder" && hit.folderId && hit.folderId !== candidate.folderId && hit.folderRect
+    && isInsideMergeZone(x, y, hit.folderRect, .12, .12)) return { kind: "folder", id: hit.folderId };
+  if (candidate.kind === "app" && hit.folderId && hit.folderId !== candidate.sourceFolderId && hit.folderRect
+    && isInsideMergeZone(x, y, hit.folderRect, .12, .12)) return { kind: "folder", id: hit.folderId };
+  if (candidate.kind === "app" && !candidate.sourceFolderId && hit.appId && hit.appId !== candidate.appId && hit.appRect
+    && isInsideMergeZone(x, y, hit.appRect, .2, .18)) return { kind: "app", id: hit.appId };
+  return undefined;
+}
+
 export function useUnifiedGridDrag(options: UseUnifiedGridDragOptions) {
-  const { client, activeSection, apps, folders, candidateRef, setDrag, applyFolderMutation, setFolders, setGroupGridOrders, setError, onGroupTransfer } = options;
+  const { client, activeSection, apps, folders, candidateRef, setDrag, applyFolderMutation, setFolders, setGroupGridOrders, setError, onGroupTransfer, onFolderMergeComplete } = options;
   const dragState = useRef<DragState>(null);
   const mergeHover = useRef<{ target: MergeTarget; since: number; readyTimer: number } | null>(null);
 
@@ -36,7 +56,7 @@ export function useUnifiedGridDrag(options: UseUnifiedGridDragOptions) {
       const active = document.querySelector<HTMLElement>(".unified-grid .app-card-wrap.merge-pending, .unified-grid .app-card-wrap.merge-ready");
       const target = mergeTarget ? document.querySelector<HTMLElement>(`.unified-grid > [data-grid-item-id="${mergeTarget.kind}:${CSS.escape(mergeTarget.id)}"]`) : null;
       if (active && active !== target) active.classList.remove("merge-pending", "merge-ready", "merge-folder-target");
-      const preview = document.querySelector<HTMLElement>(".app-card-drag-preview:not(.folder-drag-preview)");
+      const preview = document.querySelector<HTMLElement>(".app-card-drag-preview");
       if (!target || !mergeTarget) {
         preview?.classList.remove("merge-preview-pending", "merge-preview-ready", "merge-preview-folder");
         preview?.style.removeProperty("--merge-shift-x");
@@ -87,14 +107,12 @@ export function useUnifiedGridDrag(options: UseUnifiedGridDragOptions) {
       }
       const ids = candidate.initialOrder;
       const rects = candidate.initialRects;
-      let mergeCandidateTarget: MergeTarget | undefined;
-      if (candidate.kind === "app" && targetFolderId && targetFolderId !== candidate.sourceFolderId && targetFolderNode) {
-        const rect = targetFolderNode.getBoundingClientRect();
-        if (event.clientX >= rect.left + rect.width * .12 && event.clientX <= rect.right - rect.width * .12 && event.clientY >= rect.top + rect.height * .12 && event.clientY <= rect.bottom - rect.height * .12) mergeCandidateTarget = { kind: "folder", id: targetFolderId };
-      } else if (candidate.kind === "app" && !candidate.sourceFolderId && targetAppId && targetAppId !== candidate.appId && targetAppNode) {
-        const rect = targetAppNode.getBoundingClientRect();
-        if (event.clientX >= rect.left + rect.width * .2 && event.clientX <= rect.right - rect.width * .2 && event.clientY >= rect.top + rect.height * .18 && event.clientY <= rect.bottom - rect.height * .18) mergeCandidateTarget = { kind: "app", id: targetAppId };
-      }
+      const mergeCandidateTarget = resolveMergeCandidateTarget(candidate, event.clientX, event.clientY, {
+        folderId: targetFolderId,
+        folderRect: targetFolderNode?.getBoundingClientRect(),
+        appId: targetAppId,
+        appRect: targetAppNode?.getBoundingClientRect()
+      });
       if (mergeCandidateTarget) {
         const sameTarget = mergeHover.current?.target.kind === mergeCandidateTarget.kind && mergeHover.current.target.id === mergeCandidateTarget.id;
         if (!sameTarget) {
@@ -130,10 +148,14 @@ export function useUnifiedGridDrag(options: UseUnifiedGridDragOptions) {
     const up = () => {
       const candidate = candidateRef.current;
       let current = dragState.current;
-      if (current && candidate?.kind === "app" && mergeHover.current && performance.now() - mergeHover.current.since >= APP_MERGE_HOVER_MS) {
-        current = mergeHover.current.target.kind === "app"
-          ? { ...current, targetAppId: mergeHover.current.target.id, targetFolderId: undefined }
-          : { ...current, targetFolderId: mergeHover.current.target.id, targetAppId: undefined };
+      if (current && candidate && mergeHover.current && performance.now() - mergeHover.current.since >= APP_MERGE_HOVER_MS) {
+        if (candidate.kind === "app") {
+          current = mergeHover.current.target.kind === "app"
+            ? { ...current, targetAppId: mergeHover.current.target.id, targetFolderId: undefined }
+            : { ...current, targetFolderId: mergeHover.current.target.id, targetAppId: undefined };
+        } else if (mergeHover.current.target.kind === "folder") {
+          current = { ...current, targetFolderId: mergeHover.current.target.id, targetAppId: undefined };
+        }
       }
       candidateRef.current = null;
       dragState.current = null;
@@ -143,7 +165,13 @@ export function useUnifiedGridDrag(options: UseUnifiedGridDragOptions) {
       if (!candidate || !document.documentElement.dataset.cardDragging) return;
       window.setTimeout(() => { delete document.documentElement.dataset.cardDragging; }, 0);
       if (candidate.kind === "folder" && candidate.folderId) {
-        if (current?.targetGroup) {
+        if (current?.targetFolderId && current.targetFolderId !== candidate.folderId) {
+          const targetFolderId = current.targetFolderId;
+          void client.mergeFolders(candidate.folderId, targetFolderId).then((result) => {
+            applyFolderMutation(result);
+            onFolderMergeComplete(targetFolderId);
+          }).catch((reason) => setError(cleanErrorMessage(reason, "合并多应用卡片失败")));
+        } else if (current?.targetGroup) {
           const operation = client.moveFolder(candidate.folderId, current.targetGroup);
           onGroupTransfer(current.targetGroup, operation);
           void operation.then(applyFolderMutation).catch((reason) => setError(cleanErrorMessage(reason, "移动多应用卡片失败")));
@@ -187,5 +215,5 @@ export function useUnifiedGridDrag(options: UseUnifiedGridDragOptions) {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
     };
-  }, [activeSection, applyFolderMutation, apps, candidateRef, client, folders, onGroupTransfer, setDrag, setError, setFolders, setGroupGridOrders]);
+  }, [activeSection, applyFolderMutation, apps, candidateRef, client, folders, onFolderMergeComplete, onGroupTransfer, setDrag, setError, setFolders, setGroupGridOrders]);
 }

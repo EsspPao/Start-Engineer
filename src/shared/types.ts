@@ -340,6 +340,7 @@ export type StartEngineerApi = {
   listGroupGridOrders: () => Promise<GroupGridOrder[]>;
   reorderGroupItems: (groupId: string, itemIds: GroupGridItemId[]) => Promise<GroupGridOrder[]>;
   moveFolder: (folderId: string, targetGroupId: string) => Promise<FolderMutationResult>;
+  mergeFolders: (sourceFolderId: string, targetFolderId: string) => Promise<FolderMutationResult>;
   moveFolderMember: (input: MoveFolderMemberInput) => Promise<FolderMutationResult>;
   listApps: () => Promise<AppEntry[]>;
   autoImportFirstRunApps: () => Promise<AppEntry[]>;

@@ -4,7 +4,7 @@
 
 请以后续实际代码为准，尤其是 `src/shared/types.ts`、`src/main/main.ts`、`src/renderer/main.tsx`、`src/main/window-manager.ts`、`native/window-focus-helper/Program.cs`。本文只把代码中已经存在的能力写为“当前能力”；尚未落地的设想会明确放在“风险 / 建议 / 路线图”中。
 
-最后核对日期：`2026-08-10`。当前轻量化开发分支以 `main@9610101` 为起点。既有合并卡片键盘交互、透明图标提取、快捷方式拖入、右键菜单视口适配、“普通权限主界面 + 会话级高权限进程控制”、渐进披露设置页和多主题外观继续保留；Wallpaper Glass 与 Clear Desktop 自身保持独立。主界面默认保持普通权限；关闭应用先尝试普通 `taskkill`，只有确认目标仍在运行时才按需请求 UAC，授权成功后由隐藏的受限 helper 完成关闭并在本次会话复用。Microsoft Store / MSIX 应用使用稳定 AUMID 作为启动身份，旧 WindowsApps 版本路径会在首次启动时原位迁移。首次启动在后台按默认模板筛选少量候选，只自动添加当前电脑已确认存在的应用；缺失项静默跳过。设置页默认只显示“启动与操作”、当前外观摘要和折叠的高级设置，分组管理位于独立页签，“关于”保持低强调弹窗入口。本轮进一步完成发布体积治理：helper 从 154.19 MiB 降至约 14.05 MiB，安装版从约 143.29 MiB 降至约 82.97 MiB，便携版从约 143.05 MiB 降至约 82.73 MiB；已通过 TypeScript 类型检查、88 个测试文件共 405 项测试和 helper 全协议黑盒烟测，最终生产构建、Electron smoke 与重打包结果以本轮结束时记录为准。
+最后核对日期：`2026-08-16`。当前代码基线已包含轻量化发布体积治理。既有合并卡片键盘交互、透明图标提取、快捷方式拖入、右键菜单视口适配、“普通权限主界面 + 会话级高权限进程控制”、渐进披露设置页和多主题外观继续保留；Wallpaper Glass 与 Clear Desktop 自身保持独立。主界面默认保持普通权限；关闭应用先尝试普通 `taskkill`，只有确认目标仍在运行时才按需请求 UAC，授权成功后由隐藏的受限 helper 完成关闭并在本次会话复用。Microsoft Store / MSIX 应用使用稳定 AUMID 作为启动身份，旧 WindowsApps 版本路径会在首次启动时原位迁移。首次启动在后台按默认模板筛选少量候选，只自动添加当前电脑已确认存在的应用；缺失项静默跳过。设置页默认只显示“启动与操作”、当前外观摘要和折叠的高级设置，分组管理位于独立页签，“关于”保持低强调弹窗入口。搜索服务会保留最近实际返回给界面的有限候选快照，避免多个异步查询乱序完成后覆盖当前候选 ID，导致用户对仍可见的开始菜单或 Store 结果按 Enter 时错误提示“未找到该应用候选”。多应用卡片现在可以整卡拖入另一张多应用卡片：目标卡片保留名称和位置，源卡片成员按原顺序追加并随源卡片一起收起；悬停吸附、整组图标收缩和成功回弹共同表达合并过程，自身目标及卡片边缘误触不会触发合并。MuMu 模拟器作为单实例自唤醒应用处理：运行中再次点击时只通过 `--from-shortcut` 向现有实例发送一次恢复请求，随后不再延迟扫描或强制聚焦，避免用户刚手动最小化窗口又被第二次拉回；通用窗口 helper 仍只有在目标 HWND 确实退出最小化状态时才报告成功。轻量化后 helper 从 154.19 MiB 降至约 14.05 MiB；本轮 89 个测试文件 / 418 项测试、生产构建与 Electron smoke 全部通过。
 
 维护硬性约定：每次代码、配置、样式、测试或构建流程发生改动，都必须在同一提交中同步更新本文档，至少记录受影响能力、验证结果或新的维护注意事项，避免文档再次落后于实际代码。
 
@@ -34,13 +34,14 @@ Start Engineer 当前是一个 Windows 桌面启动台与进程监控工具，�
 - 添加、修改、移动、删除应用。
 - 支持通过文件选择器、搜索候选、拖入 `.exe` 或 `.lnk` 添加应用。
 - 搜索框可搜索已添加应用、本机可添加应用、安全下载入口；没有应用结果时才显示 Everything 文件兜底结果。
+- 本机应用搜索采用最近结果快照保护：快速连续输入或异步查询乱序完成时，界面中仍可见的候选仍能通过 Enter / `+` 正常添加；快照有固定数量上限，添加普通 EXE 时仍由主进程复核文件存在性。
 - Everything 一键准备固定下载官方 1.4.1.1032 x64 Portable 与 ES 1.1.0.37 x64；两个 ZIP 都必须通过内置 SHA-256 后才允许解压和启动。
 - 首次启动会在后台扫描 Microsoft Store / MSIX、开始菜单和桌面快捷方式，按默认模板与分组自动添加当前电脑可用的少量应用。
 - 首次自动导入不显示额外选择界面；模板中未在当前电脑发现的应用会被静默跳过，不写入失效配置。
 - 支持发现 Microsoft Store / MSIX 应用并保存稳定 AUMID；包版本目录变化时自动解析当前安装位置、保留原卡片 ID/名称/分组并通过原生 Windows 激活接口启动。
 - 应用卡片支持鼠标和键盘操作：选择、启动、唤起、右键菜单、编辑和拖拽排序。
 - 应用右键菜单会在内容或窗口尺寸变化时自动贴合视口边界；长菜单限制在窗口内独立滚动，底部操作不会再落到不可见区域。
-- 支持将应用拖到另一个应用或既有多应用卡片中；成员应用从外层网格隐藏，多应用卡片与普通卡片统一排序并可跨分组移动。
+- 支持将应用拖到另一个应用或既有多应用卡片中，也支持把整张多应用卡片拖入另一张多应用卡片，将全部成员一次合并；成员应用从外层网格隐藏，多应用卡片与普通卡片统一排序并可跨分组移动。
 - 多应用卡片支持单击或 Enter 原位放大、双击或默认 `Ctrl+Enter` 启动全部成员；成员可从放大卡片拖回外层、转移到其他卡片或移动到其他分组。
 - 支持方向键 / WASD 网格导航，Enter 执行普通应用主操作或展开合并卡片，Esc 分层退出。
 - 应用内快捷键可以录制、冲突校验、立即生效和恢复全部默认；默认支持相邻分组切换及 `Ctrl+1` 到 `Ctrl+9` 直达前九个用户分组。
@@ -49,7 +50,7 @@ Start Engineer 当前是一个 Windows 桌面启动台与进程监控工具，�
 - 支持运行状态识别，运行指标包含 `matchedPids`、`associatedPids`、`matchedProcessNames`、`matchedPaths`。
 - 支持同一程序出现在多个用户分组时同步运行绿点。
 - 支持原生窗口扫描 / 聚焦 helper，PowerShell 作为 fallback。
-- 支持 Codex 这类无交互窗口但可通过重新运行自身安全激活的 allowlist 策略。
+- 支持 Codex 这类无交互窗口但可通过重新运行自身安全激活的 allowlist 策略；MuMu 模拟器会优先走官方快捷方式语义单次唤醒既有实例，并且不会在延迟后再次强制聚焦。
 - 支持全局快捷键唤出 / 隐藏主窗口。
 - 支持开机自启、关闭到托盘、托盘菜单。
 - Electron 主界面默认保持普通权限，资源管理器可原生拖入 `.exe` / `.lnk`；关闭操作先尝试普通权限，只有目标 PID 仍在运行时才按需触发 UAC。授权成功后，本次运行复用受限 native helper，不再反复弹出 UAC。helper 始终隐藏控制台窗口，并在 GUI 退出或管道断开后自动退出。
@@ -747,6 +748,7 @@ C# helper 当前职责：
 
 当前明确约束：
 
+- 单次用户点击最多触发一次会改变外部应用窗口状态的命令；启动项唤醒成功后可以观察状态或反馈结果，但不得再次自动聚焦覆盖用户随后执行的最小化操作。
 - 不移动用户鼠标。
 - 不点击系统托盘。
 - 不把疑似 shell/helper/message 窗口当主窗口。
@@ -1321,9 +1323,9 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 - `D:\Code\Start Engineer\src\main\app-service.ts`
   - 应用配置读写、编辑、分组迁移、排序和删除。
 - `D:\Code\Start Engineer\src\main\group-service.ts`
-  - 用户分组、多应用卡片、成员迁移和混合网格顺序。
+  - 用户分组、多应用卡片、整卡合并、成员迁移和混合网格顺序。
 - `D:\Code\Start Engineer\src\main\launch-service.ts`
-  - 普通 EXE 与 Store AUMID 原生启动、PowerShell / Explorer 回退、旧路径迁移、运行判断和启动后进程关联。
+  - 普通 EXE 与 Store AUMID 原生启动、PowerShell / Explorer 回退、旧路径迁移、运行判断、MuMu 单实例唤醒参数和启动后进程关联。
 - `D:\Code\Start Engineer\src\main\windows-store-apps.ts`
   - Microsoft Store / MSIX catalog、AUMID 与 PackageFamilyName 解析、当前安装路径映射和旧 WindowsApps 路径消歧。
 - `D:\Code\Start Engineer\src\main\runtime-service.ts`
@@ -1347,9 +1349,9 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 - `D:\Code\Start Engineer\src\main\runtime-monitor.ts`
   - 进程采集结果聚合、应用匹配、运行指标、进程页数据。
 - `D:\Code\Start Engineer\src\main\window-manager.ts`
-  - 应用窗口唤起、窗口列表、诊断信息、safe activation。
+  - 应用窗口唤起、窗口列表、诊断信息、safe activation，以及 MuMu / WeGame 交由应用自身处理的单次启动项唤醒路径。
 - `D:\Code\Start Engineer\src\main\focus-window.ts`
-  - helper runner、PowerShell fallback、窗口阶段构造和聚焦 API。
+  - helper runner、PowerShell fallback、窗口阶段构造和聚焦 API；聚焦成功必须确认目标窗口已退出最小化状态。
 - `D:\Code\Start Engineer\src\main\process-termination.ts`
   - 普通 taskkill、剩余 PID 校验、会话级高权限终止和关闭后复核。
 - `D:\Code\Start Engineer\src\main\native-helper.ts`

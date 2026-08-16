@@ -358,16 +358,24 @@ button { border: 0; }
 .app-card-wrap.merge-ready:not(.merge-folder-target) .app-card .card-icon { transform: translateX(-18px) scale(.58); }
 .app-card-wrap.merge-folder-target.merge-pending .folder-icon { animation: merge-target-folder-in 380ms cubic-bezier(.2,.82,.2,1) both; }
 .app-card-wrap.merge-folder-target.merge-ready .folder-icon { transform: scale(.82); }
+.folder-card-wrap.merge-ready .app-card { animation: folder-merge-target-ready 700ms ease-in-out infinite alternate; }
 .app-card-drag-preview.merge-preview-pending, .app-card-drag-preview.merge-preview-ready { transform-origin: center; pointer-events: none; }
 .app-card-drag-preview.merge-preview-pending { animation: merge-source-app-in 380ms cubic-bezier(.2,.82,.2,1) both; }
 .app-card-drag-preview.merge-preview-ready { opacity: .88; transform: translate(calc(var(--merge-shift-x,0px) + 18px),var(--merge-shift-y,0px)) scale(.4); }
 .app-card-drag-preview.merge-preview-pending.merge-preview-folder { animation-name: merge-source-folder-in; }
 .app-card-drag-preview.merge-preview-ready.merge-preview-folder { transform: translate(var(--merge-shift-x,0px),var(--merge-shift-y,0px)) scale(.34); }
 .app-card-drag-preview.merge-preview-pending span, .app-card-drag-preview.merge-preview-ready span { opacity: 0; transition: opacity 100ms ease; }
+.folder-drag-preview.merge-preview-pending > div, .folder-drag-preview.merge-preview-ready > div { transform-origin: center; animation: folder-merge-source-icons 380ms cubic-bezier(.2,.82,.2,1) both; }
+.folder-card-wrap.merge-complete .app-card { animation: folder-merge-complete 520ms cubic-bezier(.2,.86,.2,1) both; }
+.folder-card-wrap.merge-complete .folder-icon { animation: folder-merge-complete-icons 520ms cubic-bezier(.2,.86,.2,1) both; }
 @keyframes merge-target-app-in { from { transform: translateX(0) scale(1); } to { transform: translateX(-18px) scale(.58); } }
 @keyframes merge-target-folder-in { from { transform: scale(1); } to { transform: scale(.82); } }
 @keyframes merge-source-app-in { from { opacity: .94; transform: translate(0,0) scale(1); } to { opacity: .88; transform: translate(calc(var(--merge-shift-x,0px) + 18px),var(--merge-shift-y,0px)) scale(.4); } }
 @keyframes merge-source-folder-in { from { opacity: .94; transform: translate(0,0) scale(1); } to { opacity: .88; transform: translate(var(--merge-shift-x,0px),var(--merge-shift-y,0px)) scale(.34); } }
+@keyframes folder-merge-target-ready { from { box-shadow: 0 16px 34px rgba(37,99,235,.16),inset 0 1px 0 white; } to { box-shadow: 0 0 0 5px color-mix(in srgb,var(--accent) 20%,transparent),0 18px 38px color-mix(in srgb,var(--accent) 24%,transparent),inset 0 1px 0 white; } }
+@keyframes folder-merge-source-icons { from { opacity: 1; transform: scale(1); } to { opacity: .72; transform: scale(.72); } }
+@keyframes folder-merge-complete { 0% { transform: scale(.9); } 58% { transform: scale(1.035); } 100% { transform: scale(1); } }
+@keyframes folder-merge-complete-icons { 0% { opacity: .5; transform: scale(.72); } 65% { opacity: 1; transform: scale(1.08); } 100% { transform: scale(1); } }
 .app-card.launching { cursor: progress; }
 .app-card.launching .card-icon, .app-card.launching .app-name { opacity: .46; }
 .card-icon { display: grid; place-items: center; width: 54px; height: 54px; color: var(--accent); filter: drop-shadow(0 6px 8px rgba(49,60,114,.15)); }

@@ -35,6 +35,14 @@ describe("focus-window", () => {
     expect(script).toContain("$lowerTitle.Contains");
   });
 
+  it("does not report a still-minimized target as focused", () => {
+    const script = buildFocusWindowHandleScript(42, [84]);
+
+    expect(script).toContain("$iconic = [WindowFocusHandle]::IsIconic($handle)");
+    expect(script).toContain("if (-not $iconic -and ($foregroundHandle -eq $handle");
+    expect(script).toContain("elseif ($visible -and -not $iconic) { \"foreground-blocked\" }");
+  });
+
   it("builds a single staged candidate script ordered by match priority", () => {
     const script = buildFindFocusWindowCandidateScript([
       { label: "matched", pids: [42], classKeywords: ["WeChat"], processNameKeywords: ["WeChatAppEx"] },

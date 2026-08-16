@@ -9,6 +9,52 @@ const groups: AppGroup[] = [
 afterEach(() => vi.unstubAllEnvs());
 
 describe("Store application discovery", () => {
+  it("keeps a displayed candidate addable when another search replaces the active candidate list", async () => {
+    vi.stubEnv("ProgramData", "Z:\\StartEngineer\\DoesNotExist");
+    vi.stubEnv("PUBLIC", "Z:\\StartEngineer\\DoesNotExist");
+    let apps: AppEntry[] = [];
+    let nextId = 0;
+    const service = new SearchService({
+      getPath: () => "Z:\\StartEngineer\\DoesNotExist",
+      runPowerShell: vi.fn().mockResolvedValue(""),
+      getPreferences: () => ({ everythingCliPath: "Z:\\missing\\es.exe" }) as AppPreferences,
+      savePreferences: (preferences) => preferences,
+      getGroups: () => groups,
+      validGroupId: () => "games",
+      loadApps: () => apps,
+      saveApps: (next) => (apps = next),
+      cacheIcon: async (entry) => entry,
+      randomId: () => `generated-${++nextId}`,
+      listWindowsStoreApps: async () => [{
+        name: "MuMu模拟器",
+        appUserModelId: "Netease.MuMu_123!App",
+        packageFamilyName: "Netease.MuMu_123",
+        executablePath: "C:\\Program Files\\WindowsApps\\Netease.MuMu_1.0.0.0_x64__123\\MuMu.exe",
+        processName: "MuMu",
+        workingDirectory: "C:\\Program Files\\WindowsApps\\Netease.MuMu_1.0.0.0_x64__123"
+      }, {
+        name: "ChatGPT",
+        appUserModelId: "OpenAI.ChatGPT_123!App",
+        packageFamilyName: "OpenAI.ChatGPT_123",
+        executablePath: "C:\\Program Files\\WindowsApps\\OpenAI.ChatGPT_1.0.0.0_x64__123\\ChatGPT.exe",
+        processName: "ChatGPT",
+        workingDirectory: "C:\\Program Files\\WindowsApps\\OpenAI.ChatGPT_1.0.0.0_x64__123"
+      }]
+    });
+
+    const [mumuCandidate] = await service.searchCandidates("mumu");
+    await service.searchCandidates("chatgpt");
+
+    await expect(service.addCandidate(mumuCandidate.id, "games")).resolves.toMatchObject({
+      added: true
+    });
+    expect(apps).toHaveLength(1);
+    expect(apps[0]).toMatchObject({
+      name: "MuMu模拟器",
+      appUserModelId: "Netease.MuMu_123!App"
+    });
+  });
+
   it("repairs the existing card instead of adding a duplicate after a package update", async () => {
     vi.stubEnv("ProgramData", "Z:\\StartEngineer\\DoesNotExist");
     vi.stubEnv("PUBLIC", "Z:\\StartEngineer\\DoesNotExist");

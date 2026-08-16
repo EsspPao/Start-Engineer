@@ -959,6 +959,7 @@ internal static class WindowFocuser
     private static FocusResult ForegroundState(IntPtr handle, int targetPid)
     {
         var visible = NativeMethods.IsWindowVisible(handle);
+        var iconic = NativeMethods.IsIconic(handle);
         var foreground = NativeMethods.GetForegroundWindow();
         var foregroundPid = 0;
         if (foreground != IntPtr.Zero)
@@ -967,11 +968,16 @@ internal static class WindowFocuser
             foregroundPid = unchecked((int)rawForegroundPid);
         }
 
-        var focused = foreground == handle || (foregroundPid == targetPid && visible);
+        // A foreground window from the same process is not sufficient: launchers
+        // such as MuMu can activate a hidden helper while the requested top-level
+        // window remains minimized. Only report success once the actual target
+        // handle is both visible and no longer iconic.
+        var interactive = visible && !iconic;
+        var focused = interactive && (foreground == handle || foregroundPid == targetPid);
         return new FocusResult
         {
             Focused = focused,
-            Reason = focused ? null : visible ? "foreground-blocked" : "tray-hidden",
+            Reason = focused ? null : interactive ? "foreground-blocked" : "tray-hidden",
             ForegroundHandle = foreground.ToInt64(),
             ForegroundPid = foregroundPid,
             TargetPid = targetPid,

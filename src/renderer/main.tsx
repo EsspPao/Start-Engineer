@@ -104,6 +104,7 @@ const fallbackApi: StartEngineerApi = {
   listGroupGridOrders: async () => [],
   reorderGroupItems: async () => [],
   moveFolder: async () => ({ apps: [], folders: [], gridOrders: [] }),
+  mergeFolders: async () => ({ apps: [], folders: [], gridOrders: [] }),
   moveFolderMember: async () => ({ apps: [], folders: [], gridOrders: [] }),
   listApps: async () => [],
   autoImportFirstRunApps: async () => [],
@@ -201,6 +202,7 @@ function App() {
   const [groupEdit, setGroupEdit] = useState<GroupEditState>(null);
   const [groupDelete, setGroupDelete] = useState<GroupDeleteState>(null);
   const [drag, setDrag] = useState<DragState>(null);
+  const [recentlyMergedFolderId, setRecentlyMergedFolderId] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [launchingAppIds, setLaunchingAppIds] = useState<Set<string>>(new Set());
@@ -217,6 +219,7 @@ function App() {
   const focusRequestSeq = useRef(0);
   const launchingAppIdsRef = useRef(new Set<string>());
   const folderLaunchClearTimers = useRef(new Map<string, number>());
+  const folderMergeFeedbackTimer = useRef(0);
   const groupNavigationBlockKeyRef = useRef<string | null>(null);
   const metricsByApp = useMemo(() => new Map(metrics.map((metric) => [metric.appId, metric])), [metrics]);
   const runtimeApps = useMemo<RuntimeApp[]>(() => apps.map((item) => ({ ...item, metrics: metricsByApp.get(item.id) ?? emptyMetrics(item.id) })), [apps, metricsByApp]);
@@ -641,6 +644,20 @@ function App() {
     setFolders(result.folders);
     setGroupGridOrders(result.gridOrders);
   }, []);
+  const handleFolderMergeComplete = useCallback((targetFolderId: string) => {
+    if (folderMergeFeedbackTimer.current) window.clearTimeout(folderMergeFeedbackTimer.current);
+    setSelectedGridItemId(`folder:${targetFolderId}`);
+    setSelectedAppId("");
+    setRecentlyMergedFolderId(targetFolderId);
+    setNotice("已合并多应用卡片");
+    folderMergeFeedbackTimer.current = window.setTimeout(() => {
+      setRecentlyMergedFolderId("");
+      folderMergeFeedbackTimer.current = 0;
+    }, 560);
+  }, []);
+  useEffect(() => () => {
+    if (folderMergeFeedbackTimer.current) window.clearTimeout(folderMergeFeedbackTimer.current);
+  }, []);
   useEffect(() => { setExpandedFolderId(""); }, [activeSection]);
 
   useUnifiedGridDrag({
@@ -655,6 +672,7 @@ function App() {
     setGroupGridOrders,
     setError,
     onGroupTransfer: playGroupTransferFeedback,
+    onFolderMergeComplete: handleFolderMergeComplete,
   });
 
   useEffect(() => {
@@ -1475,7 +1493,7 @@ function App() {
         {activeSection === "processes" ? <ProcessPage processes={visibleProcesses} loading={processesLoading} lockedProcessName={lockedProcessName} sortKey={sortKey} sortDirection={sortDirection} changeSort={changeSort} filter={processFilter} setFilter={changeProcessFilter} onContextMenu={openProcessMenu} />
           : activeSection === "settings" ? <SettingsPage client={api()} apps={runtimeApps} groups={appGroups} preferences={preferences} onPreferencesChange={savePreferences} onWallpaperIntensityPreview={previewWallpaperGlassIntensity} onThemeChange={saveTheme} onAdd={addApp} onAddToGroup={(groupId) => void runAppAction(() => api().addAppFromDialog(groupId))} onCreate={() => setGroupEdit({ name: "", icon: "grid" })} onEdit={(group) => setGroupEdit({ id: group.id, name: group.name, icon: group.icon })} onDelete={requestDeleteGroup} onReorder={reorderGroups} onOpenApp={(app) => { setActiveSection(app.groupId); setSelectedAppId(app.id); }} onAppContextMenu={(event, app) => { event.preventDefault(); event.stopPropagation(); openMenu({ kind: "app", x: event.clientX, y: event.clientY, appId: app.id }); }} onMoveApp={moveAppWithinSettings} />
           : <GroupPage apps={displayedApps} folders={folders.filter((folder) => folder.groupId === activeSection)} launchingAppIds={launchingAppIds} selectedAppId={selectedAppId} invalidAppIds={invalidAppIds} draggingAppId={drag?.appId} runningCount={activeGroupApps.filter((app) => app.metrics.isRunning).length} showAppNames={preferences.uiLayout.showAppNames} onSelectApp={handleAppSelection} onFocusApp={(app) => void focusAppWindow(app)} onLaunchApp={(app) => void launchApp(app.id)} onLaunchingFeedback={handleLaunchingFeedback} onCloseAll={() => void requestCloseGroupApps()} onAdd={addApp} onContextMenu={(event, app) => { event.preventDefault(); event.stopPropagation(); if (!drag) openMenu({ kind: "app", x: event.clientX, y: event.clientY, appId: app.id }); }} onPointerDown={(event, app) => { if (event.button !== 0) return; const rect = event.currentTarget.getBoundingClientRect(); dragCandidate.current = { appId: app.id, sourceGroupId: app.groupId, startX: event.clientX, startY: event.clientY, grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top, width: rect.width, height: rect.height, initialOrder: displayedApps.map((item) => item.id) }; }} onRequestClose={requestCloseApp} onFolderDrop={(folderId) => { const appId = drag?.appId; const folder = folders.find((item) => item.id === folderId); if (!appId || !folder || folder.appIds.includes(appId)) return; void api().updateFolder({ id: folderId, appIds: [...folder.appIds, appId] }).then(setFolders); }} onLaunchFolder={(folderId) => void api().launchFolder(folderId).then((result) => { setApps(result.apps); setNotice(`已处理 ${result.results.length} 个应用`); })} />}
-        {isAppSection && !isAllAppsSection ? <UnifiedGroupPage apps={visibleApps} allApps={runtimeApps} folders={activeFolders} itemOrder={activeGridItemOrder} expandedFolderId={expandedFolderId} launchingAppIds={launchingAppIds} folderLaunchStatuses={folderLaunchStatuses} selectedItemId={selectedGridItemId} invalidAppIds={invalidAppIds} draggingItemId={drag?.itemId} runningCount={activeGroupApps.filter((app) => app.metrics.isRunning).length} showAppNames={preferences.uiLayout.showAppNames} onSelectApp={handleAppSelection} onSelectFolder={(folderId) => { setSelectedGridItemId(`folder:${folderId}`); setSelectedAppId(""); }} onFocusApp={(app) => void focusAppWindow(app)} onLaunchApp={(app) => void launchApp(app.id)} onLaunchingFeedback={handleLaunchingFeedback} onCloseAll={() => void requestCloseGroupApps()} onAdd={addApp} onContextMenu={(event, app) => { event.preventDefault(); event.stopPropagation(); if (!drag) openMenu({ kind: "app", x: event.clientX, y: event.clientY, appId: app.id }); }} onAppPointerDown={(event, app, sourceFolderId) => { if (event.button !== 0) return; const rect = event.currentTarget.getBoundingClientRect(); unifiedDragCandidate.current = { kind: "app", appId: app.id, sourceFolderId, itemId: `app:${app.id}`, startX: event.clientX, startY: event.clientY, grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top, width: rect.width, height: rect.height }; }} onFolderPointerDown={(event, folder) => { if (event.button !== 0) return; const rect = event.currentTarget.getBoundingClientRect(); unifiedDragCandidate.current = { kind: "folder", folderId: folder.id, itemId: `folder:${folder.id}`, startX: event.clientX, startY: event.clientY, grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top, width: rect.width, height: rect.height }; }} onToggleFolder={(folderId) => { if (document.documentElement.dataset.cardDragging) return; if (expandedFolderId === folderId) closeExpandedFolder(folderId); else { setExpandedFolderId(folderId); setSelectedGridItemId(`folder:${folderId}`); setSelectedAppId(""); } }} onLaunchFolder={(folderId) => { void launchFolderWithFeedback(folderId); }} onRequestCloseFolder={requestCloseFolder} onRequestClose={requestCloseApp} /> : null}
+        {isAppSection && !isAllAppsSection ? <UnifiedGroupPage apps={visibleApps} allApps={runtimeApps} folders={activeFolders} itemOrder={activeGridItemOrder} expandedFolderId={expandedFolderId} recentlyMergedFolderId={recentlyMergedFolderId} launchingAppIds={launchingAppIds} folderLaunchStatuses={folderLaunchStatuses} selectedItemId={selectedGridItemId} invalidAppIds={invalidAppIds} draggingItemId={drag?.itemId} runningCount={activeGroupApps.filter((app) => app.metrics.isRunning).length} showAppNames={preferences.uiLayout.showAppNames} onSelectApp={handleAppSelection} onSelectFolder={(folderId) => { setSelectedGridItemId(`folder:${folderId}`); setSelectedAppId(""); }} onFocusApp={(app) => void focusAppWindow(app)} onLaunchApp={(app) => void launchApp(app.id)} onLaunchingFeedback={handleLaunchingFeedback} onCloseAll={() => void requestCloseGroupApps()} onAdd={addApp} onContextMenu={(event, app) => { event.preventDefault(); event.stopPropagation(); if (!drag) openMenu({ kind: "app", x: event.clientX, y: event.clientY, appId: app.id }); }} onAppPointerDown={(event, app, sourceFolderId) => { if (event.button !== 0) return; const rect = event.currentTarget.getBoundingClientRect(); unifiedDragCandidate.current = { kind: "app", appId: app.id, sourceFolderId, itemId: `app:${app.id}`, startX: event.clientX, startY: event.clientY, grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top, width: rect.width, height: rect.height }; }} onFolderPointerDown={(event, folder) => { if (event.button !== 0) return; const rect = event.currentTarget.getBoundingClientRect(); unifiedDragCandidate.current = { kind: "folder", folderId: folder.id, itemId: `folder:${folder.id}`, startX: event.clientX, startY: event.clientY, grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top, width: rect.width, height: rect.height }; }} onToggleFolder={(folderId) => { if (document.documentElement.dataset.cardDragging) return; if (expandedFolderId === folderId) closeExpandedFolder(folderId); else { setExpandedFolderId(folderId); setSelectedGridItemId(`folder:${folderId}`); setSelectedAppId(""); } }} onLaunchFolder={(folderId) => { void launchFolderWithFeedback(folderId); }} onRequestCloseFolder={requestCloseFolder} onRequestClose={requestCloseApp} /> : null}
         {notice || error ? <ToastStack notice={notice} error={error} onDismissNotice={() => setNotice("")} onDismissError={() => setError("")} /> : null}
       </section>
 
@@ -1487,7 +1505,7 @@ function App() {
       {groupEdit ? <GroupEditDialog state={groupEdit} onClose={() => setGroupEdit(null)} onSave={saveGroup} /> : null}
       {groupDelete ? <GroupDeleteDialog state={groupDelete} groups={appGroups} appCount={apps.filter((item) => item.groupId === groupDelete.groupId).length} onChangeTarget={(targetGroupId) => setGroupDelete({ ...groupDelete, targetGroupId })} onClose={() => setGroupDelete(null)} onConfirm={removeGroup} /> : null}
       {drag && draggedApp ? <div className={`drag-preview app-card-drag-preview no-drag ${drag.mergeCandidateTarget ? `${drag.targetAppId || drag.targetFolderId ? "merge-preview-ready" : "merge-preview-pending"} ${drag.mergeCandidateTarget.kind === "folder" ? "merge-preview-folder" : ""}` : ""}`} style={{ left: drag.x - drag.grabOffsetX, top: drag.y - drag.grabOffsetY, width: drag.width, height: drag.height }}>{draggedApp.iconDataUrl ? <img src={draggedApp.iconDataUrl} alt="" /> : <Icon name="grid" />}<span>{draggedApp.name}</span></div> : null}
-      {drag && draggedFolder ? <div className="drag-preview app-card-drag-preview folder-drag-preview no-drag" style={{ left: drag.x - drag.grabOffsetX, top: drag.y - drag.grabOffsetY, width: drag.width, height: drag.height }}><div>{draggedFolder.appIds.map((id) => runtimeApps.find((app) => app.id === id)).filter((app): app is RuntimeApp => Boolean(app)).map((app) => app.iconDataUrl ? <img key={app.id} src={app.iconDataUrl} alt="" /> : <Icon key={app.id} name="grid" />)}</div><span>{draggedFolder.name}</span></div> : null}
+      {drag && draggedFolder ? <div className={`drag-preview app-card-drag-preview folder-drag-preview no-drag ${drag.mergeCandidateTarget?.kind === "folder" ? `${drag.targetFolderId ? "merge-preview-ready" : "merge-preview-pending"} merge-preview-folder` : ""}`} style={{ left: drag.x - drag.grabOffsetX, top: drag.y - drag.grabOffsetY, width: drag.width, height: drag.height }}><div>{draggedFolder.appIds.map((id) => runtimeApps.find((app) => app.id === id)).filter((app): app is RuntimeApp => Boolean(app)).map((app) => app.iconDataUrl ? <img key={app.id} src={app.iconDataUrl} alt="" /> : <Icon key={app.id} name="grid" />)}</div><span>{draggedFolder.name}</span></div> : null}
       {fileDropActive ? <div className="file-drop-overlay no-drag"><span>松开添加到当前分组</span></div> : null}
     </main>
   );
