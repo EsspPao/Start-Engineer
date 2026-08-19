@@ -1,16 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AppEntry, AppMetrics } from "../shared/types.js";
+import type { FocusWindowCandidate } from "./focus-window.js";
+import { resolveWakePolicy } from "./wake-profiles.js";
 import { AppWindowManager, buildWindowDiagnostics, focusStagePids, focusStagesFromCandidates, toAppWindowInfo } from "./window-manager.js";
-import type { FocusWindowCandidate, FocusWindowStage } from "./focus-window.js";
 
 const app = (overrides: Partial<AppEntry> = {}): AppEntry => ({
   id: "app-1",
-  name: "WeChat",
-  category: "办公",
-  groupId: "office",
-  executablePath: "C:\\Program Files\\Tencent\\WeChat\\WeChat.exe",
-  processName: "WeChat.exe",
+  name: "Demo",
+  category: "工具",
+  groupId: "tools",
+  executablePath: "C:\\Apps\\Demo\\Demo.exe",
+  processName: "Demo",
   accent: "#2f66e8",
+  wakeStrategy: "auto",
   ...overrides
 });
 
@@ -23,15 +25,15 @@ const metrics = (overrides: Partial<AppMetrics> = {}): AppMetrics => ({
   pids: [100],
   matchedPids: [100],
   associatedPids: [101],
-  matchedProcessNames: ["WeChat.exe"],
-  matchedPaths: ["C:\\Program Files\\Tencent\\WeChat\\WeChat.exe"],
+  matchedProcessNames: ["Demo.exe"],
+  matchedPaths: ["C:\\Apps\\Demo\\Demo.exe"],
   ...overrides
 });
 
 const candidate = (overrides: Partial<FocusWindowCandidate> = {}): FocusWindowCandidate => ({
   handle: 9001,
   pid: 100,
-  title: "微信",
+  title: "Demo",
   score: 1074,
   stage: "matched",
   visible: true,
@@ -43,351 +45,244 @@ const candidate = (overrides: Partial<FocusWindowCandidate> = {}): FocusWindowCa
   ...overrides
 });
 
-describe("window-manager", () => {
-  const unavailableHelper = () => vi.fn(async () => { throw new Error("helper unavailable"); });
+const emptyScan = () => JSON.stringify({ allWindowsScanned: 24, relatedWindows: [], filteredWindows: [], finalCandidates: [] });
+const scanWith = (item: FocusWindowCandidate) => JSON.stringify({ allWindowsScanned: 24, relatedWindows: [item], filteredWindows: [], finalCandidates: [item] });
 
-  it("builds fast and fallback stages from runtime matched process data", () => {
-    const stages = focusStagesFromCandidates(
-      app(),
-      metrics(),
-      [{ pid: 102, name: "WeChatApp.exe", path: "C:\\Program Files\\Tencent\\WeChat\\WeChatApp.exe", parentPid: 100 }],
-      true
-    );
-
+describe("window manager wake engine", () => {
+  it("builds staged window candidates from runtime process data", () => {
+    const stages = focusStagesFromCandidates(app(), metrics(), [{ pid: 102, name: "DemoChild.exe", path: "C:\\Apps\\Demo\\DemoChild.exe", parentPid: 100 }], true);
     expect(stages.map((stage) => stage.label)).toEqual(["matched", "children", "directory", "name", "title"]);
     expect(focusStagePids(stages)).toEqual([100, 101, 102]);
   });
 
   it("converts candidates into compact app window entries", () => {
-    expect(toAppWindowInfo(candidate())).toEqual({
-      handle: 9001,
-      pid: 100,
-      title: "微信",
-      stage: "matched",
-      visible: true,
-      minimized: false
-    });
+    expect(toAppWindowInfo(candidate())).toEqual({ handle: 9001, pid: 100, title: "Demo", stage: "matched", visible: true, minimized: false });
   });
 
-  it("formats copyable window diagnostics for failed focus cases", () => {
-    const stages: FocusWindowStage[] = [
-      { label: "matched", pids: [100, 101] },
-      { label: "title", pids: [], titleKeywords: ["WeChat"] }
-    ];
-    const text = buildWindowDiagnostics(app(), stages, {
+  it("formats copyable JSON diagnostics with the selected profile and strategy", () => {
+    const entry = app({ name: "微信", processName: "Weixin", executablePath: "E:\\Tencent\\xwechat\\Weixin.exe" });
+    const stages = focusStagesFromCandidates(entry, metrics({ matchedProcessNames: ["Weixin"] }), [], false);
+    const report = JSON.parse(buildWindowDiagnostics(entry, metrics(), stages, {
       allWindowsScanned: 24,
-      relatedWindows: [candidate({ className: "WeChatMainWnd", processName: "WeChatAppEx", executablePath: "C:\\Tencent\\WeChatAppEx.exe", matchReason: "class" })],
-      filteredWindows: [candidate({ handle: 9002, pid: 102, title: "", stage: "children", visible: false, score: 970, filterReason: "low-score" })],
-      finalCandidates: [candidate()]
-    });
+      relatedWindows: [candidate({ className: "WeChatMainWnd", processName: "Weixin" })],
+      filteredWindows: [candidate({ handle: 9002, className: "Qt51514WxTrayIconMessageWindowClass", filterReason: "wechat-tray-message-window" })],
+      finalCandidates: []
+    }, resolveWakePolicy(entry)));
 
-    expect(text).toContain("App: WeChat (app-1)");
-    expect(text).toContain("Stage matched: pids=100,101");
-    expect(text).toContain("allWindowsScanned: 24");
-    expect(text).toContain("selectedCandidate: (none)");
-    expect(text).toContain("restoreMethod: none");
-    expect(text).toContain("relatedWindows:");
-    expect(text).toContain("hwnd=9001 pid=100 processName=WeChatAppEx");
-    expect(text).toContain("className=WeChatMainWnd");
-    expect(text).toContain("filteredWindows:");
-    expect(text).toContain("filterReason=low-score");
-    expect(text).toContain("finalCandidates:");
-    expect(text).toContain("matchReason=class");
-    expect(text).toContain("postRestoreWindows:");
+    expect(report).toMatchObject({
+      appId: "app-1",
+      selectedWakeProfile: "wechat",
+      selectedWakeStrategy: "window-only",
+      allWindowsScanned: 24,
+      externalActionsPerformed: 0,
+      failureReason: null
+    });
+    expect(report.filteredWindows[0].filterReason).toBe("wechat-tray-message-window");
+    expect(report.wakePolicy.forbiddenWindowClasses).toContain("WxTrayIconMessageWindow");
   });
 
-  it("uses cached handles before re-enumerating windows", async () => {
-    const manager = new AppWindowManager({
-      runPowerShell: vi.fn(async () => "focused"),
-      runWindowFocusHelper: unavailableHelper(),
-      getProcesses: vi.fn(async () => [])
-    });
-    manager.rememberWindow(app().id, candidate());
-
-    await expect(manager.focusAppWindow(app(), metrics())).resolves.toEqual({ focused: true });
-    expect(manager.dependencies.getProcesses).not.toHaveBeenCalled();
-  });
-
-  it("does not execute the app again when a running tray app has no top-level windows", async () => {
-    const manager = new AppWindowManager({
-      runPowerShell: vi.fn(async () => "not-found"),
-      runWindowFocusHelper: unavailableHelper(),
-      getProcesses: vi.fn(async () => [])
-    });
-
-    await expect(manager.focusAppWindow(app({ name: "Notion", executablePath: "C:\\Notion\\Notion.exe", processName: "Notion" }), metrics())).resolves.toEqual({ focused: false, reason: "no-window" });
-  });
-
-  it("lets WeGame restore its own tray window instead of focusing a renderer host", async () => {
-    const runHelper = vi.fn(async () => {
-      throw new Error("window scanning must not run for WeGame tray restoration");
-    });
+  it("restores a normal minimized window with exactly one external action", async () => {
+    const minimized = candidate({ iconic: true });
+    const runHelper = vi.fn(async (command: string) => command === "scan" ? scanWith(minimized) : JSON.stringify({ focused: true }));
     const activateRunningApp = vi.fn(async () => ({ launched: true }));
-    const waitAfterSafeActivation = vi.fn(async () => undefined);
-    const manager = new AppWindowManager({
-      runPowerShell: vi.fn(async () => "not-found"),
-      runWindowFocusHelper: runHelper,
-      getProcesses: vi.fn(async () => []),
-      activateRunningApp,
-      waitAfterSafeActivation
-    });
+    const manager = new AppWindowManager({ runPowerShell: vi.fn(), runWindowFocusHelper: runHelper, getProcesses: vi.fn(async () => []), activateRunningApp });
 
-    await expect(manager.focusAppWindow(app({
-      name: "WeGame",
-      executablePath: "E:\\WeGame\\wegame.exe",
-      processName: "wegame"
-    }), metrics())).resolves.toEqual({ focused: true });
-    expect(activateRunningApp).toHaveBeenCalledTimes(1);
-    expect(waitAfterSafeActivation).not.toHaveBeenCalled();
-    expect(runHelper).not.toHaveBeenCalled();
+    await expect(manager.focusAppWindow(app(), metrics())).resolves.toMatchObject({
+      success: true,
+      focused: true,
+      outcome: "focused",
+      strategy: "window-only",
+      diagnostics: { profileId: "default", externalActionsPerformed: 1 }
+    });
+    expect(runHelper.mock.calls.map((call) => call[0])).toEqual(["scan", "focus"]);
+    expect(activateRunningApp).not.toHaveBeenCalled();
   });
 
-  it("activates MuMu exactly once without a delayed scan or refocus", async () => {
+  it("never self-launches when an interactive Codex window already exists", async () => {
+    const codexWindow = candidate({ title: "Codex", processName: "Codex", className: "Chrome_WidgetWin_1" });
+    const runHelper = vi.fn(async (command: string) => command === "scan" ? scanWith(codexWindow) : JSON.stringify({ focused: true }));
+    const activateRunningApp = vi.fn(async () => ({ launched: true }));
+    const manager = new AppWindowManager({ runPowerShell: vi.fn(), runWindowFocusHelper: runHelper, getProcesses: vi.fn(async () => []), activateRunningApp });
+
+    await expect(manager.focusAppWindow(app({ name: "Codex", processName: "Codex" }), metrics())).resolves.toMatchObject({ success: true, focused: true, strategy: "self-launch" });
+    expect(activateRunningApp).not.toHaveBeenCalled();
+    expect(runHelper.mock.calls.map((call) => call[0])).toEqual(["scan", "focus"]);
+  });
+
+  it("uses window-only for unknown applications and returns a unified failure reason", async () => {
+    const activateRunningApp = vi.fn(async () => ({ launched: true }));
+    const manager = new AppWindowManager({ runPowerShell: vi.fn(), runWindowFocusHelper: vi.fn(async () => emptyScan()), getProcesses: vi.fn(async () => []), activateRunningApp });
+
+    await expect(manager.focusAppWindow(app(), metrics())).resolves.toMatchObject({
+      success: false,
+      focused: false,
+      outcome: "failed",
+      reason: "no-interactive-window",
+      strategy: "window-only",
+      diagnostics: { externalActionsPerformed: 0 }
+    });
+    expect(activateRunningApp).not.toHaveBeenCalled();
+  });
+
+  it("safely fails for WeChat tray state without relaunching or simulating tray input", async () => {
+    const runPowerShell = vi.fn();
+    const activateRunningApp = vi.fn(async () => ({ launched: true }));
+    const runHelper = vi.fn(async () => JSON.stringify({
+      allWindowsScanned: 24,
+      relatedWindows: [
+        candidate({ title: "微信", className: "WeChatMainWnd", visible: false, iconic: false }),
+        candidate({ title: "WxTrayIconMessageWindow", className: "Qt51514WxTrayIconMessageWindowClass", visible: false, filterReason: "wechat-tray-message-window" })
+      ],
+      filteredWindows: [candidate({ title: "WxTrayIconMessageWindow", className: "Qt51514WxTrayIconMessageWindowClass", visible: false, filterReason: "wechat-tray-message-window" })],
+      finalCandidates: [candidate({ title: "微信", className: "WeChatMainWnd", visible: false, iconic: false })]
+    }));
+    const manager = new AppWindowManager({ runPowerShell, runWindowFocusHelper: runHelper, getProcesses: vi.fn(async () => []), activateRunningApp });
+    const wechat = app({ name: "微信", processName: "Weixin", executablePath: "E:\\Tencent\\xwechat\\Weixin.exe" });
+
+    await expect(manager.focusAppWindow(wechat, metrics())).resolves.toMatchObject({ reason: "tray-restore-unsupported", strategy: "window-only" });
+    expect(activateRunningApp).not.toHaveBeenCalled();
+    expect(runPowerShell).not.toHaveBeenCalled();
+    expect(runHelper.mock.calls.map((call) => call[0])).toEqual(["scan"]);
+  });
+
+  it("safely fails for Notion tray state without relaunching", async () => {
+    const activateRunningApp = vi.fn(async () => ({ launched: true }));
+    const hiddenWindow = candidate({ title: "Notion", className: "Chrome_WidgetWin_1", processName: "Notion", visible: false, iconic: false });
+    const runHelper = vi.fn(async () => scanWith(hiddenWindow));
+    const manager = new AppWindowManager({ runPowerShell: vi.fn(), runWindowFocusHelper: runHelper, getProcesses: vi.fn(async () => []), activateRunningApp });
+    const notion = app({ name: "Notion", processName: "Notion", executablePath: "C:\\Program Files\\Notion\\Notion.exe" });
+    manager.rememberWindow(notion.id, candidate({ title: "Notion", processName: "Notion" }));
+
+    await expect(manager.focusAppWindow(notion, metrics())).resolves.toMatchObject({
+      success: false,
+      reason: "tray-restore-unsupported",
+      strategy: "window-only",
+      diagnostics: { profileId: "notion", externalActionsPerformed: 0 }
+    });
+    expect(activateRunningApp).not.toHaveBeenCalled();
+    expect(runHelper.mock.calls.map((call) => call[0])).toEqual(["scan"]);
+  });
+
+  it("does not restore a hidden Notion window selected from the window list", async () => {
+    const hiddenWindow = candidate({ handle: 8123, title: "Notion", className: "Chrome_WidgetWin_1", processName: "Notion", visible: false, iconic: false });
+    const runHelper = vi.fn(async () => scanWith(hiddenWindow));
+    const manager = new AppWindowManager({ runPowerShell: vi.fn(), runWindowFocusHelper: runHelper, getProcesses: vi.fn(async () => []) });
+    const notion = app({ name: "Notion", processName: "Notion", executablePath: "C:\\Program Files\\Notion\\Notion.exe" });
+
+    await expect(manager.focusHandle(notion, hiddenWindow.handle, metrics())).resolves.toMatchObject({
+      success: false,
+      reason: "tray-restore-unsupported",
+      diagnostics: { externalActionsPerformed: 0 }
+    });
+    expect(runHelper.mock.calls.map((call) => call[0])).toEqual(["scan"]);
+  });
+
+  it("restores a real minimized WeChat taskbar window instead of treating it as tray-only", async () => {
+    const window = candidate({ title: "微信", className: "WeChatMainWnd", processName: "Weixin", iconic: true });
+    const runHelper = vi.fn(async (command: string) => command === "scan" ? scanWith(window) : JSON.stringify({ focused: true }));
+    const manager = new AppWindowManager({ runPowerShell: vi.fn(), runWindowFocusHelper: runHelper, getProcesses: vi.fn(async () => []) });
+    const wechat = app({ name: "微信", processName: "Weixin", executablePath: "E:\\Tencent\\xwechat\\Weixin.exe" });
+
+    await expect(manager.focusAppWindow(wechat, metrics())).resolves.toMatchObject({ success: true, focused: true, strategy: "window-only" });
+    expect(runHelper.mock.calls.map((call) => call[0])).toEqual(["scan", "focus"]);
+  });
+
+  it("still restores a minimized Notion taskbar window", async () => {
+    const window = candidate({ title: "Notion", className: "Chrome_WidgetWin_1", processName: "Notion", iconic: true });
+    const runHelper = vi.fn(async (command: string) => command === "scan" ? scanWith(window) : JSON.stringify({ focused: true }));
+    const manager = new AppWindowManager({ runPowerShell: vi.fn(), runWindowFocusHelper: runHelper, getProcesses: vi.fn(async () => []) });
+    const notion = app({ name: "Notion", processName: "Notion", executablePath: "C:\\Program Files\\Notion\\Notion.exe" });
+
+    await expect(manager.focusAppWindow(notion, metrics())).resolves.toMatchObject({ success: true, focused: true, strategy: "window-only" });
+    expect(runHelper.mock.calls.map((call) => call[0])).toEqual(["scan", "focus"]);
+  });
+
+  it("self-launches Codex once, observes once, and never performs a second focus", async () => {
     const callOrder: string[] = [];
-    const runHelper = vi.fn(async () => {
-      throw new Error("MuMu activation must not schedule a window scan or focus");
+    const runHelper = vi.fn(async (command: string) => {
+      callOrder.push(command);
+      const scanCount = runHelper.mock.calls.filter((call) => call[0] === "scan").length;
+      return scanCount === 1 ? emptyScan() : scanWith(candidate({ title: "Codex", processName: "Codex", className: "Chrome_WidgetWin_1" }));
     });
-    const activateRunningApp = vi.fn(async () => {
-      callOrder.push("activate");
-      return { launched: true };
-    });
-    const getProcesses = vi.fn(async () => {
-      throw new Error("MuMu activation must not enumerate processes after activation");
-    });
+    const activateRunningApp = vi.fn(async (_entry: AppEntry, strategy: string) => { callOrder.push(`activate:${strategy}`); return { launched: true }; });
     const waitAfterSafeActivation = vi.fn(async () => undefined);
-    const manager = new AppWindowManager({
-      runPowerShell: vi.fn(async () => "not-found"),
-      runWindowFocusHelper: runHelper,
-      getProcesses,
-      activateRunningApp,
-      waitAfterSafeActivation
-    });
-    manager.rememberWindow("app-1", candidate({ handle: 6001, iconic: true }));
-    const mumu = app({
-      name: "MuMu模拟器",
-      executablePath: "E:\\Game\\MuMuPlayer\\nx_main\\MuMuNxMain.exe",
-      processName: "MuMuNxMain"
-    });
+    const manager = new AppWindowManager({ runPowerShell: vi.fn(), runWindowFocusHelper: runHelper, getProcesses: vi.fn(async () => []), activateRunningApp, waitAfterSafeActivation });
 
-    await expect(manager.focusAppWindow(mumu, metrics({
-      pids: [6676],
-      matchedPids: [6676],
-      associatedPids: [],
-      matchedProcessNames: ["MuMuNxMain"],
-      matchedPaths: ["E:\\Game\\MuMuPlayer\\nx_main\\MuMuNxMain.exe"]
-    }))).resolves.toEqual({ focused: true });
+    await expect(manager.focusAppWindow(app({ name: "Codex", processName: "Codex" }), metrics())).resolves.toMatchObject({
+      success: true,
+      focused: true,
+      strategy: "self-launch",
+      diagnostics: { profileId: "codex", externalActionsPerformed: 1 }
+    });
     expect(activateRunningApp).toHaveBeenCalledOnce();
-    expect(callOrder).toEqual(["activate"]);
+    expect(waitAfterSafeActivation).toHaveBeenCalledOnce();
+    expect(callOrder).toEqual(["scan", "activate:self-launch", "scan"]);
+  });
+
+  it("sends MuMu one self-launch request without any delayed scan or refocus", async () => {
+    const runHelper = vi.fn(async () => { throw new Error("MuMu must not scan or focus"); });
+    const activateRunningApp = vi.fn(async () => ({ launched: true }));
+    const waitAfterSafeActivation = vi.fn(async () => undefined);
+    const getProcesses = vi.fn(async () => []);
+    const manager = new AppWindowManager({ runPowerShell: vi.fn(), runWindowFocusHelper: runHelper, getProcesses, activateRunningApp, waitAfterSafeActivation });
+    const mumu = app({ name: "MuMu模拟器", processName: "MuMuNxMain", executablePath: "E:\\Game\\MuMuPlayer\\MuMuNxMain.exe" });
+
+    await expect(manager.focusAppWindow(mumu, metrics())).resolves.toMatchObject({
+      success: true,
+      focused: false,
+      outcome: "activation-requested",
+      strategy: "self-launch",
+      diagnostics: { profileId: "mumu", externalActionsPerformed: 1 }
+    });
+    expect(activateRunningApp).toHaveBeenCalledOnce();
+    expect(activateRunningApp).toHaveBeenCalledWith(mumu, "self-launch");
     expect(waitAfterSafeActivation).not.toHaveBeenCalled();
     expect(getProcesses).not.toHaveBeenCalled();
     expect(runHelper).not.toHaveBeenCalled();
   });
 
-  it("does not run the slow process fallback when runtime metrics already provide candidate pids", async () => {
-    const getProcesses = vi.fn(async () => [{ pid: 102, name: "WeChatApp.exe", path: "C:\\Program Files\\Tencent\\WeChat\\WeChatApp.exe", parentPid: 100 }]);
-    const manager = new AppWindowManager({
-      runPowerShell: vi.fn(async () => "not-found"),
-      runWindowFocusHelper: unavailableHelper(),
-      getProcesses
-    });
-
-    await expect(manager.focusAppWindow(app({ name: "Notion", executablePath: "C:\\Notion\\Notion.exe", processName: "Notion" }), metrics())).resolves.toEqual({ focused: false, reason: "no-window" });
-    expect(getProcesses).not.toHaveBeenCalled();
-  });
-
-  it("returns unsupported for WeChat tray restore without moving the mouse or relaunching", async () => {
-    const runPowerShell = vi.fn()
-      .mockResolvedValueOnce("not-found");
-    const manager = new AppWindowManager({
-      runPowerShell,
-      runWindowFocusHelper: unavailableHelper(),
-      getProcesses: vi.fn(async () => [])
-    });
-
-    await expect(manager.focusAppWindow(app(), metrics())).resolves.toEqual({ focused: false, reason: "trayRestoreUnsupported" });
-    expect(manager.dependencies.getProcesses).not.toHaveBeenCalled();
-    expect(runPowerShell).toHaveBeenCalledTimes(1);
-    expect(runPowerShell.mock.calls.map((call) => call[0]).join("\n")).not.toContain("SetCursorPos");
-    expect(runPowerShell.mock.calls.map((call) => call[0]).join("\n")).not.toContain("mouse_event");
-  });
-
-  it("does not focus the WeChat tray message window when helper filters it out", async () => {
+  it("activates Store applications by AUMID once and only observes the result", async () => {
+    const callOrder: string[] = [];
     const runHelper = vi.fn(async (command: string) => {
-      if (command === "focus") return JSON.stringify({ focused: true });
-      return JSON.stringify({
-        allWindowsScanned: 24,
-        relatedWindows: [
-          candidate({
-            handle: 460552,
-            title: "WxTrayIconMessageWindow",
-            className: "Qt51514WxTrayIconMessageWindowClass",
-            visible: false,
-            filterReason: "wechat-tray-message-window"
-          })
-        ],
-        filteredWindows: [
-          candidate({
-            handle: 460552,
-            title: "WxTrayIconMessageWindow",
-            className: "Qt51514WxTrayIconMessageWindowClass",
-            visible: false,
-            filterReason: "wechat-tray-message-window"
-          })
-        ],
-        finalCandidates: []
-      });
+      callOrder.push(command);
+      const scanCount = runHelper.mock.calls.filter((call) => call[0] === "scan").length;
+      return scanCount === 1 ? emptyScan() : scanWith(candidate({ title: "Store Demo", processName: "StoreDemo" }));
     });
-    const manager = new AppWindowManager({
-      runPowerShell: vi.fn(async () => "not-found"),
-      runWindowFocusHelper: runHelper,
-      getProcesses: vi.fn(async () => [])
-    });
+    const activateRunningApp = vi.fn(async (_entry: AppEntry, strategy: string) => { callOrder.push(`activate:${strategy}`); return { launched: true }; });
+    const manager = new AppWindowManager({ runPowerShell: vi.fn(), runWindowFocusHelper: runHelper, getProcesses: vi.fn(async () => []), activateRunningApp, waitAfterSafeActivation: vi.fn(async () => undefined) });
+    const store = app({ name: "Store Demo", processName: "StoreDemo", appUserModelId: "Example.Store_123!App" });
 
-    await expect(manager.focusAppWindow(app(), metrics())).resolves.toEqual({ focused: false, reason: "trayRestoreUnsupported" });
-    expect(runHelper.mock.calls.map((call) => call[0])).toEqual(["scan"]);
+    await expect(manager.focusAppWindow(store, metrics())).resolves.toMatchObject({ success: true, strategy: "aumid", diagnostics: { profileId: "windows-store", externalActionsPerformed: 1 } });
+    expect(activateRunningApp).toHaveBeenCalledWith(store, "aumid");
+    expect(callOrder).toEqual(["scan", "activate:aumid", "scan"]);
   });
 
-  it("safely fails for Codex tray-only helper windows without focusing background handles", async () => {
-    const runHelper = vi.fn(async (command: string) => {
-      if (command === "focus") return JSON.stringify({ focused: true });
-      return JSON.stringify({
-        allWindowsScanned: 32,
-        relatedWindows: [
-          candidate({
-            handle: 40503834,
-            pid: 10824,
-            title: "",
-            className: "OwlElectron_NotifyIconHostWindow",
-            processName: "Codex",
-            visible: false,
-            width: 0,
-            height: 0,
-            filterReason: "non-interactive-window"
-          }),
-          candidate({
-            handle: 4920934,
-            pid: 10824,
-            title: "",
-            className: "Chrome_WidgetWin_0",
-            processName: "Codex",
-            visible: false,
-            width: 1920,
-            height: 1020,
-            filterReason: "non-interactive-window"
-          })
-        ],
-        filteredWindows: [
-          { handle: 40503834, pid: 10824, title: "", className: "OwlElectron_NotifyIconHostWindow", score: 795, filterReason: "non-interactive-window" },
-          { handle: 4920934, pid: 10824, title: "", className: "Chrome_WidgetWin_0", score: 910, filterReason: "non-interactive-window" }
-        ],
-        finalCandidates: []
-      });
-    });
-    const manager = new AppWindowManager({
-      runPowerShell: vi.fn(async () => "not-found"),
-      runWindowFocusHelper: runHelper,
-      getProcesses: vi.fn(async () => [])
-    });
+  it("returns strategy-specific failure reasons when activation fails", async () => {
+    const activateRunningApp = vi.fn(async () => ({ launched: false }));
+    const manager = new AppWindowManager({ runPowerShell: vi.fn(), runWindowFocusHelper: vi.fn(async () => emptyScan()), getProcesses: vi.fn(async () => []), activateRunningApp });
 
-    await expect(manager.focusAppWindow(app({
-      name: "Codex",
-      executablePath: "C:\\Program Files\\WindowsApps\\OpenAI.Codex\\app\\Codex.exe",
-      processName: "Codex"
-    }), metrics({
-      pids: [10824],
-      matchedPids: [10824],
-      associatedPids: [],
-      matchedProcessNames: ["Codex"],
-      matchedPaths: ["C:\\Program Files\\WindowsApps\\OpenAI.Codex\\app\\Codex.exe"]
-    }))).resolves.toEqual({ focused: false, reason: "no-window" });
-    expect(runHelper.mock.calls.map((call) => call[0])).toEqual(["scan"]);
+    await expect(manager.focusAppWindow(app({ name: "Codex", processName: "Codex" }), metrics())).resolves.toMatchObject({ reason: "self-launch-failed", diagnostics: { externalActionsPerformed: 1 } });
+    expect(activateRunningApp).toHaveBeenCalledOnce();
   });
 
-  it("relaunches Codex once to safely activate it when only tray helper windows exist", async () => {
-    const runHelper = vi.fn(async (command: string) => {
-      if (command === "focus") return JSON.stringify({ focused: true });
-      const firstScan = runHelper.mock.calls.filter((call) => call[0] === "scan").length === 1;
-      return JSON.stringify(firstScan ? {
-        allWindowsScanned: 32,
-        relatedWindows: [
-          candidate({
-            handle: 40503834,
-            pid: 10824,
-            title: "",
-            className: "OwlElectron_NotifyIconHostWindow",
-            processName: "Codex",
-            visible: false,
-            width: 0,
-            height: 0,
-            filterReason: "non-interactive-window"
-          })
-        ],
-        filteredWindows: [
-          { handle: 40503834, pid: 10824, title: "", className: "OwlElectron_NotifyIconHostWindow", score: 795, filterReason: "non-interactive-window" }
-        ],
-        finalCandidates: []
-      } : {
-        allWindowsScanned: 33,
-        relatedWindows: [
-          candidate({ handle: 9009, pid: 10824, title: "Codex", className: "Chrome_WidgetWin_1", processName: "Codex" })
-        ],
-        filteredWindows: [],
-        finalCandidates: [
-          candidate({ handle: 9009, pid: 10824, title: "Codex", className: "Chrome_WidgetWin_1", processName: "Codex" })
-        ]
-      });
-    });
+  it("does not spend a second external action after Windows blocks a focus attempt", async () => {
+    const window = candidate();
+    const runHelper = vi.fn(async (command: string) => command === "scan" ? scanWith(window) : JSON.stringify({ focused: false, reason: "foreground-blocked" }));
     const activateRunningApp = vi.fn(async () => ({ launched: true }));
-    const waitAfterSafeActivation = vi.fn(async () => undefined);
-    const manager = new AppWindowManager({
-      runPowerShell: vi.fn(async () => "not-found"),
-      runWindowFocusHelper: runHelper,
-      getProcesses: vi.fn(async () => [{ pid: 10824, name: "Codex.exe", path: "C:\\Program Files\\WindowsApps\\OpenAI.Codex\\app\\Codex.exe", parentPid: 0 }]),
-      activateRunningApp,
-      waitAfterSafeActivation
-    });
+    const manager = new AppWindowManager({ runPowerShell: vi.fn(), runWindowFocusHelper: runHelper, getProcesses: vi.fn(async () => []), activateRunningApp });
 
-    await expect(manager.focusAppWindow(app({
-      name: "Codex",
-      executablePath: "C:\\Program Files\\WindowsApps\\OpenAI.Codex\\app\\Codex.exe",
-      processName: "Codex"
-    }), metrics({
-      pids: [10824],
-      matchedPids: [10824],
-      associatedPids: [],
-      matchedProcessNames: ["Codex"],
-      matchedPaths: ["C:\\Program Files\\WindowsApps\\OpenAI.Codex\\app\\Codex.exe"]
-    }))).resolves.toEqual({ focused: true });
-    expect(activateRunningApp).toHaveBeenCalledTimes(1);
-    expect(waitAfterSafeActivation).toHaveBeenCalledTimes(1);
-    expect(runHelper.mock.calls.map((call) => call[0])).toEqual(["scan", "scan", "focus"]);
+    await expect(manager.focusAppWindow(app({ wakeStrategy: "self-launch" }), metrics())).resolves.toMatchObject({
+      reason: "focus-blocked-by-windows",
+      diagnostics: { externalActionsPerformed: 1 }
+    });
+    expect(activateRunningApp).not.toHaveBeenCalled();
   });
 
-  it("restores a minimized WeChat taskbar window through the selected hwnd without tray restore", async () => {
-    const runPowerShell = vi.fn()
-      .mockResolvedValueOnce(`${JSON.stringify(candidate({ iconic: true, visible: true, className: "WeChatMainWnd", processName: "Weixin", executablePath: "E:\\Weixin\\Weixin.exe" }))}`)
-      .mockResolvedValueOnce("focused");
-    const manager = new AppWindowManager({
-      runPowerShell,
-      runWindowFocusHelper: unavailableHelper(),
-      getProcesses: vi.fn(async () => [])
-    });
+  it("uses the slow process fallback only when runtime metrics provide no candidate pid", async () => {
+    const getProcesses = vi.fn(async () => [{ pid: 102, name: "DemoChild.exe", path: "C:\\Apps\\Demo\\DemoChild.exe", parentPid: 100 }]);
+    const manager = new AppWindowManager({ runPowerShell: vi.fn(), runWindowFocusHelper: vi.fn(async () => emptyScan()), getProcesses });
 
-    await expect(manager.focusAppWindow(app(), metrics())).resolves.toEqual({ focused: true });
-    expect(runPowerShell).toHaveBeenCalledTimes(2);
-    expect(runPowerShell.mock.calls[1][0]).toContain("ShowWindowAsync($handle, 9)");
-    expect(runPowerShell.mock.calls.map((call) => call[0]).join("\n")).not.toContain("NotifyIconOverflowWindow");
-  });
-
-  it("falls back to process scanning when runtime metrics do not provide candidate pids", async () => {
-    const getProcesses = vi.fn(async () => [{ pid: 102, name: "WeChatApp.exe", path: "C:\\Program Files\\Tencent\\WeChat\\WeChatApp.exe", parentPid: 100 }]);
-    const manager = new AppWindowManager({
-      runPowerShell: vi.fn(async () => "not-found"),
-      runWindowFocusHelper: unavailableHelper(),
-      getProcesses
-    });
-
-    await expect(manager.focusAppWindow(app({ name: "Notion", executablePath: "C:\\Notion\\Notion.exe", processName: "Notion" }), metrics({ pids: [], matchedPids: [], associatedPids: [] }))).resolves.toEqual({ focused: false, reason: "no-window" });
-    expect(getProcesses).toHaveBeenCalledTimes(1);
+    await manager.focusAppWindow(app(), metrics({ pids: [], matchedPids: [], associatedPids: [] }));
+    expect(getProcesses).toHaveBeenCalledOnce();
   });
 });

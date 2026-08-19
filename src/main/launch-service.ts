@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import type { AppEntry, AppRunningStatus, LaunchAppResult, RuntimeSnapshot } from "../shared/types.js";
 import { normalizeNativeLaunchResult, type NativeLaunchRequest, type NativeLaunchResult, type NativeRuntimeHost } from "./native-helper.js";
 import type { ProcessSnapshot } from "./runtime-monitor.js";
-import { isMuMuLikeApp } from "./focus-window.js";
+import { usesWakeProfile } from "./wake-profiles.js";
 import { inferPackageFamilyName, windowsStoreShellTarget, type WindowsStoreAppIdentity } from "./windows-store-apps.js";
 
 type LaunchServiceOptions = {
@@ -24,7 +24,7 @@ const normalizeFilesystemPath = (value: string) => value.replace(/\//g, "\\").re
 const nativeHelperWasUnavailable = (reason: unknown) => reason instanceof Error && /native helper unavailable/i.test(reason.message);
 
 export function runningActivationEntry(entry: AppEntry): AppEntry {
-  if (!isMuMuLikeApp(entry) || /(?:^|\s)--from-shortcut(?:\s|$)/i.test(entry.launchArgs ?? "")) return entry;
+  if (!usesWakeProfile(entry, "mumu") || /(?:^|\s)--from-shortcut(?:\s|$)/i.test(entry.launchArgs ?? "")) return entry;
   return {
     ...entry,
     launchArgs: [entry.launchArgs?.trim(), "--from-shortcut"].filter(Boolean).join(" ")
@@ -58,9 +58,10 @@ export class LaunchService {
     return { ...result, apps };
   }
 
-  async activateRunningApp(entry: AppEntry) {
+  async activateRunningApp(entry: AppEntry, strategy: "self-launch" | "aumid") {
     entry = await this.refreshWindowsStoreEntry(entry);
-    if (entry.appUserModelId) {
+    if (strategy === "aumid") {
+      if (!entry.appUserModelId) return { launched: false };
       const result = await this.launchWindowsStoreApp(entry);
       return { launched: result.status === "launched" };
     }

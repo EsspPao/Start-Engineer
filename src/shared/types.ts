@@ -1,6 +1,21 @@
 export type SystemSectionId = "processes" | "all-apps" | "settings";
 export type SectionId = SystemSectionId | string;
 
+export type AppWakeStrategy = "auto" | "window-only" | "self-launch" | "aumid";
+export type ResolvedWakeStrategy = Exclude<AppWakeStrategy, "auto"> | "unsupported";
+export type WakeFailureReason =
+  | "no-interactive-window"
+  | "tray-restore-unsupported"
+  | "focus-blocked-by-windows"
+  | "self-launch-not-allowed"
+  | "self-launch-failed"
+  | "aumid-activation-failed"
+  | "app-not-running"
+  | "stale-request"
+  | "restored-but-not-interactive"
+  | "external-action-limit-reached"
+  | "unknown";
+
 export type AppEntry = {
   id: string;
   name: string;
@@ -16,6 +31,7 @@ export type AppEntry = {
   launchArgs?: string;
   workingDirectory?: string;
   appUserModelId?: string;
+  wakeStrategy?: AppWakeStrategy;
   launchedPid?: number;
   processAliases?: string[];
   associatedPids?: number[];
@@ -226,19 +242,16 @@ export type KillAppResult = {
 };
 
 export type FocusAppWindowResult = {
+  success: boolean;
   focused: boolean;
-  reason?:
-    | "no-window"
-    | "tray-hidden"
-    | "foreground-blocked"
-    | "stale"
-    | "unknown"
-    | "trayRestoreFailed"
-    | "trayRestoreUnsupported"
-    | "trayIconNotFound"
-    | "suspectedWrongWindow"
-    | "restoredButNotInteractive"
-    | "fallbackRelaunchDisabled";
+  outcome: "focused" | "activation-requested" | "failed";
+  reason?: WakeFailureReason;
+  strategy: ResolvedWakeStrategy;
+  diagnostics: {
+    profileId: string;
+    profileSource: "built-in" | "user" | "default";
+    externalActionsPerformed: number;
+  };
 };
 
 export type AppWindowInfo = {

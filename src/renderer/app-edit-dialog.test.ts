@@ -34,7 +34,7 @@ const groups: AppGroup[] = [{ id: "games", name: "游戏", icon: "gamepad", isSy
 describe("app edit dialog", () => {
   it("显示只读启动程序路径和选择操作", () => {
     const html = renderToStaticMarkup(createElement(AppEditDialog, {
-      state: { id: app.id, name: app.name, executablePath: app.executablePath, launchArgs: "" },
+      state: { id: app.id, name: app.name, executablePath: app.executablePath, launchArgs: "", wakeStrategy: "auto" },
       onClose: vi.fn(),
       onPickExecutable: vi.fn(async () => null),
       onSave: vi.fn(async () => undefined)
@@ -44,6 +44,10 @@ describe("app edit dialog", () => {
     expect(html).toContain(app.executablePath);
     expect(html).toContain("readonly");
     expect(html).toContain("选择程序");
+    expect(html).toContain("高级设置");
+    expect(html).toContain("自动推荐");
+    expect(html).toContain("使用 Windows 应用身份唤醒");
+    expect(html).toContain("disabled");
     expect(html).not.toContain("工作目录");
   });
 
@@ -78,7 +82,8 @@ describe("app edit dialog", () => {
         name: "ChatGPT",
         executablePath: storeApp.executablePath,
         launchArgs: "",
-        appUserModelId: storeApp.appUserModelId
+        appUserModelId: storeApp.appUserModelId,
+        wakeStrategy: "aumid"
       },
       onClose: vi.fn(),
       onPickExecutable: vi.fn(async () => null),
@@ -102,6 +107,8 @@ describe("app edit dialog", () => {
     expect(dialogHtml).toContain("OpenAI.Codex_2p2nqsd0c76g0!App");
     expect(dialogHtml).not.toContain("OpenAI.Codex_26.721.4979.0");
     expect(dialogHtml).toContain("改用本地程序");
+    expect(dialogHtml).toContain("使用 Windows 应用身份唤醒");
+    expect(dialogHtml).toContain("稳定的 Windows 应用身份");
     expect(menuHtml).toContain("复制 Windows 应用标识");
   });
 });

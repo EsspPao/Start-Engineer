@@ -1,21 +1,24 @@
-import type { AppEntry, AppMetrics, FocusAppWindowResult } from "../shared/types.js";
+import type {
+  AppEntry,
+  AppMetrics,
+  FocusAppWindowResult,
+  ResolvedWakeStrategy,
+  WakeFailureReason
+} from "../shared/types.js";
 import {
   collectFocusCandidateStages,
-  findFocusWindowCandidateForStages,
   focusWindowHandleDetailed,
-  isMuMuLikeApp,
-  isWeGameLikeApp,
-  isWeChatLikeApp,
   listFocusWindowCandidatesForStages,
-  restoreWeChatFromTray,
   scanFocusWindowsForStages,
   type FocusProcessSnapshot,
   type FocusWindowCandidate,
+  type FocusWindowHandleResult,
   type FocusWindowScanResult,
   type FocusWindowStage,
-  type WindowFocusHelperRunner,
-  type PowerShellRunner
+  type PowerShellRunner,
+  type WindowFocusHelperRunner
 } from "./focus-window.js";
+import { resolveWakePolicy, type WakePolicy } from "./wake-profiles.js";
 
 export type AppWindowInfo = {
   handle: number;
@@ -30,20 +33,23 @@ export type WindowManagerDependencies = {
   runPowerShell: PowerShellRunner;
   runWindowFocusHelper?: WindowFocusHelperRunner;
   getProcesses: () => Promise<FocusProcessSnapshot[]>;
-  activateRunningApp?: (app: AppEntry) => Promise<{ launched: boolean }>;
+  activateRunningApp?: (app: AppEntry, strategy: "self-launch" | "aumid") => Promise<{ launched: boolean }>;
   waitAfterSafeActivation?: () => Promise<void>;
 };
 
-type RestoreMethod = "hwndRestore" | "trayRestore" | "fallbackRelaunch" | "none";
-type RestoreResult = "success" | "failed" | "partial";
+type RestoreMethod = "hwnd-restore" | "self-launch" | "aumid" | "none";
+type RestoreResult = "success" | "failed" | "partial" | "requested";
 
-type FocusAttemptDiagnostics = {
+type WakeAttemptDiagnostics = {
+  profileId: string;
+  profileSource: WakePolicy["profileSource"];
+  strategy: ResolvedWakeStrategy;
+  externalActionsPerformed: number;
   selectedCandidate?: FocusWindowCandidate;
   restoreMethod: RestoreMethod;
   restoreResult: RestoreResult;
-  reason?: FocusAppWindowResult["reason"];
-  postRestoreForegroundWindow?: FocusWindowCandidate;
-  postRestoreWindows?: FocusWindowCandidate[];
+  failureReason?: WakeFailureReason;
+  postActivationWindows?: FocusWindowCandidate[];
 };
 
 export function focusStagesFromCandidates(app: AppEntry, metrics: AppMetrics | undefined, processes: FocusProcessSnapshot[], includeFallbacks: boolean): FocusWindowStage[] {
@@ -84,64 +90,86 @@ export function toAppWindowInfo(candidate: FocusWindowCandidate): AppWindowInfo 
   };
 }
 
-export function buildWindowDiagnostics(app: AppEntry, stages: FocusWindowStage[], scan: FocusWindowScanResult, attempt?: FocusAttemptDiagnostics) {
-  const lines = [
-    `App: ${app.name} (${app.id})`,
-    `Executable: ${app.executablePath || "(empty)"}`,
-    `Process name: ${app.processName || "(empty)"}`,
-    "Stages:"
-  ];
-  for (const stage of stages) {
-    const pids = stage.pids.length ? stage.pids.join(",") : "(none)";
-    const titles = stage.titleKeywords?.length ? stage.titleKeywords.join(",") : "(none)";
-    const classes = stage.classKeywords?.length ? stage.classKeywords.join(",") : "(none)";
-    const processes = stage.processNameKeywords?.length ? stage.processNameKeywords.join(",") : "(none)";
-    const paths = stage.pathKeywords?.length ? stage.pathKeywords.join(",") : "(none)";
-    lines.push(`- Stage ${stage.label}: pids=${pids}; titleKeywords=${titles}; classKeywords=${classes}; processKeywords=${processes}; pathKeywords=${paths}`);
-  }
-  const appendWindows = (title: string, candidates: FocusWindowCandidate[]) => {
-    lines.push(`${title}:`);
-    if (!candidates.length) {
-      lines.push("- (none)");
-    } else {
-      for (const candidate of candidates) {
-        lines.push(`- hwnd=${candidate.handle} pid=${candidate.pid} processName=${candidate.processName ?? ""} executablePath=${candidate.executablePath ?? ""} processError=${candidate.processError ?? ""} title=${candidate.title} className=${candidate.className ?? ""} visible=${candidate.visible ?? false} minimized=${candidate.iconic ?? false} hasOwner=${Boolean(candidate.owner)} exStyle=${candidate.exStyle ?? ""} stage=${candidate.stage ?? ""} score=${candidate.score} matchReason=${candidate.matchReason ?? ""} filterReason=${candidate.filterReason ?? ""}`);
-      }
-    }
-  };
-  lines.push(`allWindowsScanned: ${scan.allWindowsScanned}`);
-  if (attempt) {
-    lines.push(`selectedCandidate: ${attempt.selectedCandidate ? `hwnd=${attempt.selectedCandidate.handle} pid=${attempt.selectedCandidate.pid} title=${attempt.selectedCandidate.title} className=${attempt.selectedCandidate.className ?? ""}` : "(none)"}`);
-    lines.push(`restoreMethod: ${attempt.restoreMethod}`);
-    lines.push(`restoreResult: ${attempt.restoreResult}`);
-    lines.push(`reason: ${attempt.reason ?? ""}`);
-    lines.push(`postRestoreForegroundWindow: ${attempt.postRestoreForegroundWindow ? `hwnd=${attempt.postRestoreForegroundWindow.handle} pid=${attempt.postRestoreForegroundWindow.pid} title=${attempt.postRestoreForegroundWindow.title} className=${attempt.postRestoreForegroundWindow.className ?? ""}` : "(none)"}`);
-  } else {
-    lines.push("selectedCandidate: (none)");
-    lines.push("restoreMethod: none");
-    lines.push("restoreResult: failed");
-    lines.push("reason: ");
-    lines.push("postRestoreForegroundWindow: (none)");
-  }
-  appendWindows("relatedWindows", scan.relatedWindows);
-  appendWindows("filteredWindows", scan.filteredWindows);
-  appendWindows("finalCandidates", scan.finalCandidates);
-  appendWindows("postRestoreWindows", attempt?.postRestoreWindows ?? []);
-  return lines.join("\n");
-}
-
-export function shouldUseSafeActivation(app: AppEntry) {
-  if (isWeChatLikeApp(app)) return false;
-  const haystack = `${app.name} ${app.processName} ${app.executablePath} ${(app.processAliases ?? []).join(" ")}`.toLowerCase();
-  return haystack.includes("codex");
+export function buildWindowDiagnostics(
+  app: AppEntry,
+  metrics: AppMetrics | undefined,
+  stages: FocusWindowStage[],
+  scan: FocusWindowScanResult,
+  wakePolicy: WakePolicy,
+  attempt?: WakeAttemptDiagnostics
+) {
+  return JSON.stringify({
+    appId: app.id,
+    appName: app.name,
+    processName: app.processName,
+    executablePath: app.executablePath,
+    appUserModelId: app.appUserModelId ?? null,
+    configuredWakeStrategy: app.wakeStrategy ?? "auto",
+    matchedPids: metrics?.matchedPids ?? metrics?.pids ?? [],
+    associatedPids: metrics?.associatedPids ?? [],
+    matchedProcessNames: metrics?.matchedProcessNames ?? [],
+    matchedPaths: metrics?.matchedPaths ?? [],
+    selectedWakeProfile: wakePolicy.profileId,
+    selectedWakeStrategy: wakePolicy.strategy,
+    wakeProfileSource: wakePolicy.profileSource,
+    wakePolicy: {
+      allowWindowFocus: wakePolicy.allowWindowFocus,
+      allowSelfLaunchWake: wakePolicy.allowSelfLaunchWake,
+      allowAumidActivation: wakePolicy.allowAumidActivation,
+      allowSecondScan: wakePolicy.allowSecondScan,
+      allowHiddenWindowRestore: wakePolicy.allowHiddenWindowRestore,
+      trayRestoreUnsupported: wakePolicy.trayRestoreUnsupported,
+      maxExternalStateChangingActions: wakePolicy.maxExternalStateChangingActions,
+      forbiddenWindowClasses: wakePolicy.forbiddenWindowClasses,
+      forbiddenTitleKeywords: wakePolicy.forbiddenTitleKeywords
+    },
+    stages,
+    allWindowsScanned: scan.allWindowsScanned,
+    relatedWindows: scan.relatedWindows,
+    filteredWindows: scan.filteredWindows,
+    finalCandidates: scan.finalCandidates,
+    selectedCandidate: attempt?.selectedCandidate ?? null,
+    restoreMethod: attempt?.restoreMethod ?? "none",
+    restoreResult: attempt?.restoreResult ?? "failed",
+    externalActionsPerformed: attempt?.externalActionsPerformed ?? 0,
+    failureReason: attempt?.failureReason ?? null,
+    postActivationWindows: attempt?.postActivationWindows ?? []
+  }, null, 2);
 }
 
 const defaultSafeActivationWait = () => new Promise<void>((resolve) => setTimeout(resolve, 900));
 
+function mapFocusFailure(reason: FocusWindowHandleResult["reason"], wakePolicy: WakePolicy): WakeFailureReason {
+  if (reason === "foreground-blocked") return "focus-blocked-by-windows";
+  if (reason === "tray-hidden" && wakePolicy.trayRestoreUnsupported) return "tray-restore-unsupported";
+  if (reason === "no-window" || reason === "tray-hidden") return "no-interactive-window";
+  return "unknown";
+}
+
+function canRestoreWindow(candidate: FocusWindowCandidate, wakePolicy: WakePolicy) {
+  return wakePolicy.allowHiddenWindowRestore || candidate.visible === true || candidate.iconic === true;
+}
+
+function wakeResult(
+  wakePolicy: WakePolicy,
+  externalActionsPerformed: number,
+  result: Pick<FocusAppWindowResult, "success" | "focused" | "outcome" | "reason">
+): FocusAppWindowResult {
+  return {
+    ...result,
+    strategy: wakePolicy.strategy,
+    diagnostics: {
+      profileId: wakePolicy.profileId,
+      profileSource: wakePolicy.profileSource,
+      externalActionsPerformed
+    }
+  };
+}
+
 export class AppWindowManager {
   private latestRequestId = 0;
   private cache = new Map<string, FocusWindowCandidate>();
-  private lastAttempts = new Map<string, FocusAttemptDiagnostics>();
+  private lastAttempts = new Map<string, WakeAttemptDiagnostics>();
 
   constructor(public readonly dependencies: WindowManagerDependencies) {}
 
@@ -161,222 +189,181 @@ export class AppWindowManager {
   }
 
   async diagnostics(app: AppEntry, metrics?: AppMetrics) {
+    const wakePolicy = resolveWakePolicy(app);
     const processes = await this.dependencies.getProcesses();
     const stages = focusStagesFromCandidates(app, metrics, processes, true);
     const scan = await scanFocusWindowsForStages(`${app.name}:diagnostics`, stages, this.dependencies.runPowerShell, this.dependencies.runWindowFocusHelper);
-    return buildWindowDiagnostics(app, stages, scan, this.lastAttempts.get(app.id));
+    return buildWindowDiagnostics(app, metrics, stages, scan, wakePolicy, this.lastAttempts.get(app.id));
   }
 
   async focusHandle(app: AppEntry, handle: number, metrics?: AppMetrics): Promise<FocusAppWindowResult> {
+    const wakePolicy = resolveWakePolicy(app);
     const processes = await this.dependencies.getProcesses();
     const stages = focusStagesFromCandidates(app, metrics, processes, true);
+    if (!wakePolicy.allowHiddenWindowRestore) {
+      const scan = await scanFocusWindowsForStages(`${app.name}:focus-handle:verify`, stages, this.dependencies.runPowerShell, this.dependencies.runWindowFocusHelper);
+      const current = scan.finalCandidates.find((item) => item.handle === handle);
+      if (!current || !canRestoreWindow(current, wakePolicy)) {
+        return this.failure(app, wakePolicy, 0, "tray-restore-unsupported", "none", "failed", current);
+      }
+    }
     const candidate: FocusWindowCandidate = { handle, pid: 0, title: "", score: 0 };
     const result = await focusWindowHandleDetailed(candidate, this.dependencies.runPowerShell, focusStagePids(stages), this.dependencies.runWindowFocusHelper);
-    return result;
+    const failureReason = result.focused ? undefined : mapFocusFailure(result.reason, wakePolicy);
+    const actionCount = result.reason === "no-window" ? 0 : 1;
+    this.recordAttempt(app, wakePolicy, {
+      externalActionsPerformed: actionCount,
+      selectedCandidate: candidate,
+      restoreMethod: "hwnd-restore",
+      restoreResult: result.focused ? "success" : "failed",
+      failureReason
+    });
+    return result.focused
+      ? wakeResult(wakePolicy, 1, { success: true, focused: true, outcome: "focused" })
+      : wakeResult(wakePolicy, actionCount, { success: false, focused: false, outcome: "failed", reason: failureReason });
   }
 
   async focusAppWindow(app: AppEntry, metrics?: AppMetrics): Promise<FocusAppWindowResult> {
     const requestId = ++this.latestRequestId;
-    // MuMu owns its single-instance restoration path. Directly restoring one of
-    // its Qt/renderer handles can only highlight the taskbar entry while leaving
-    // the main surface minimized. Invoke the application's activation entry once
-    // and stop: a delayed HWND restore would override a user's immediate minimize.
-    if (isMuMuLikeApp(app)) {
-      return this.activateSelfManagedAppOnce(app, requestId);
-    }
-    const fastStages = focusStagesFromCandidates(app, metrics, [], false);
-    const cached = this.cache.get(app.id);
-    if (cached) {
-      const result = await focusWindowHandleDetailed(cached, this.dependencies.runPowerShell, focusStagePids(fastStages), this.dependencies.runWindowFocusHelper);
-      console.info(`[focus-window] ${app.name}:cache: ${result.focused ? "focused" : result.reason ?? "not-focused"}; handle=${cached.handle}; pid=${cached.pid}`);
-      if (result.focused) return { focused: true };
-      this.cache.delete(app.id);
+    const wakePolicy = resolveWakePolicy(app);
+    if (metrics && !metrics.isRunning) {
+      return this.failure(app, wakePolicy, 0, "app-not-running", "none", "failed");
     }
 
-    // WeGame owns its tray restoration flow. Restoring one of its renderer hosts
-    // directly can surface an empty black window instead of the main client.
-    if (isWeGameLikeApp(app)) {
-      return this.activateSelfManagedAppOnce(app, requestId);
-    }
-
-    const fastResult = await this.focusCandidate(app, "fast", fastStages, requestId);
-    if (fastResult.focused) return { focused: true };
-    if (requestId !== this.latestRequestId) return { focused: false, reason: "stale" };
-    if (focusStagePids(fastStages).length) {
-      if (isWeChatLikeApp(app)) {
-        return this.restoreWeChatFromTrayThenFocus(app, "fast-tray", fastStages, requestId, fastResult.reason);
+    let stages: FocusWindowStage[] = [];
+    if (wakePolicy.allowWindowFocus) {
+      const cached = wakePolicy.allowHiddenWindowRestore ? this.cache.get(app.id) : undefined;
+      if (cached) {
+        const fastStages = focusStagesFromCandidates(app, metrics, [], false);
+        const cachedResult = await focusWindowHandleDetailed(cached, this.dependencies.runPowerShell, focusStagePids(fastStages), this.dependencies.runWindowFocusHelper);
+        console.info(`[wake] ${app.name}:cache: ${cachedResult.focused ? "focused" : cachedResult.reason ?? "not-focused"}; hwnd=${cached.handle}`);
+        if (cachedResult.focused) {
+          return this.success(app, wakePolicy, 1, "focused", cached, "hwnd-restore", "success");
+        }
+        this.cache.delete(app.id);
+        if (cachedResult.reason !== "no-window") {
+          return this.failure(app, wakePolicy, 1, mapFocusFailure(cachedResult.reason, wakePolicy), "hwnd-restore", "failed", cached);
+        }
       }
-      const safeActivationResult = await this.safeActivateThenFocus(app, "safe-activate", metrics, requestId, fastResult.reason);
-      if (safeActivationResult.focused || safeActivationResult.reason !== "fallbackRelaunchDisabled") return safeActivationResult;
-      return {
-        focused: false,
-        reason: fastResult.reason ?? "no-window"
-      };
+
+      stages = focusStagesFromCandidates(app, metrics, [], false);
+      let scan = await scanFocusWindowsForStages(`${app.name}:wake:fast`, stages, this.dependencies.runPowerShell, this.dependencies.runWindowFocusHelper);
+      if (!scan.finalCandidates.length && focusStagePids(stages).length === 0) {
+        const processes = await this.dependencies.getProcesses();
+        stages = focusStagesFromCandidates(app, metrics, processes, true);
+        scan = await scanFocusWindowsForStages(`${app.name}:wake:fallback`, stages, this.dependencies.runPowerShell, this.dependencies.runWindowFocusHelper);
+      }
+      const candidate = scan.finalCandidates.find((item) => canRestoreWindow(item, wakePolicy));
+      if (candidate) {
+        if (requestId !== this.latestRequestId) return this.failure(app, wakePolicy, 0, "stale-request", "none", "failed", candidate);
+        const focusResult = await focusWindowHandleDetailed(candidate, this.dependencies.runPowerShell, focusStagePids(stages), this.dependencies.runWindowFocusHelper);
+        console.info(`[wake] ${app.name}:${wakePolicy.profileId}: ${focusResult.focused ? "focused" : focusResult.reason ?? "not-focused"}; hwnd=${candidate.handle}; strategy=${wakePolicy.strategy}`);
+        if (focusResult.focused) {
+          this.cache.set(app.id, candidate);
+          return this.success(app, wakePolicy, 1, "focused", candidate, "hwnd-restore", "success");
+        }
+        return this.failure(app, wakePolicy, focusResult.reason === "no-window" ? 0 : 1, mapFocusFailure(focusResult.reason, wakePolicy), "hwnd-restore", "failed", candidate);
+      }
     }
 
-    const processes = await this.dependencies.getProcesses();
-    const fallbackStages = focusStagesFromCandidates(app, metrics, processes, true);
-    const fallbackResult = await this.focusCandidate(app, "fallback", fallbackStages, requestId);
-    if (fallbackResult.focused) return { focused: true };
-    if (isWeChatLikeApp(app)) {
-      return this.restoreWeChatFromTrayThenFocus(app, "fallback-tray", fallbackStages, requestId, fallbackResult.reason ?? fastResult.reason);
+    if (requestId !== this.latestRequestId) return this.failure(app, wakePolicy, 0, "stale-request", "none", "failed");
+    if (wakePolicy.strategy === "window-only") {
+      return this.failure(app, wakePolicy, 0, wakePolicy.trayRestoreUnsupported ? "tray-restore-unsupported" : "no-interactive-window", "none", "failed");
     }
-    return {
-      focused: false,
-      reason: fallbackResult.reason === "tray-hidden" || fastResult.reason === "tray-hidden"
-        ? "tray-hidden"
-        : fallbackResult.reason ?? fastResult.reason ?? "no-window"
-    };
+    if (wakePolicy.strategy === "unsupported") {
+      return this.failure(app, wakePolicy, 0, "self-launch-not-allowed", "none", "failed");
+    }
+    return this.activateOnce(app, metrics, wakePolicy, requestId);
   }
 
-  private async focusCandidate(app: AppEntry, label: string, stages: FocusWindowStage[], requestId: number): Promise<FocusAppWindowResult> {
-    const candidate = await findFocusWindowCandidateForStages(`${app.name}:${label}`, stages, this.dependencies.runPowerShell, this.dependencies.runWindowFocusHelper);
-    if (!candidate) return { focused: false, reason: "no-window" };
-    if (candidate.filterReason) {
-      this.lastAttempts.set(app.id, {
-        selectedCandidate: candidate,
-        restoreMethod: "none",
-        restoreResult: "failed",
-        reason: candidate.filterReason === "suspected-wechat-shell" ? "suspectedWrongWindow" : "no-window"
-      });
-      return {
-        focused: false,
-        reason: candidate.filterReason === "suspected-wechat-shell" ? "suspectedWrongWindow" : "no-window"
-      };
+  private async activateOnce(app: AppEntry, metrics: AppMetrics | undefined, wakePolicy: WakePolicy, requestId: number): Promise<FocusAppWindowResult> {
+    const strategy = wakePolicy.strategy;
+    const method = strategy === "aumid" ? "aumid" : "self-launch";
+    if (strategy !== "self-launch" && strategy !== "aumid") {
+      return this.failure(app, wakePolicy, 0, "self-launch-not-allowed", "none", "failed");
     }
-    if (requestId !== this.latestRequestId) {
-      console.info(`[focus-window] ${app.name}:${label}: cancelled stale request ${requestId}; latest=${this.latestRequestId}`);
-      return { focused: false, reason: "stale" };
+    if ((strategy === "self-launch" && !wakePolicy.allowSelfLaunchWake)
+      || (strategy === "aumid" && (!wakePolicy.allowAumidActivation || !app.appUserModelId))) {
+      return this.failure(app, wakePolicy, 0, strategy === "aumid" ? "aumid-activation-failed" : "self-launch-not-allowed", method, "failed");
     }
-    const result = await focusWindowHandleDetailed(candidate, this.dependencies.runPowerShell, focusStagePids(stages), this.dependencies.runWindowFocusHelper);
-    console.info(`[focus-window] ${app.name}:${label}: ${result.focused ? "focused" : result.reason ?? "not-focused"}; handle=${candidate.handle}; pid=${candidate.pid}; visible=${candidate.visible}; iconic=${candidate.iconic}; tool=${candidate.toolWindow}; owner=${candidate.owner}; rect=${candidate.width}x${candidate.height}`);
-    this.lastAttempts.set(app.id, {
-      selectedCandidate: candidate,
-      restoreMethod: "hwndRestore",
-      restoreResult: result.focused ? "success" : "failed",
-      reason: result.reason
-    });
-    if (result.focused) this.cache.set(app.id, candidate);
-    return result;
-  }
-
-  private async activateSelfManagedAppOnce(app: AppEntry, requestId: number): Promise<FocusAppWindowResult> {
     if (!this.dependencies.activateRunningApp) {
-      return { focused: false, reason: "fallbackRelaunchDisabled" };
+      return this.failure(app, wakePolicy, 0, strategy === "aumid" ? "aumid-activation-failed" : "self-launch-not-allowed", method, "failed");
+    }
+    if (wakePolicy.maxExternalStateChangingActions < 1) {
+      return this.failure(app, wakePolicy, 0, "external-action-limit-reached", method, "failed");
     }
 
-    const activation = await this.dependencies.activateRunningApp(app);
-    if (requestId !== this.latestRequestId) return { focused: false, reason: "stale" };
+    const activation = await this.dependencies.activateRunningApp(app, strategy);
+    const externalActionsPerformed = 1;
+    if (requestId !== this.latestRequestId) {
+      return this.failure(app, wakePolicy, externalActionsPerformed, "stale-request", method, "partial");
+    }
     if (!activation.launched) {
-      this.lastAttempts.set(app.id, {
-        restoreMethod: "fallbackRelaunch",
-        restoreResult: "failed",
-        reason: "no-window"
-      });
-      return { focused: false, reason: "no-window" };
+      return this.failure(app, wakePolicy, externalActionsPerformed, strategy === "aumid" ? "aumid-activation-failed" : "self-launch-failed", method, "failed");
     }
-
-    this.lastAttempts.set(app.id, {
-      restoreMethod: "fallbackRelaunch",
-      restoreResult: "success"
-    });
-    return { focused: true };
-  }
-
-  private async safeActivateThenFocus(app: AppEntry, label: string, metrics: AppMetrics | undefined, requestId: number, previousReason?: FocusAppWindowResult["reason"]): Promise<FocusAppWindowResult> {
-    if (!shouldUseSafeActivation(app) || !this.dependencies.activateRunningApp) {
-      return { focused: false, reason: "fallbackRelaunchDisabled" };
-    }
-
-    const activation = await this.dependencies.activateRunningApp(app);
-    if (requestId !== this.latestRequestId) return { focused: false, reason: "stale" };
-    if (!activation.launched) {
-      this.lastAttempts.set(app.id, {
-        restoreMethod: "fallbackRelaunch",
-        restoreResult: "failed",
-        reason: previousReason ?? "no-window"
-      });
-      return { focused: false, reason: previousReason ?? "no-window" };
+    if (!wakePolicy.allowSecondScan) {
+      return this.success(app, wakePolicy, externalActionsPerformed, "activation-requested", undefined, method, "requested");
     }
 
     await (this.dependencies.waitAfterSafeActivation ?? defaultSafeActivationWait)();
-    if (requestId !== this.latestRequestId) return { focused: false, reason: "stale" };
-
+    if (requestId !== this.latestRequestId) {
+      return this.failure(app, wakePolicy, externalActionsPerformed, "stale-request", method, "partial");
+    }
     const processes = await this.dependencies.getProcesses();
     const stages = focusStagesFromCandidates(app, metrics, processes, true);
-    const scan = await scanFocusWindowsForStages(`${app.name}:${label}:post`, stages, this.dependencies.runPowerShell, this.dependencies.runWindowFocusHelper);
+    const scan = await scanFocusWindowsForStages(`${app.name}:wake:${strategy}:post`, stages, this.dependencies.runPowerShell, this.dependencies.runWindowFocusHelper);
     const candidate = scan.finalCandidates[0];
-    if (!candidate || candidate.filterReason) {
-      const reason = candidate?.filterReason === "suspected-wechat-shell" ? "suspectedWrongWindow" : previousReason ?? "no-window";
-      this.lastAttempts.set(app.id, {
-        selectedCandidate: candidate,
-        restoreMethod: "fallbackRelaunch",
-        restoreResult: "partial",
-        reason,
-        postRestoreWindows: scan.relatedWindows
-      });
-      return { focused: false, reason };
+    if (candidate?.visible && candidate.iconic !== true) {
+      this.cache.set(app.id, candidate);
+      return this.success(app, wakePolicy, externalActionsPerformed, "focused", candidate, method, "success", scan.relatedWindows);
     }
-
-    const result = await focusWindowHandleDetailed(candidate, this.dependencies.runPowerShell, focusStagePids(stages), this.dependencies.runWindowFocusHelper);
-    this.lastAttempts.set(app.id, {
-      selectedCandidate: candidate,
-      restoreMethod: "fallbackRelaunch",
-      restoreResult: result.focused ? "success" : "partial",
-      reason: result.reason,
-      postRestoreWindows: scan.relatedWindows
-    });
-    if (result.focused) this.cache.set(app.id, candidate);
-    return result.focused ? { focused: true } : result.reason ? result : { focused: false, reason: "restoredButNotInteractive" };
+    const reason: WakeFailureReason = candidate ? "restored-but-not-interactive" : "no-interactive-window";
+    return this.failure(app, wakePolicy, externalActionsPerformed, reason, method, "partial", candidate, scan.relatedWindows);
   }
 
-  private async restoreWeChatFromTrayThenFocus(app: AppEntry, label: string, stages: FocusWindowStage[], requestId: number, previousReason?: FocusAppWindowResult["reason"]): Promise<FocusAppWindowResult> {
-    const tray = await restoreWeChatFromTray(this.dependencies.runPowerShell);
-    if (requestId !== this.latestRequestId) {
-      console.info(`[focus-window] ${app.name}:${label}: cancelled stale tray restore ${requestId}; latest=${this.latestRequestId}`);
-      return { focused: false, reason: "stale" };
-    }
-    if (!tray.success) {
-      const reason = tray.reason ?? (previousReason === "suspectedWrongWindow" ? "suspectedWrongWindow" : "trayRestoreFailed");
-      this.lastAttempts.set(app.id, {
-        restoreMethod: "trayRestore",
-        restoreResult: "failed",
-        reason
-      });
-      return { focused: false, reason };
-    }
-
-    const scan = await scanFocusWindowsForStages(`${app.name}:${label}:post`, stages, this.dependencies.runPowerShell, this.dependencies.runWindowFocusHelper);
-    const candidate = scan.finalCandidates[0];
-    if (!candidate) {
-      this.lastAttempts.set(app.id, {
-        restoreMethod: "trayRestore",
-        restoreResult: "partial",
-        reason: "trayRestoreFailed",
-        postRestoreWindows: scan.relatedWindows
-      });
-      return { focused: false, reason: "trayRestoreFailed" };
-    }
-    if (candidate.filterReason) {
-      this.lastAttempts.set(app.id, {
-        selectedCandidate: candidate,
-        restoreMethod: "trayRestore",
-        restoreResult: "partial",
-        reason: "suspectedWrongWindow",
-        postRestoreWindows: scan.relatedWindows
-      });
-      return { focused: false, reason: "suspectedWrongWindow" };
-    }
-
-    const result = await focusWindowHandleDetailed(candidate, this.dependencies.runPowerShell, focusStagePids(stages), this.dependencies.runWindowFocusHelper);
-    this.lastAttempts.set(app.id, {
-      selectedCandidate: candidate,
-      restoreMethod: "trayRestore",
-      restoreResult: result.focused ? "success" : "partial",
-      reason: result.reason,
-      postRestoreWindows: scan.relatedWindows
+  private success(
+    app: AppEntry,
+    wakePolicy: WakePolicy,
+    externalActionsPerformed: number,
+    outcome: "focused" | "activation-requested",
+    selectedCandidate: FocusWindowCandidate | undefined,
+    restoreMethod: RestoreMethod,
+    restoreResult: RestoreResult,
+    postActivationWindows?: FocusWindowCandidate[]
+  ) {
+    this.recordAttempt(app, wakePolicy, { externalActionsPerformed, selectedCandidate, restoreMethod, restoreResult, postActivationWindows });
+    return wakeResult(wakePolicy, externalActionsPerformed, {
+      success: true,
+      focused: outcome === "focused",
+      outcome
     });
-    if (result.focused) this.cache.set(app.id, candidate);
-    return result.focused ? { focused: true } : result.reason ? result : { focused: false, reason: "restoredButNotInteractive" };
+  }
+
+  private failure(
+    app: AppEntry,
+    wakePolicy: WakePolicy,
+    externalActionsPerformed: number,
+    failureReason: WakeFailureReason,
+    restoreMethod: RestoreMethod,
+    restoreResult: RestoreResult,
+    selectedCandidate?: FocusWindowCandidate,
+    postActivationWindows?: FocusWindowCandidate[]
+  ) {
+    this.recordAttempt(app, wakePolicy, { externalActionsPerformed, selectedCandidate, restoreMethod, restoreResult, failureReason, postActivationWindows });
+    return wakeResult(wakePolicy, externalActionsPerformed, {
+      success: false,
+      focused: false,
+      outcome: "failed",
+      reason: failureReason
+    });
+  }
+
+  private recordAttempt(app: AppEntry, wakePolicy: WakePolicy, attempt: Omit<WakeAttemptDiagnostics, "profileId" | "profileSource" | "strategy">) {
+    this.lastAttempts.set(app.id, {
+      profileId: wakePolicy.profileId,
+      profileSource: wakePolicy.profileSource,
+      strategy: wakePolicy.strategy,
+      ...attempt
+    });
   }
 }

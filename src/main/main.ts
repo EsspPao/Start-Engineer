@@ -219,7 +219,7 @@ const addDiscoveredCandidate = (candidateId: string, groupId: AppEntry["groupId"
 const windowManager = new AppWindowManager({
   runPowerShell,
   getProcesses: () => runtimeService.getProcessSnapshots("full"),
-  activateRunningApp: (entry) => launchService.activateRunningApp(getApp(entry.id) ?? entry)
+  activateRunningApp: (entry, strategy) => launchService.activateRunningApp(getApp(entry.id) ?? entry, strategy)
 });
 
 searchService = new SearchService({

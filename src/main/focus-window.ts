@@ -2,6 +2,7 @@ import { dirname } from "node:path";
 import type { AppEntry, AppMetrics } from "../shared/types.js";
 import { runNativeHelper } from "./native-helper.js";
 import type { ProcessSnapshot } from "./runtime-monitor.js";
+import { usesWakeProfile } from "./wake-profiles.js";
 
 export type PowerShellRunner = (script: string) => Promise<string>;
 export type WindowFocusHelperCommand = "scan" | "focus";
@@ -79,21 +80,6 @@ export function runWindowFocusHelper(command: WindowFocusHelperCommand, payload:
   return runNativeHelper(command, payload);
 }
 
-export function isWeChatLikeApp(app: AppEntry) {
-  const haystack = `${app.name} ${app.processName} ${app.executablePath} ${(app.processAliases ?? []).join(" ")}`.toLowerCase();
-  return haystack.includes("weixin") || haystack.includes("wechat") || haystack.includes("微信");
-}
-
-export function isWeGameLikeApp(app: AppEntry) {
-  const haystack = `${app.name} ${app.processName} ${app.executablePath} ${(app.processAliases ?? []).join(" ")}`.toLowerCase();
-  return haystack.includes("wegame") || haystack.includes("腾讯游戏平台");
-}
-
-export function isMuMuLikeApp(app: AppEntry) {
-  const haystack = `${app.name} ${app.processName} ${app.executablePath} ${(app.processAliases ?? []).join(" ")}`.toLowerCase();
-  return haystack.includes("mumu") || haystack.includes("网易模拟器");
-}
-
 function descendantPids(processes: FocusProcessSnapshot[], roots: number[]) {
   const candidates = new Set(validPids(roots));
   const descendants = new Set<number>();
@@ -119,7 +105,7 @@ function isInsideDirectory(processPath: string, directoryPath: string) {
 }
 
 export function collectFocusCandidateStages(app: AppEntry, metrics: AppMetrics | undefined, processes: FocusProcessSnapshot[]): FocusCandidateStages {
-  const weChatLike = isWeChatLikeApp(app);
+  const weChatLike = usesWakeProfile(app, "wechat");
   const matchedPids = validPids([...(metrics?.matchedPids ?? metrics?.pids ?? []), ...(metrics?.associatedPids ?? [])]);
   const childPids = validPids(descendantPids(processes, matchedPids));
   const appPath = normalizePath(app.executablePath);

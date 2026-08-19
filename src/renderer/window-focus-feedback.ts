@@ -13,11 +13,14 @@ export function focusHintsForApp(app: RuntimeApp): FocusWindowHints {
 }
 
 export function focusResultMessage(result: FocusAppWindowResult) {
-  if (result.focused) return "";
-  if (result.reason === "tray-hidden") return "应用仍在托盘运行，请从托盘图标打开";
-  if (result.reason === "trayIconNotFound") return "应用可能在托盘中";
-  if (result.reason === "trayRestoreUnsupported") return "微信可能在托盘中，暂不支持直接恢复";
-  if (["trayRestoreFailed", "suspectedWrongWindow", "restoredButNotInteractive", "fallbackRelaunchDisabled"].includes(result.reason ?? "")) return "未能正常恢复应用窗口";
-  if (result.reason === "foreground-blocked") return "窗口已找到，但 Windows 阻止了前台切换，可从任务栏点开";
-  return "未找到可唤起窗口";
+  if (result.success || result.focused) return "";
+  if (result.reason === "tray-restore-unsupported") return "应用已隐藏到系统托盘，请手动从托盘打开";
+  if (result.reason === "focus-blocked-by-windows") return "窗口已找到，但 Windows 阻止了前台切换，可从任务栏点开";
+  if (result.reason === "self-launch-not-allowed") return "当前唤醒策略不允许重新运行应用";
+  if (result.reason === "self-launch-failed") return "重新运行应用后仍未能唤醒窗口";
+  if (result.reason === "aumid-activation-failed") return "Windows 应用身份激活失败";
+  if (result.reason === "app-not-running") return "应用当前未运行";
+  if (result.reason === "restored-but-not-interactive") return "应用已响应，但未出现可交互窗口";
+  if (result.reason === "stale-request") return "已忽略过期的唤醒请求";
+  return "未找到可交互窗口";
 }

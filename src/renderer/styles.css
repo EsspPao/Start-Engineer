@@ -586,6 +586,13 @@ button { border: 0; }
 .executable-picker { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; }
 .executable-picker input { min-width: 0; }
 .executable-picker button { white-space: nowrap; }
+.app-edit-advanced { border-top: 1px solid rgba(115,131,166,.16); padding-top: 11px; }
+.app-edit-advanced summary { width: max-content; color: var(--ink-soft); font-size: 11px; font-weight: 700; cursor: pointer; user-select: none; }
+.app-edit-advanced summary:hover { color: var(--ink); }
+.app-edit-advanced summary:focus-visible { border-radius: 6px; outline: 2px solid rgba(88,101,242,.46); outline-offset: 3px; }
+.app-edit-advanced-content { display: grid; gap: 7px; padding-top: 11px; }
+.wake-strategy-help { margin: 0; color: var(--ink-soft); font-size: 10px; line-height: 1.55; }
+.wake-strategy-help.warning { color: #9a5a14; }
 .icon-picker { margin: 0; border: 0; padding: 0; }
 .icon-picker legend { margin-bottom: 7px; color: #4c5870; font-size: 11px; }
 .icon-picker > div { display: grid; grid-template-columns: repeat(6,39px); gap: 7px; }

@@ -1,4 +1,6 @@
-import type { AppEntry, AppGroup } from "../shared/types.js";
+import type { AppEntry, AppGroup, AppWakeStrategy } from "../shared/types.js";
+
+const appWakeStrategies = new Set<AppWakeStrategy>(["auto", "window-only", "self-launch", "aumid"]);
 
 export function normalizeGroups(raw: Partial<AppGroup>[], allowedIcons: Set<string>): AppGroup[] {
   return raw
@@ -22,6 +24,7 @@ export function migrateAppEntry(raw: Partial<AppEntry>, groupId: string, createI
     executablePath, processName, accent: raw.accent || "#2f66e8", iconCachePath: raw.iconCachePath,
     iconDataUrl: raw.iconDataUrl, iconCacheVersion: raw.iconCacheVersion, iconPixelSize: raw.iconPixelSize,
     launchArgs: raw.launchArgs, workingDirectory: raw.workingDirectory, appUserModelId: raw.appUserModelId,
+    wakeStrategy: appWakeStrategies.has(raw.wakeStrategy as AppWakeStrategy) ? raw.wakeStrategy as AppWakeStrategy : "auto",
     launchedPid: raw.launchedPid
   };
 }

@@ -122,8 +122,8 @@ const fallbackApi: StartEngineerApi = {
   setAppGroup: async () => [],
   reorderAppsInGroup: async () => [],
   launchApp: electronOnly,
-  focusAppWindow: async () => ({ focused: false }),
-  focusAppWindowHandle: async () => ({ focused: false }),
+  focusAppWindow: async () => ({ success: false, focused: false, outcome: "failed", reason: "unknown", strategy: "window-only", diagnostics: { profileId: "default", profileSource: "default", externalActionsPerformed: 0 } }),
+  focusAppWindowHandle: async () => ({ success: false, focused: false, outcome: "failed", reason: "unknown", strategy: "window-only", diagnostics: { profileId: "default", profileSource: "default", externalActionsPerformed: 0 } }),
   listAppWindows: async () => [],
   getAppWindowDiagnostics: async () => "",
   killApp: async () => ({ apps: [], metrics: [] }),
@@ -1282,7 +1282,7 @@ function App() {
       }
     });
   };
-  const editApp = (app: AppEntry) => setEdit({ id: app.id, name: app.name, executablePath: app.executablePath, launchArgs: app.launchArgs ?? "", appUserModelId: app.appUserModelId });
+  const editApp = (app: AppEntry) => setEdit({ id: app.id, name: app.name, executablePath: app.executablePath, launchArgs: app.launchArgs ?? "", appUserModelId: app.appUserModelId, wakeStrategy: app.wakeStrategy ?? "auto" });
   const runKeyboardAppAction = useCallback((app: RuntimeApp, command: "activate" | "menu" | "edit", menuPosition?: { x: number; y: number }) => {
     const action = command === "activate" ? resolveAppKeyboardAction({
       isRunning: app.metrics.isRunning,

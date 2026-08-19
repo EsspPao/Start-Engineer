@@ -25,7 +25,12 @@ describe("configuration migration", () => {
       workingDirectory: "C:\\Apps",
       iconCacheVersion: 2,
       iconPixelSize: 128,
-      appUserModelId: "Demo.Package_family!App"
+      appUserModelId: "Demo.Package_family!App",
+      wakeStrategy: "auto"
     });
+  });
+
+  it("defaults invalid or legacy wake strategies to auto", () => {
+    expect(migrateAppEntry({ name: "Demo", wakeStrategy: "invalid" as never }, "tools", () => "generated").wakeStrategy).toBe("auto");
   });
 });

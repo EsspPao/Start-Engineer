@@ -4,7 +4,7 @@
 
 请以后续实际代码为准，尤其是 `src/shared/types.ts`、`src/main/main.ts`、`src/renderer/main.tsx`、`src/main/window-manager.ts`、`native/window-focus-helper/Program.cs`。本文只把代码中已经存在的能力写为“当前能力”；尚未落地的设想会明确放在“风险 / 建议 / 路线图”中。
 
-最后核对日期：`2026-08-16`。当前代码基线已包含轻量化发布体积治理。既有合并卡片键盘交互、透明图标提取、快捷方式拖入、右键菜单视口适配、“普通权限主界面 + 会话级高权限进程控制”、渐进披露设置页和多主题外观继续保留；Wallpaper Glass 与 Clear Desktop 自身保持独立。主界面默认保持普通权限；关闭应用先尝试普通 `taskkill`，只有确认目标仍在运行时才按需请求 UAC，授权成功后由隐藏的受限 helper 完成关闭并在本次会话复用。Microsoft Store / MSIX 应用使用稳定 AUMID 作为启动身份，旧 WindowsApps 版本路径会在首次启动时原位迁移。首次启动在后台按默认模板筛选少量候选，只自动添加当前电脑已确认存在的应用；缺失项静默跳过。设置页默认只显示“启动与操作”、当前外观摘要和折叠的高级设置，分组管理位于独立页签，“关于”保持低强调弹窗入口。搜索服务会保留最近实际返回给界面的有限候选快照，避免多个异步查询乱序完成后覆盖当前候选 ID，导致用户对仍可见的开始菜单或 Store 结果按 Enter 时错误提示“未找到该应用候选”。多应用卡片现在可以整卡拖入另一张多应用卡片：目标卡片保留名称和位置，源卡片成员按原顺序追加并随源卡片一起收起；悬停吸附、整组图标收缩和成功回弹共同表达合并过程，自身目标及卡片边缘误触不会触发合并。MuMu 模拟器作为单实例自唤醒应用处理：运行中再次点击时只通过 `--from-shortcut` 向现有实例发送一次恢复请求，随后不再延迟扫描或强制聚焦，避免用户刚手动最小化窗口又被第二次拉回；通用窗口 helper 仍只有在目标 HWND 确实退出最小化状态时才报告成功。轻量化后 helper 从 154.19 MiB 降至约 14.05 MiB；本轮 89 个测试文件 / 418 项测试、生产构建与 Electron smoke 全部通过。
+最后核对日期：`2026-08-19`。当前代码基线已包含轻量化发布体积治理和统一 Wake Engine。既有合并卡片键盘交互、透明图标提取、快捷方式拖入、右键菜单视口适配、“普通权限主界面 + 会话级高权限进程控制”、渐进披露设置页和多主题外观继续保留；Wallpaper Glass 与 Clear Desktop 自身保持独立。主界面默认保持普通权限；关闭应用先尝试普通 `taskkill`，只有确认目标仍在运行时才按需请求 UAC，授权成功后由隐藏的受限 helper 完成关闭并在本次会话复用。Microsoft Store / MSIX 应用使用稳定 AUMID 作为启动身份，旧 WindowsApps 版本路径会在首次启动时原位迁移。首次启动在后台按默认模板筛选少量候选，只自动添加当前电脑已确认存在的应用；缺失项静默跳过。设置页默认只显示“启动与操作”、当前外观摘要和折叠的高级设置，分组管理位于独立页签，“关于”保持低强调弹窗入口。搜索服务会保留最近实际返回给界面的有限候选快照，避免多个异步查询乱序完成后覆盖当前候选 ID，导致用户对仍可见的开始菜单或 Store 结果按 Enter 时错误提示“未找到该应用候选”。多应用卡片现在可以整卡拖入另一张多应用卡片：目标卡片保留名称和位置，源卡片成员按原顺序追加并随源卡片一起收起；悬停吸附、整组图标收缩和成功回弹共同表达合并过程，自身目标及卡片边缘误触不会触发合并。Wake Policy / Profile 统一决定普通窗口、Self Launch 与 AUMID 激活路径；默认未知应用只查找窗口，微信与 Notion 只允许恢复当前可见或任务栏最小化的窗口，托盘隐藏窗口会在任何恢复动作前被拒绝并提示用户手动打开，窗口缓存与右键窗口列表也不能绕过；MuMu / WeGame 只发送一次自唤醒请求，Codex 与 Store 应用完成一次激活后只观察窗口而不再次强制聚焦。应用编辑器的高级设置允许用户覆盖自动策略，诊断 JSON 会记录所选 Profile、策略、候选窗口、恢复结果、失败原因及外部操作次数。轻量化后 helper 从 154.19 MiB 降至约 14.05 MiB；本轮完整测试为 91 个测试文件 / 432 项测试，生产构建和交付包结果见本轮最终验证记录。
 
 维护硬性约定：每次代码、配置、样式、测试或构建流程发生改动，都必须在同一提交中同步更新本文档，至少记录受影响能力、验证结果或新的维护注意事项，避免文档再次落后于实际代码。
 
@@ -40,6 +40,7 @@ Start Engineer 当前是一个 Windows 桌面启动台与进程监控工具，�
 - 首次自动导入不显示额外选择界面；模板中未在当前电脑发现的应用会被静默跳过，不写入失效配置。
 - 支持发现 Microsoft Store / MSIX 应用并保存稳定 AUMID；包版本目录变化时自动解析当前安装位置、保留原卡片 ID/名称/分组并通过原生 Windows 激活接口启动。
 - 应用卡片支持鼠标和键盘操作：选择、启动、唤起、右键菜单、编辑和拖拽排序。
+- 应用编辑器的“高级设置”可以把自动推荐的唤醒方式改为仅查找窗口、重新运行以唤醒或使用 Windows 应用身份唤醒；高风险 Self Launch 会明确提示可能产生第二实例。
 - 应用右键菜单会在内容或窗口尺寸变化时自动贴合视口边界；长菜单限制在窗口内独立滚动，底部操作不会再落到不可见区域。
 - 支持将应用拖到另一个应用或既有多应用卡片中，也支持把整张多应用卡片拖入另一张多应用卡片，将全部成员一次合并；成员应用从外层网格隐藏，多应用卡片与普通卡片统一排序并可跨分组移动。
 - 多应用卡片支持单击或 Enter 原位放大、双击或默认 `Ctrl+Enter` 启动全部成员；成员可从放大卡片拖回外层、转移到其他卡片或移动到其他分组。
@@ -50,7 +51,7 @@ Start Engineer 当前是一个 Windows 桌面启动台与进程监控工具，�
 - 支持运行状态识别，运行指标包含 `matchedPids`、`associatedPids`、`matchedProcessNames`、`matchedPaths`。
 - 支持同一程序出现在多个用户分组时同步运行绿点。
 - 支持原生窗口扫描 / 聚焦 helper，PowerShell 作为 fallback。
-- 支持 Codex 这类无交互窗口但可通过重新运行自身安全激活的 allowlist 策略；MuMu 模拟器会优先走官方快捷方式语义单次唤醒既有实例，并且不会在延迟后再次强制聚焦。
+- 支持统一 Wake Policy / Profile：普通应用默认只聚焦既有窗口，Codex 可执行一次 Self Launch，Store 应用可执行一次 AUMID 激活，MuMu / WeGame 只发送一次应用自身唤醒请求，微信与 Notion 托盘态保持安全失败并提示用户手动打开；激活后的扫描仅用于观察，不能再次强制聚焦。
 - 支持全局快捷键唤出 / 隐藏主窗口。
 - 支持开机自启、关闭到托盘、托盘菜单。
 - Electron 主界面默认保持普通权限，资源管理器可原生拖入 `.exe` / `.lnk`；关闭操作先尝试普通权限，只有目标 PID 仍在运行时才按需触发 UAC。授权成功后，本次运行复用受限 native helper，不再反复弹出 UAC。helper 始终隐藏控制台窗口，并在 GUI 退出或管道断开后自动退出。
@@ -144,7 +145,7 @@ Start Engineer 的长期方向是“桌面启动台 / 任务栏辅助入口”�
 - 关闭应用必须是明确危险操作，只能从红色 X、右键菜单或确认弹窗触发。
 - 多窗口应用应该优先唤起最近使用或主窗口，右键菜单可承载窗口列表。
 - 找不到窗口时只提示，不误唤起 helper / 托盘 / 消息窗口。
-- 对 allowlist 内的特殊应用可以做安全激活，但必须明确、可测试、可回退。
+- 特殊应用只能通过集中式 Wake Profile 选择受控激活策略；策略必须明确、可测试、可诊断，并保持一次点击最多一次外部状态改变。
 
 ### 2.3 轻量优先
 
@@ -692,9 +693,11 @@ Smoke 模式使用临时目录：
 涉及文件：
 
 - `src/main/window-manager.ts`
+- `src/main/wake-profiles.ts`
 - `src/main/focus-window.ts`
 - `native/window-focus-helper/Program.cs`
 - `src/renderer/main.tsx`
+- `src/renderer/window-focus-feedback.ts`
 - `src/preload/preload.cts`
 
 当前 API：
@@ -725,7 +728,7 @@ Smoke 模式使用临时目录：
 - helper 缺失或执行异常时 fallback 到 PowerShell 窗口枚举 / 聚焦脚本。
 - 支持缓存最近成功窗口候选。
 - 支持 stale request 防串台。
-- 支持窗口列表和窗口诊断复制。
+- 支持窗口列表和窗口诊断复制；诊断输出为结构化 JSON，包含匹配指标、Wake Profile / Strategy、全部扫描集合、最终候选、恢复方式与结果、统一失败原因、激活后观察窗口和外部操作次数。
 
 C# helper 当前职责：
 
@@ -739,12 +742,15 @@ C# helper 当前职责：
 - IME、系统 message window、crashpad、Chrome background surface、Electron notify icon host 等非交互窗口会进入 diagnostics 的 `filteredWindows`，但不能聚焦。
 - 隐藏空标题 Chromium surface、隐藏 tool window、0x0 owner/IME 类窗口会被过滤。
 
-安全激活：
+Wake Engine 与策略配置：
 
-- `shouldUseSafeActivation(app)` 当前明确排除微信，只对名称/进程/路径/别名里包含 `codex` 的应用启用。
-- 如果运行中 app 有 PID 但没有可交互窗口，且在 allowlist 内，会调用 `activateRunningApp(app)` 重新运行该程序，然后等待短暂时间重新扫描窗口并聚焦。
-- 该路径不移动鼠标、不点击托盘、不对微信 relaunch。
-- 这是为 Codex 托盘态 / 无交互窗口场景做的受控兜底，不是通用托盘恢复。
+- `wake-profiles.ts` 集中维护带优先级的内置 Profile；`window-manager.ts` 只消费解析后的 `WakePolicy`，不得重新出现按应用名称散落的 `if / else`。
+- 默认未知应用使用 `window-only`，只恢复已经存在的可交互窗口；找不到时返回可诊断失败，不擅自重新启动。
+- Codex 使用 `self-launch`，Store / MSIX 使用 `aumid`；两者最多执行一次激活，等待后只重扫并观察窗口状态，不再执行第二次聚焦。
+- MuMu / WeGame 交给应用自身处理唤醒，发送一次启动项请求后立即返回 `activation-requested`，不等待、不重扫、不延迟聚焦。
+- 微信默认 `window-only`，过滤托盘消息窗口；Notion 采用相同的窗口优先与托盘安全失败策略。两者的 `allowHiddenWindowRestore` 均为 `false`：真正最小化到任务栏的 `visible/iconic` 主窗口仍可恢复，不可见且未最小化的托盘窗口会在调用 helper 前被拒绝。该限制同样跳过旧窗口缓存，并保护右键窗口列表的指定 HWND 路径；失败返回 `tray-restore-unsupported`，不点击托盘也不重新运行应用，界面提示用户手动从托盘打开。
+- 用户可以在应用编辑器高级设置中覆盖自动策略。`self-launch` 必须保留第二实例风险提示；AUMID 选项只对确有 Windows 应用身份的条目开放。
+- 对外结果统一使用 `focused`、`activation-requested` 或 `failed`，失败原因统一映射为 `no-interactive-window`、`tray-restore-unsupported`、`focus-blocked-by-windows`、`self-launch-failed`、`aumid-activation-failed` 等稳定值。
 
 当前明确约束：
 
@@ -752,7 +758,7 @@ C# helper 当前职责：
 - 不移动用户鼠标。
 - 不点击系统托盘。
 - 不把疑似 shell/helper/message 窗口当主窗口。
-- 微信仍保持安全失败或 `trayRestoreUnsupported` 路径，不做托盘菜单自动恢复。
+- 微信与 Notion 仍保持安全失败或 `tray-restore-unsupported` 路径，不做托盘菜单自动恢复。
 
 ### 5.6 应用关闭与批量关闭
 
@@ -1009,7 +1015,8 @@ UI 分享码：
 - 不误聚焦 shell/helper/message/IME 窗口。
 - 不移动鼠标。
 - 不点击托盘。
-- 不把 Codex safe activation 扩大成通用 relaunch。
+- 未匹配内置 Profile 的应用保持 `window-only`，不把 Self Launch 扩大成通用 relaunch。
+- 新增特殊应用时先扩展可测试的 Profile 与失败原因，不能在 `window-manager.ts` 增加按名称分支。
 
 ### 6.2 PowerShell 已降级为故障回退
 
@@ -1085,16 +1092,13 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 
 ### 7.1 窗口唤起继续收敛
 
-当前 native helper 已落地第一版。下一步不应再做“自动点击托盘”类方案，而应继续收敛到可验证策略：
+统一 Wake Policy / Profile、JSON 诊断和单次外部操作上限已经落地。下一步不应做“自动点击托盘”类方案，而应围绕真实样本继续验证和收敛：
 
-- 为 safe activation 建立 per-app 策略，而不是只靠 `haystack.includes("codex")`。
-- 每个特殊应用策略必须明确：
-  - 是否允许重新运行自身。
-  - 是否允许等待后重扫窗口。
-  - 是否禁止某些 className/title。
-  - 失败时给什么 reason。
-- 把窗口诊断导出成 JSON，便于 AI / 开发者分析。
-- 扩展 helper 的测试覆盖，尤其是过滤规则、评分、焦点结果映射。
+- 在干净 Windows 10 / 11 环境分别回归普通 Win32、微信、MuMu、WeGame、Codex 和 Store / MSIX 应用。
+- 新增特殊 Profile 时必须明确匹配优先级、允许的激活方式、是否只做观察扫描、禁止的 className/title 和稳定失败原因。
+- 收集诊断 JSON 时重点核对 `selectedWakeProfile`、`selectedCandidate`、`restoreMethod`、`restoreResult` 与 `externalActionsPerformed`，单次请求不得超过一次外部状态改变。
+- 继续扩展 helper 的真实窗口测试，尤其是过滤规则、评分、前台切换受 Windows 限制时的结果映射。
+- 评估把 Profile 做成受版本控制的数据表，但不要让普通用户承担复杂规则编辑。
 
 涉及：
 
@@ -1222,7 +1226,7 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 ### 阶段一：把桌面启动台体验打稳
 
 - 继续修复并加速窗口唤起。
-- 完善 safe activation 策略配置。
+- 用真实应用样本继续验证并完善 Wake Profile 匹配与策略配置。
 - 支持多窗口列表。
 - 增强窗口诊断。
 - 不可靠托盘恢复保持安全失败。
@@ -1325,7 +1329,7 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 - `D:\Code\Start Engineer\src\main\group-service.ts`
   - 用户分组、多应用卡片、整卡合并、成员迁移和混合网格顺序。
 - `D:\Code\Start Engineer\src\main\launch-service.ts`
-  - 普通 EXE 与 Store AUMID 原生启动、PowerShell / Explorer 回退、旧路径迁移、运行判断、MuMu 单实例唤醒参数和启动后进程关联。
+  - 普通 EXE 与 Store AUMID 原生启动、PowerShell / Explorer 回退、旧路径迁移、运行判断、显式 Self Launch / AUMID 唤醒执行、MuMu 单实例唤醒参数和启动后进程关联。
 - `D:\Code\Start Engineer\src\main\windows-store-apps.ts`
   - Microsoft Store / MSIX catalog、AUMID 与 PackageFamilyName 解析、当前安装路径映射和旧 WindowsApps 路径消歧。
 - `D:\Code\Start Engineer\src\main\runtime-service.ts`
@@ -1349,7 +1353,9 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 - `D:\Code\Start Engineer\src\main\runtime-monitor.ts`
   - 进程采集结果聚合、应用匹配、运行指标、进程页数据。
 - `D:\Code\Start Engineer\src\main\window-manager.ts`
-  - 应用窗口唤起、窗口列表、诊断信息、safe activation，以及 MuMu / WeGame 交由应用自身处理的单次启动项唤醒路径。
+  - 策略驱动的 Wake Engine：窗口优先、单次外部操作上限、缓存与 stale request、激活后只观察、统一结果/失败原因、窗口列表和 JSON 诊断。
+- `D:\Code\Start Engineer\src\main\wake-profiles.ts`
+  - 内置 Wake Profile 匹配优先级、默认安全策略、用户唤醒方式覆盖，以及 MuMu / WeGame / 微信 / Notion / Codex / Store 的集中式策略定义。
 - `D:\Code\Start Engineer\src\main\focus-window.ts`
   - helper runner、PowerShell fallback、窗口阶段构造和聚焦 API；聚焦成功必须确认目标窗口已退出最小化状态。
 - `D:\Code\Start Engineer\src\main\process-termination.ts`
@@ -1374,6 +1380,10 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
   - `window.startEngineer` 暴露层，保留 `window.commandDeck` 兼容别名。
 - `D:\Code\Start Engineer\src\renderer\main.tsx`
   - 渲染层状态、轮询、搜索、菜单、设置、导入、拖拽和操作反馈。
+- `D:\Code\Start Engineer\src\renderer\app-edit-dialog.tsx`
+  - 应用名称、启动程序、参数与渐进披露的唤醒方式设置；Self Launch 风险提示和 AUMID 可用性限制。
+- `D:\Code\Start Engineer\src\renderer\window-focus-feedback.ts`
+  - Wake Engine 统一失败原因到简洁用户提示的映射；已接受的一次激活请求不误报失败。
 - `D:\Code\Start Engineer\src\renderer\context-menus.tsx`
   - 进程、应用和分组右键菜单，以及基于实际尺寸的视口边界定位。
 - `D:\Code\Start Engineer\src\renderer\section-apps.ts`
@@ -1391,6 +1401,6 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 
 ## 13. 当前结论
 
-Start Engineer 已经不只是一个简单启动器。当前代码已经具备应用分组、多应用卡片与混合网格、聚合应用视图、首次导入、搜索添加、拖放添加、Microsoft Store / MSIX 稳定 AUMID 启动与升级迁移、可安装应用安全入口、运行监控、实时批量操作反馈、Everything 兜底搜索、托盘、可配置应用内快捷键、全局快捷键、会话级高权限进程控制、Splash、实时 UI 编辑、UI 分享码、统一 Wallpaper Glass 外观的多套配色、独立 Clear Desktop、native 窗口 helper 和窗口唤起诊断等较完整的桌面应用能力。
+Start Engineer 已经不只是一个简单启动器。当前代码已经具备应用分组、多应用卡片与混合网格、聚合应用视图、首次导入、搜索添加、拖放添加、Microsoft Store / MSIX 稳定 AUMID 启动与升级迁移、可安装应用安全入口、运行监控、实时批量操作反馈、Everything 兜底搜索、托盘、可配置应用内快捷键、全局快捷键、会话级高权限进程控制、Splash、实时 UI 编辑、UI 分享码、统一 Wallpaper Glass 外观的多套配色、独立 Clear Desktop、native 窗口 helper，以及策略驱动且可诊断的统一 Wake Engine 等较完整的桌面应用能力。
 
-下一阶段最重要的不是继续堆新入口，而是把“运行中应用单击唤起窗口”这条主路径做稳、做快，并降低后台监控成本。只要窗口唤起、运行识别和关闭反馈可靠，Start Engineer 才能真正承担“桌面启动台 / 任务栏辅助入口”的角色。随后再拆分大型控制器、整理设置页信息架构、补齐发布能力，项目会明显更接近可公开发布的状态。
+下一阶段最重要的不是继续堆新入口，而是在真实 Windows 10 / 11 与不同应用生命周期下验证 Wake Profile、运行识别和关闭反馈，并降低后台监控成本。新增兼容策略应优先扩充 Profile、统一失败原因和测试样本，不能退回散落的应用名判断。随后再继续拆分大型控制器和完成公开发布人工核验，项目会更接近稳定公开版本。

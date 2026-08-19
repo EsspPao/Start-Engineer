@@ -129,12 +129,35 @@ describe("running application activation", () => {
       runtimeAssociatedPids: new Map()
     });
 
-    await expect(service.activateRunningApp(mumu)).resolves.toEqual({ launched: true });
+    await expect(service.activateRunningApp(mumu, "self-launch")).resolves.toEqual({ launched: true });
     expect(request).toHaveBeenCalledWith("launch", expect.objectContaining({ argumentLine: "--from-shortcut" }));
   });
 });
 
 describe("Windows Store application launch", () => {
+  it("uses the explicitly selected activation strategy for a running Store app", async () => {
+    const store = { ...app, executablePath: process.execPath, workingDirectory: dirname(process.execPath), appUserModelId: "Example.Store_123!App" };
+    const request = vi.fn().mockResolvedValue({ ok: true, pid: 0 });
+    const service = new LaunchService({
+      nativeRuntime: { request } as never,
+      runPowerShell: vi.fn(),
+      loadApps: () => [store],
+      saveApps: (apps) => apps,
+      getApp: () => store,
+      getManagedRunningStatus: async () => [],
+      getProcessSnapshots: async () => [],
+      buildRuntimeSnapshot: async () => ({ apps: [store], metrics: [], processes: [] }),
+      runtimeAssociatedPids: new Map()
+    });
+
+    await expect(service.activateRunningApp(store, "aumid")).resolves.toEqual({ launched: true });
+    expect(request).toHaveBeenLastCalledWith("launch", expect.objectContaining({ executablePath: "", appUserModelId: store.appUserModelId }));
+
+    request.mockClear();
+    await expect(service.activateRunningApp(store, "self-launch")).resolves.toEqual({ launched: true });
+    expect(request).toHaveBeenLastCalledWith("launch", expect.objectContaining({ executablePath: process.execPath }));
+  });
+
   it("repairs a stale versioned path in place and launches by stable AUMID", async () => {
     let storedApps: AppEntry[] = [{
       ...app,
