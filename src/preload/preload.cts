@@ -3,6 +3,9 @@ import type { AppEntry, AppFolderInput, AppFolderUpdateInput, FocusWindowHints, 
 
 const api: StartEngineerApi = {
   getAppInfo: () => ipcRenderer.invoke("app:getInfo"),
+  getStartupViewCache: () => ipcRenderer.invoke("startup:getViewCache"),
+  saveStartupViewCache: (cache) => ipcRenderer.invoke("startup:saveViewCache", cache),
+  markStartupPerformance: (name) => ipcRenderer.invoke("startup:markPerformance", name),
   openUserDataDirectory: () => ipcRenderer.invoke("app:openUserDataDirectory"),
   openProjectHomepage: () => ipcRenderer.invoke("app:openProjectHomepage"),
   listGroups: () => ipcRenderer.invoke("groups:list"),

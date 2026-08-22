@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { basename } from "node:path";
-import type { AppEntry, AppMetrics, AppRunningStatus, BatchKillResult, ProcessInfo, SnapshotMode } from "../shared/types.js";
+import type { AppEntry, AppMetrics, AppRunningStatus, BatchKillResult, ProcessInfo, RuntimePerformanceDiagnostics, SnapshotMode } from "../shared/types.js";
 import { buildManagedRunningStatus, parseTasklistCsv } from "./managed-running-status.js";
 import { normalizeNativeSnapshots, type NativeRuntimeHost } from "./native-helper.js";
 import { terminatePids } from "./process-termination.js";
@@ -23,6 +23,8 @@ type RuntimeServiceOptions = {
 export class RuntimeService {
   private fallbackWarned = false;
   private readonly monitor: RuntimeMonitor;
+  private nativeRequests = 0;
+  private fallbackRequests = 0;
 
   constructor(private readonly options: RuntimeServiceOptions) {
     this.monitor = new RuntimeMonitor({
@@ -39,16 +41,22 @@ export class RuntimeService {
   async metrics(): Promise<AppMetrics[]> { return (await this.getSnapshot("managed")).metrics; }
   async processes(): Promise<ProcessInfo[]> { return (await this.getSnapshot("full")).processes; }
 
+  diagnostics(): RuntimePerformanceDiagnostics {
+    return { ...this.monitor.diagnostics(), nativeRequests: this.nativeRequests, fallbackRequests: this.fallbackRequests };
+  }
+
   async getManagedRunningStatus() {
     return buildManagedRunningStatus(this.options.loadAppsWithRuntimeAssociations(), parseTasklistCsv(await this.getTasklistOutput()));
   }
 
   async getProcessSnapshots(mode: SnapshotMode = "full"): Promise<ProcessSnapshot[]> {
     try {
+      this.nativeRequests += 1;
       const snapshots = normalizeNativeSnapshots(await this.options.nativeRuntime.request("snapshot", this.nativeSnapshotRequest(mode), 5000));
       this.fallbackWarned = false;
       return snapshots;
     } catch (reason) {
+      this.fallbackRequests += 1;
       if (!this.fallbackWarned) {
         this.fallbackWarned = true;
         console.warn(`[native-runtime] process snapshot unavailable; falling back to PowerShell; reason=${reason instanceof Error ? reason.message : String(reason)}`);

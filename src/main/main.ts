@@ -41,6 +41,7 @@ import { ElevatedTerminationHost, type ElevatedTerminationStatus } from "./eleva
 import { registerAppInfoIpc } from "./app-info-ipc.js";
 import { WindowsStoreAppService } from "./windows-store-apps.js";
 import { prepareFirstRunImportTestUserData } from "./first-run-import-test.js";
+import { StartupPerformanceTracker, StartupViewCacheStore } from "./startup-state-service.js";
 
 const isDev = process.env.VITE_DEV_SERVER_URL !== undefined;
 const appRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -62,9 +63,13 @@ const groupsPath = () => join(app.getPath("userData"), "groups.json");
 const foldersPath = () => join(app.getPath("userData"), "folders.json");
 const groupGridPath = () => join(app.getPath("userData"), "group-grid-order.json");
 const preferencesPath = () => join(app.getPath("userData"), "preferences.json");
+const startupViewCachePath = () => join(app.getPath("userData"), "startup-view-cache.json");
+const startupPerformancePath = () => join(app.getPath("userData"), "startup-performance.json");
 const iconCacheDir = () => join(app.getPath("userData"), "icons");
 const firstRunImportTemplatePath = () => join(app.getPath("userData"), "first-run-import-template.json");
 const nativeRuntime = new NativeRuntimeHost();
+const startupViewCache = new StartupViewCacheStore(startupViewCachePath());
+const startupPerformance = new StartupPerformanceTracker(startupPerformancePath());
 const elevatedTerminationHost = new ElevatedTerminationHost({ runNativeHelper, resolveNativeHelperPath });
 let administratorMessage = "";
 let elevatedTerminationStatus: ElevatedTerminationStatus = elevatedTerminationHost.snapshot().status;
@@ -285,13 +290,18 @@ function registerIpc() {
       systemVersion: osRelease(),
       userDataPath: app.getPath("userData"),
       isPackaged: app.isPackaged,
-      repositoryUrl
+      repositoryUrl,
+      runtimeDiagnostics: runtimeService.diagnostics(),
+      startupDiagnostics: startupPerformance.diagnostics()
     }),
     openUserDataDirectory: async () => {
       const error = await shell.openPath(app.getPath("userData"));
       if (error) throw new Error(error);
     },
-    openProjectHomepage: async () => { await shell.openExternal(repositoryUrl); }
+    openProjectHomepage: async () => { await shell.openExternal(repositoryUrl); },
+    getStartupViewCache: () => startupViewCache.load(),
+    saveStartupViewCache: (cache) => startupViewCache.save(cache),
+    markStartupPerformance: (name) => startupPerformance.mark(name)
   });
   registerLibraryIpc({
     apps: appService,
@@ -358,10 +368,12 @@ if (!hasSingleInstanceLock) {
   app.on("second-instance", () => appWindowService.showMainWindow());
   app.on("before-quit", () => { appWindowService.prepareToQuit(); elevatedTerminationHost.stop(); nativeRuntime.stop(); globalShortcut.unregisterAll(); preferencesService.clearRegisteredShortcut(); });
   app.whenReady().then(async () => {
+    startupPerformance.mark("electron-ready");
     registerIpc();
     const preferences = loadPreferences();
     appWindowService.createSplashWindow();
     appWindowService.createWindow();
+    startupPerformance.mark("main-window-created");
     await appWindowService.createTray();
     preferencesService.applyGlobalShortcut(preferences, false);
     appWindowService.watchSystemTheme();

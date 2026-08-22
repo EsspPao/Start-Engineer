@@ -150,6 +150,20 @@ function canRestoreWindow(candidate: FocusWindowCandidate, wakePolicy: WakePolic
   return wakePolicy.allowHiddenWindowRestore || candidate.visible === true || candidate.iconic === true;
 }
 
+export function selectWakeCandidate(candidates: FocusWindowCandidate[], wakePolicy: WakePolicy, lastSuccessfulHandle?: number) {
+  return candidates
+    .filter((candidate) => canRestoreWindow(candidate, wakePolicy))
+    .map((candidate) => ({ candidate, rank: candidate.score
+      + (candidate.handle === lastSuccessfulHandle ? 10_000 : 0)
+      + (candidate.handle === candidate.foregroundHandle ? 2_000 : 0)
+      + (candidate.visible ? 400 : 0)
+      + (candidate.iconic ? 250 : 0)
+      + Math.min(200, Math.max(0, (candidate.width ?? 0) * (candidate.height ?? 0) / 20_000))
+      - (candidate.toolWindow ? 2_000 : 0)
+      - (candidate.owner ? 300 : 0) }))
+    .sort((left, right) => right.rank - left.rank || left.candidate.handle - right.candidate.handle)[0]?.candidate;
+}
+
 function wakeResult(
   wakePolicy: WakePolicy,
   externalActionsPerformed: number,
@@ -253,7 +267,7 @@ export class AppWindowManager {
         stages = focusStagesFromCandidates(app, metrics, processes, true);
         scan = await scanFocusWindowsForStages(`${app.name}:wake:fallback`, stages, this.dependencies.runPowerShell, this.dependencies.runWindowFocusHelper);
       }
-      const candidate = scan.finalCandidates.find((item) => canRestoreWindow(item, wakePolicy));
+      const candidate = selectWakeCandidate(scan.finalCandidates, wakePolicy, this.cache.get(app.id)?.handle);
       if (candidate) {
         if (requestId !== this.latestRequestId) return this.failure(app, wakePolicy, 0, "stale-request", "none", "failed", candidate);
         const focusResult = await focusWindowHandleDetailed(candidate, this.dependencies.runPowerShell, focusStagePids(stages), this.dependencies.runWindowFocusHelper);
@@ -312,7 +326,7 @@ export class AppWindowManager {
     const processes = await this.dependencies.getProcesses();
     const stages = focusStagesFromCandidates(app, metrics, processes, true);
     const scan = await scanFocusWindowsForStages(`${app.name}:wake:${strategy}:post`, stages, this.dependencies.runPowerShell, this.dependencies.runWindowFocusHelper);
-    const candidate = scan.finalCandidates[0];
+    const candidate = selectWakeCandidate(scan.finalCandidates, wakePolicy, this.cache.get(app.id)?.handle);
     if (candidate?.visible && candidate.iconic !== true) {
       this.cache.set(app.id, candidate);
       return this.success(app, wakePolicy, externalActionsPerformed, "focused", candidate, method, "success", scan.relatedWindows);

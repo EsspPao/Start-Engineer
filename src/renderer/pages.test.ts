@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import type { AppEntry, AppFolder, AppMetrics, FolderLaunchVisualStatus, GroupGridItemId } from "../shared/types";
+import type { AppEntry, AppFolder, AppLifecycleState, AppMetrics, AppRuntimeStateMap, FolderLaunchVisualStatus, GroupGridItemId } from "../shared/types";
 import { GroupPage, ProcessPage, UnifiedGroupPage } from "./pages";
 
 type RuntimeApp = AppEntry & { metrics: AppMetrics };
@@ -31,9 +31,13 @@ const makeApp = (id: string, isRunning: boolean): RuntimeApp => ({
   metrics: metrics(id, isRunning),
 });
 
+const runtimeStates = (states: Record<string, AppLifecycleState> = {}): AppRuntimeStateMap => Object.fromEntries(
+  Object.entries(states).map(([appId, state]) => [appId, { appId, state, stateSince: 1, matchedPids: [], associatedPids: [] }])
+);
+
 const renderGroup = () => renderToStaticMarkup(createElement(GroupPage, {
   apps: [makeApp("running", true), makeApp("stopped", false)],
-  launchingAppIds: new Set<string>(),
+  launchingAppIds: runtimeStates(),
   selectedAppId: "running",
   invalidAppIds: new Set<string>(),
   runningCount: 1,
@@ -81,7 +85,7 @@ describe("GroupPage", () => {
   it("renders an immediate launching state for apps being started", () => {
     const html = renderToStaticMarkup(createElement(GroupPage, {
       apps: [makeApp("stopped", false)],
-      launchingAppIds: new Set(["stopped"]),
+      launchingAppIds: runtimeStates({ stopped: "launching" }),
       selectedAppId: "",
       invalidAppIds: new Set<string>(),
       runningCount: 0,
@@ -104,7 +108,7 @@ describe("GroupPage", () => {
   it("renders an immediate closing state while a running app is being stopped", () => {
     const html = renderToStaticMarkup(createElement(GroupPage, {
       apps: [makeApp("running", true)],
-      launchingAppIds: new Set(["running"]),
+      launchingAppIds: runtimeStates({ running: "closing" }),
       selectedAppId: "",
       invalidAppIds: new Set<string>(),
       runningCount: 1,
@@ -128,7 +132,7 @@ describe("GroupPage", () => {
   it("can hide app names while keeping accessible labels", () => {
     const html = renderToStaticMarkup(createElement(GroupPage, {
       apps: [makeApp("stopped", false)],
-      launchingAppIds: new Set<string>(),
+      launchingAppIds: runtimeStates(),
       selectedAppId: "",
       invalidAppIds: new Set<string>(),
       runningCount: 0,
@@ -154,7 +158,7 @@ describe("GroupPage", () => {
   it("renders a compact invalid-path warning badge without long card text", () => {
     const html = renderToStaticMarkup(createElement(GroupPage, {
       apps: [makeApp("stopped", false)],
-      launchingAppIds: new Set<string>(),
+      launchingAppIds: runtimeStates(),
       selectedAppId: "",
       invalidAppIds: new Set(["stopped"]),
       runningCount: 0,
@@ -184,7 +188,7 @@ describe("UnifiedGroupPage", () => {
     const renderedApps = allApps.map((app) => runningIds.has(app.id) ? { ...app, metrics: metrics(app.id, true) } : app);
     return renderToStaticMarkup(createElement(UnifiedGroupPage, {
     apps: [renderedApps[3]], allApps: renderedApps, folders: [folder], itemOrder: ["folder:bundle", "app:outer"], expandedFolderId, recentlyMergedFolderId,
-    launchingAppIds: new Set<string>(), folderLaunchStatuses, selectedItemId, invalidAppIds: new Set<string>(), runningCount: 0, showAppNames: true,
+    launchingAppIds: runtimeStates(), folderLaunchStatuses, selectedItemId, invalidAppIds: new Set<string>(), runningCount: 0, showAppNames: true,
     onSelectApp: vi.fn(), onSelectFolder: vi.fn(), onFocusApp: vi.fn(), onLaunchApp: vi.fn(), onLaunchingFeedback: vi.fn(), onCloseAll: vi.fn(), onAdd: vi.fn(), onContextMenu: vi.fn(), onAppPointerDown: vi.fn(), onFolderPointerDown: vi.fn(), onToggleFolder: vi.fn(), onLaunchFolder: vi.fn(), onRequestCloseFolder: vi.fn(), onRequestClose: vi.fn()
   }));
   };

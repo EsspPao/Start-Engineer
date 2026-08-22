@@ -1,4 +1,4 @@
-import type { AppEntry, AppMetrics, ProcessInfo, RuntimeSnapshot, SnapshotMode } from "../shared/types.js";
+import type { AppEntry, AppMetrics, ProcessInfo, RuntimePerformanceDiagnostics, RuntimeSnapshot, SnapshotMode } from "../shared/types.js";
 
 export type ProcessSnapshot = {
   pid: number;
@@ -110,6 +110,11 @@ export class RuntimeMonitor {
   private cached: { at: number; mode: SnapshotMode; snapshot: RuntimeSnapshot } | null = null;
   private readonly processIconCache = new Map<string, string>();
   private readonly processIconInFlight = new Set<string>();
+  private readonly requests: Record<SnapshotMode, number> = { managed: 0, full: 0 };
+  private readonly collections: Record<SnapshotMode, number> = { managed: 0, full: 0 };
+  private readonly collectionDurationMs: Record<SnapshotMode, number> = { managed: 0, full: 0 };
+  private cacheHits = 0;
+  private singleFlightReuses = 0;
 
   constructor(private readonly options: RuntimeMonitorOptions) {
     this.ttlMs = options.ttlMs ?? 800;
@@ -117,8 +122,10 @@ export class RuntimeMonitor {
   }
 
   async getSnapshot(mode: SnapshotMode = "full", force = false): Promise<RuntimeSnapshot> {
+    this.requests[mode] += 1;
     const now = this.now();
     if (!force && this.cached && now - this.cached.at < this.ttlMs && (mode === "managed" || this.cached.mode === "full")) {
+      this.cacheHits += 1;
       return this.selectMode(this.cached.snapshot, mode);
     }
     if (!this.inFlight || (mode === "full" && this.inFlight.mode === "managed")) {
@@ -127,6 +134,8 @@ export class RuntimeMonitor {
         if (this.inFlight === inFlight) this.inFlight = null;
       });
       this.inFlight = inFlight;
+    } else {
+      this.singleFlightReuses += 1;
     }
     const snapshot = await this.inFlight.promise;
     return this.selectMode(snapshot, mode);
@@ -136,13 +145,29 @@ export class RuntimeMonitor {
     return this.samples.size;
   }
 
+  diagnostics(): Pick<RuntimePerformanceDiagnostics, "requests" | "collections" | "averageCollectionMs" | "cacheHits" | "singleFlightReuses"> {
+    return {
+      requests: { ...this.requests },
+      collections: { ...this.collections },
+      averageCollectionMs: {
+        managed: this.collections.managed ? Math.round(this.collectionDurationMs.managed / this.collections.managed) : 0,
+        full: this.collections.full ? Math.round(this.collectionDurationMs.full / this.collections.full) : 0
+      },
+      cacheHits: this.cacheHits,
+      singleFlightReuses: this.singleFlightReuses
+    };
+  }
+
   private selectMode(snapshot: RuntimeSnapshot, mode: SnapshotMode): RuntimeSnapshot {
     return mode === "managed" ? { ...snapshot, processes: [] } : snapshot;
   }
 
   private async collectSnapshot(mode: SnapshotMode): Promise<RuntimeSnapshot> {
     const at = this.now();
+    const startedAt = performance.now();
     const snapshots = await this.options.collect(mode);
+    this.collections[mode] += 1;
+    this.collectionDurationMs[mode] += performance.now() - startedAt;
     const activePids = new Set(snapshots.map((item) => item.pid));
     for (const pid of this.samples.keys()) {
       if (!activePids.has(pid)) this.samples.delete(pid);

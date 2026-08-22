@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import type { AppEntry, AppFolder, AppGroup, AppMetrics, AppPreferencesState, DiscoveredAppCandidate, EverythingSearchResult, FocusWindowHints, FolderLaunchVisualStatus, GroupGridItemId, GroupGridOrder, GroupInput, InstallableAppCandidate, InternalSearchResult, ProcessInfo, SearchDependencyStatus, SearchProvider, SectionId, StartEngineerApi, UiTheme, UpdatePreferencesInput, WallpaperGlassIntensity } from "../shared/types";
+import type { AppEntry, AppFolder, AppGroup, AppMetrics, AppPreferencesState, AppRuntimeAction, AppRuntimeStateMap, DiscoveredAppCandidate, EverythingSearchResult, FocusWindowHints, FolderLaunchVisualStatus, GroupGridItemId, GroupGridOrder, GroupInput, InstallableAppCandidate, InternalSearchResult, ProcessInfo, SearchDependencyStatus, SearchProvider, SectionId, StartEngineerApi, StartupViewCache, UiTheme, UpdatePreferencesInput, WallpaperGlassIntensity } from "../shared/types";
 import { defaultUiLayoutPreferences } from "../shared/ui-layout-share";
 import { defaultKeyboardShortcuts } from "../main/preferences";
 import { GroupPage, ProcessPage, UnifiedGroupPage } from "./pages";
@@ -11,7 +11,7 @@ import { matchesAppSearch, matchesProcessSearch } from "./search";
 import { buildLaunchFeedbackMessage } from "./launch-feedback";
 import { shouldOfferExecutableReplacement } from "./launch-error";
 import { ALL_APPS_SECTION_ID, firstAppGroupId, resolveLoadedSection } from "./navigation";
-import { shouldStartProcessPrewarm, STARTUP_DEFERRED_IMPORT_MS, STARTUP_DEFERRED_RUNTIME_MS, STARTUP_PROCESS_PREWARM_MS } from "./startup-schedule";
+import { STARTUP_BACKGROUND_COMPLETE_MS, STARTUP_DEFERRED_IMPORT_MS, STARTUP_DEFERRED_RUNTIME_MS } from "./startup-schedule";
 import { findAppShortcut } from "../shared/app-shortcuts";
 import { cleanErrorMessage } from "./error-message";
 import { buildThemeAttributes } from "./theme-attributes";
@@ -32,6 +32,8 @@ import { appSectionApps, mergeAllAppsOrder, navigationSectionIds } from "./secti
 import { applyKillAppResult, killAppResultHasMetrics, killAppResultHasRunningStatuses } from "./kill-app-result";
 import { applyRunningStatusToMetrics } from "./running-status";
 import { FAST_RUNNING_STATUS_INTERVAL_MS } from "./fast-running-status";
+import { runtimePollingPlan } from "./runtime-polling";
+import { reconcileAppRuntimeStates, type PendingRuntimeAction, type PendingRuntimeActionMap } from "./app-runtime-state";
 import { SettingsPage } from "./settings-page";
 import "./styles.css";
 
@@ -88,6 +90,9 @@ function playGroupTransferFeedback(targetGroupId: string, operation: Promise<unk
 const electronOnly = () => Promise.reject(new Error("此操作需要在 Electron 应用窗口中运行"));
 const fallbackApi: StartEngineerApi = {
   getAppInfo: async () => ({ version: "0.1.0", electronVersion: "browser", chromeVersion: navigator.userAgent, nodeVersion: "unavailable", platform: navigator.platform, arch: "unknown", systemVersion: "browser preview", userDataPath: "Electron 应用中可用", isPackaged: false, repositoryUrl: "https://github.com/EsspPao/Start-Engineer" }),
+  getStartupViewCache: async () => null,
+  saveStartupViewCache: async () => undefined,
+  markStartupPerformance: async () => undefined,
   openUserDataDirectory: electronOnly,
   openProjectHomepage: async () => { window.open("https://github.com/EsspPao/Start-Engineer", "_blank", "noopener,noreferrer"); },
   listGroups: async () => fallbackGroups,
@@ -176,6 +181,10 @@ const emptyMetrics = (appId: string): AppMetrics => ({
   matchedPaths: []
 });
 
+function cachedAppsForRendering(cache: StartupViewCache): AppEntry[] {
+  return cache.apps.map((app) => ({ ...app, executablePath: "", processName: "", accent: app.accent || "#7c6df2" }));
+}
+
 function App() {
   const [groups, setGroups] = useState(fallbackGroups);
   const [apps, setApps] = useState<AppEntry[]>([]);
@@ -205,7 +214,9 @@ function App() {
   const [recentlyMergedFolderId, setRecentlyMergedFolderId] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [launchingAppIds, setLaunchingAppIds] = useState<Set<string>>(new Set());
+  const [configHydrated, setConfigHydrated] = useState(false);
+  const [pendingRuntimeActions, setPendingRuntimeActions] = useState<PendingRuntimeActionMap>({});
+  const [runtimeStateByAppId, setRuntimeStateByAppId] = useState<AppRuntimeStateMap>({});
   const [folderLaunchStatuses, setFolderLaunchStatuses] = useState<Record<string, FolderLaunchVisualStatus>>({});
   const [invalidAppIds, setInvalidAppIds] = useState<Set<string>>(new Set());
   const dragCandidate = useRef<{ appId: string; sourceGroupId: AppGroupId; startX: number; startY: number; grabOffsetX: number; grabOffsetY: number; width: number; height: number; initialOrder: string[] } | null>(null);
@@ -214,15 +225,26 @@ function App() {
   const iconRefreshStarted = useRef(false);
   const firstRunAutoImportStarted = useRef(false);
   const runtimePollingStarted = useRef(false);
-  const processPrewarmStarted = useRef(false);
+  const firstManagedSnapshotMarked = useRef(false);
+  const lastInteractionAt = useRef(Date.now());
   const searchInputRef = useRef<HTMLInputElement>(null);
   const focusRequestSeq = useRef(0);
-  const launchingAppIdsRef = useRef(new Set<string>());
+  const pendingRuntimeActionsRef = useRef(new Map<string, PendingRuntimeAction>());
   const folderLaunchClearTimers = useRef(new Map<string, number>());
   const folderMergeFeedbackTimer = useRef(0);
   const groupNavigationBlockKeyRef = useRef<string | null>(null);
+  const syncPendingRuntimeActions = useCallback(() => setPendingRuntimeActions(Object.fromEntries(pendingRuntimeActionsRef.current)), []);
+  const setRuntimeActions = useCallback((ids: string[], action?: AppRuntimeAction) => {
+    const startedAt = Date.now();
+    for (const id of ids) {
+      if (action) pendingRuntimeActionsRef.current.set(id, { action, startedAt });
+      else pendingRuntimeActionsRef.current.delete(id);
+    }
+    syncPendingRuntimeActions();
+  }, [syncPendingRuntimeActions]);
   const metricsByApp = useMemo(() => new Map(metrics.map((metric) => [metric.appId, metric])), [metrics]);
   const runtimeApps = useMemo<RuntimeApp[]>(() => apps.map((item) => ({ ...item, metrics: metricsByApp.get(item.id) ?? emptyMetrics(item.id) })), [apps, metricsByApp]);
+  const launchingAppIds = useMemo(() => reconcileAppRuntimeStates(apps, metrics, pendingRuntimeActions, runtimeStateByAppId), [apps, metrics, pendingRuntimeActions, runtimeStateByAppId]);
   const appGroups = useMemo(() => groups.filter((group) => !group.isSystem).sort((a, b) => a.order - b.order), [groups]);
   const { discoveredResults, fileResults, installableResults, managedSearchResults, query, searchError, searchLoading, searchPanelOpen, searchResultCount, searchSelectedIndex, setDiscoveredResults, setFileResults, setInstallableResults, setQuery, setSearchPanelOpen, setSearchSelectedIndex } = useSearchResults({ client: api(), runtimeApps, processes });
   const closeMenu = useCallback(() => {
@@ -258,23 +280,21 @@ function App() {
     const unsubscribe = api().onFolderLaunchProgress((progress) => {
       const visualStatus = progress.status === "launched" ? "waiting" : progress.status;
       setFolderLaunchStatuses((current) => ({ ...current, [progress.appId]: visualStatus }));
-      if (progress.status === "launching") launchingAppIdsRef.current.add(progress.appId);
-      else launchingAppIdsRef.current.delete(progress.appId);
-      setLaunchingAppIds(new Set(launchingAppIdsRef.current));
+      setRuntimeActions([progress.appId], progress.status === "launching" || progress.status === "launched" ? "launch" : undefined);
     });
     return () => {
       unsubscribe();
       for (const timer of folderLaunchClearTimers.current.values()) window.clearTimeout(timer);
       folderLaunchClearTimers.current.clear();
     };
-  }, []);
+  }, [setRuntimeActions]);
 
   useEffect(() => {
     const confirmed = metrics.filter((metric) => metric.isRunning && folderLaunchStatuses[metric.appId] === "waiting").map((metric) => metric.appId);
     if (!confirmed.length) return;
     setFolderLaunchStatuses((current) => ({ ...current, ...Object.fromEntries(confirmed.map((id) => [id, "launched" as const])) }));
     for (const id of confirmed) {
-      launchingAppIdsRef.current.delete(id);
+      pendingRuntimeActionsRef.current.delete(id);
       const timer = folderLaunchClearTimers.current.get(id);
       if (timer) window.clearTimeout(timer);
       folderLaunchClearTimers.current.set(id, window.setTimeout(() => {
@@ -286,8 +306,8 @@ function App() {
         folderLaunchClearTimers.current.delete(id);
       }, 4200));
     }
-    setLaunchingAppIds(new Set(launchingAppIdsRef.current));
-  }, [folderLaunchStatuses, metrics]);
+    syncPendingRuntimeActions();
+  }, [folderLaunchStatuses, metrics, syncPendingRuntimeActions]);
 
   const refreshRuntimeData = useCallback(async (mode: "full" | "managed" = "full", force = false) => {
     if (mode === "full") setProcessesLoading(true);
@@ -297,6 +317,10 @@ function App() {
       setApps(snapshot.apps);
       setMetrics(snapshot.metrics);
       if (mode === "full") setProcesses(snapshot.processes);
+      if (mode === "managed" && !firstManagedSnapshotMarked.current) {
+        firstManagedSnapshotMarked.current = true;
+        void api().markStartupPerformance("first-managed-snapshot");
+      }
     } catch (reason) {
       setError(cleanErrorMessage(reason, "资源监控刷新失败"));
     } finally {
@@ -305,16 +329,30 @@ function App() {
   }, []);
 
   useEffect(() => {
+    setRuntimeStateByAppId((current) => reconcileAppRuntimeStates(apps, metrics, pendingRuntimeActions, current));
+  }, [apps, metrics, pendingRuntimeActions]);
+
+  useEffect(() => {
+    void api().markStartupPerformance("renderer-mounted");
+    const visibleFrame = window.requestAnimationFrame(() => void api().markStartupPerformance("first-ui-visible"));
     let cancelled = false;
-    let timer = 0;
-    let startupRuntimeTimer = 0;
+    let hydrated = false;
     let startupIconTimer = 0;
-    let startupPreferencesTimer = 0;
     let startupImportTimer = 0;
-    let startupProcessPrewarmTimer = 0;
-    let running = false;
+    let backgroundTimer = 0;
+    void api().getStartupViewCache().then((cache) => {
+      if (!cache || cancelled || hydrated) return;
+      const loadedGroups = cache.groups.length ? cache.groups : fallbackGroups;
+      setGroups(loadedGroups);
+      setApps(cachedAppsForRendering(cache));
+      setFolders(cache.folders);
+      setGroupGridOrders(cache.groupGridOrders);
+      setPreferences((current) => ({ ...current, ...cache.appearance, windowBounds: cache.windowBounds }));
+      setActiveSection(resolveLoadedSection(cache.activeSection, loadedGroups));
+    }).catch(() => undefined);
     void Promise.all([api().listGroups(), api().listApps(), api().listFolders(), api().listGroupGridOrders(), api().getPreferences()]).then(([nextGroups, nextApps, nextFolders, nextGridOrders, nextPreferences]) => {
       if (cancelled) return;
+      hydrated = true;
       const loadedGroups = nextGroups.length ? nextGroups : fallbackGroups;
       setGroups(loadedGroups);
       setApps(nextApps);
@@ -322,6 +360,8 @@ function App() {
       setGroupGridOrders(nextGridOrders);
       setPreferences(nextPreferences);
       setActiveSection((current) => resolveLoadedSection(current, loadedGroups));
+      setConfigHydrated(true);
+      void api().markStartupPerformance("config-hydrated");
       startupImportTimer = window.setTimeout(() => {
         if (cancelled || nextPreferences.firstRunImportCompleted || nextApps.length !== 0 || firstRunAutoImportStarted.current) return;
         firstRunAutoImportStarted.current = true;
@@ -329,9 +369,7 @@ function App() {
           if (cancelled) return;
           setApps(imported);
           setPreferences((current) => ({ ...current, firstRunImportCompleted: true }));
-        }).catch((reason) => {
-          if (!cancelled) setError(cleanErrorMessage(reason, "首次应用自动添加失败"));
-        });
+        }).catch((reason) => { if (!cancelled) setError(cleanErrorMessage(reason, "首次应用自动添加失败")); });
       }, STARTUP_DEFERRED_IMPORT_MS);
       if (!iconRefreshStarted.current) {
         iconRefreshStarted.current = true;
@@ -339,31 +377,42 @@ function App() {
           window.requestAnimationFrame(() => void api().refreshAppIcons().then(setApps).catch((reason) => setError(cleanErrorMessage(reason, "应用图标刷新失败"))));
         }, STARTUP_DEFERRED_RUNTIME_MS);
       }
-      startupPreferencesTimer = window.setTimeout(() => {
-        if (!cancelled) void api().getPreferences().then(setPreferences).catch(() => undefined);
-      }, STARTUP_DEFERRED_RUNTIME_MS);
-      startupProcessPrewarmTimer = window.setTimeout(() => {
-        if (cancelled || !shouldStartProcessPrewarm(document.hidden, processPrewarmStarted.current)) return;
-        processPrewarmStarted.current = true;
-        void api().getRuntimeSnapshot("full").then((snapshot) => {
-          if (cancelled) return;
-          setApps(snapshot.apps);
-          setMetrics(snapshot.metrics);
-          setProcesses(snapshot.processes);
-        }).catch(() => undefined);
-      }, STARTUP_PROCESS_PREWARM_MS);
+      backgroundTimer = window.setTimeout(() => void api().markStartupPerformance("background-init-completed"), STARTUP_BACKGROUND_COMPLETE_MS);
     }).catch((reason) => setError(cleanErrorMessage(reason, "基础数据加载失败")));
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(visibleFrame);
+      window.clearTimeout(startupIconTimer);
+      window.clearTimeout(startupImportTimer);
+      window.clearTimeout(backgroundTimer);
+    };
+  }, []);
+
+  useEffect(() => {
+    const markInteraction = () => { lastInteractionAt.current = Date.now(); };
+    window.addEventListener("pointerdown", markInteraction, { passive: true });
+    window.addEventListener("keydown", markInteraction);
+    return () => {
+      window.removeEventListener("pointerdown", markInteraction);
+      window.removeEventListener("keydown", markInteraction);
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer = 0;
+    let startupTimer = 0;
+    let running = false;
     const schedule = () => {
-      const mode = activeSection === "processes" ? "full" : "managed";
-      const delay = mode === "full" ? 1000 : 5000;
+      const plan = runtimePollingPlan(activeSection, document.hidden, Date.now() - lastInteractionAt.current);
       timer = window.setTimeout(async () => {
-        if (!cancelled && !document.hidden && !running) {
+        if (!cancelled && !running) {
           running = true;
-          await refreshRuntimeData(mode);
+          await refreshRuntimeData(plan.mode);
           running = false;
         }
         if (!cancelled) schedule();
-      }, delay);
+      }, plan.intervalMs);
     };
     const start = () => {
       window.clearTimeout(timer);
@@ -373,39 +422,27 @@ function App() {
           running = false;
           if (!cancelled) schedule();
         }));
-      } else {
-        schedule();
-      }
+      } else schedule();
     };
     document.addEventListener("visibilitychange", start);
-    if (runtimePollingStarted.current) {
-      start();
-    } else {
-      startupRuntimeTimer = window.setTimeout(() => {
-        runtimePollingStarted.current = true;
-        start();
-      }, STARTUP_DEFERRED_RUNTIME_MS);
-    }
+    if (runtimePollingStarted.current) start();
+    else startupTimer = window.setTimeout(() => { runtimePollingStarted.current = true; start(); }, STARTUP_DEFERRED_RUNTIME_MS);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
-      window.clearTimeout(startupRuntimeTimer);
-      window.clearTimeout(startupIconTimer);
-      window.clearTimeout(startupPreferencesTimer);
-      window.clearTimeout(startupImportTimer);
-      window.clearTimeout(startupProcessPrewarmTimer);
+      window.clearTimeout(startupTimer);
       document.removeEventListener("visibilitychange", start);
     };
   }, [activeSection, refreshRuntimeData]);
 
   useEffect(() => {
-    if (activeSection === "processes") return;
+    if (activeSection === "processes" || Object.keys(pendingRuntimeActions).length === 0) return;
     let cancelled = false;
     let timer = 0;
     let running = false;
     const schedule = () => {
       timer = window.setTimeout(async () => {
-        if (!cancelled && !document.hidden && !running) {
+        if (!cancelled && !document.hidden && !running && pendingRuntimeActionsRef.current.size > 0) {
           running = true;
           try {
             const statuses = await api().getManagedRunningStatus();
@@ -424,7 +461,30 @@ function App() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [activeSection]);
+  }, [activeSection, pendingRuntimeActions]);
+
+  useEffect(() => {
+    if (!configHydrated) return;
+    const timer = window.setTimeout(() => {
+      void api().saveStartupViewCache({
+        version: 1,
+        savedAt: Date.now(),
+        activeSection,
+        groups,
+        apps: apps.map(({ id, name, category, groupId, accent, iconCachePath, iconDataUrl }) => ({ id, name, category, groupId, accent, iconCachePath, iconDataUrl })),
+        folders,
+        groupGridOrders,
+        appearance: {
+          uiTheme: preferences.uiTheme,
+          wallpaperGlassIntensity: preferences.wallpaperGlassIntensity,
+          wallpaperGlassVariant: preferences.wallpaperGlassVariant,
+          uiLayout: preferences.uiLayout
+        },
+        windowBounds: preferences.windowBounds
+      });
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [activeSection, apps, configHydrated, folders, groupGridOrders, groups, preferences.uiLayout, preferences.uiTheme, preferences.wallpaperGlassIntensity, preferences.wallpaperGlassVariant, preferences.windowBounds]);
 
   useEffect(() => {
     window.addEventListener("blur", closeMenu);
@@ -472,11 +532,7 @@ function App() {
   }, [activeSection, refreshRuntimeData]);
 
   const setAppsClosing = useCallback((ids: string[], closing: boolean) => {
-    for (const id of ids) {
-      if (closing) launchingAppIdsRef.current.add(id);
-      else launchingAppIdsRef.current.delete(id);
-    }
-    setLaunchingAppIds(new Set(launchingAppIdsRef.current));
+    setRuntimeActions(ids, closing ? "close" : undefined);
   }, []);
 
   const closeApp = useCallback(async (appId: string) => {
@@ -996,10 +1052,9 @@ function App() {
     void runAppAction(() => api().addAppFromDialog(groupId));
   };
   const launchApp = async (id: string) => {
-    if (launchingAppIdsRef.current.has(id)) return;
+    if (pendingRuntimeActionsRef.current.has(id)) return;
     const appName = runtimeApps.find((app) => app.id === id)?.name ?? "应用";
-    launchingAppIdsRef.current.add(id);
-    setLaunchingAppIds(new Set(launchingAppIdsRef.current));
+    setRuntimeActions([id], "launch");
     setFolderLaunchStatuses((current) => ({ ...current, [id]: "launching" }));
     let waitingForRuntime = false;
     try {
@@ -1032,8 +1087,7 @@ function App() {
         const previousTimer = folderLaunchClearTimers.current.get(id);
         if (previousTimer) window.clearTimeout(previousTimer);
         folderLaunchClearTimers.current.set(id, window.setTimeout(() => {
-          launchingAppIdsRef.current.delete(id);
-          setLaunchingAppIds(new Set(launchingAppIdsRef.current));
+          setRuntimeActions([id]);
           setFolderLaunchStatuses((current) => {
             const next = { ...current };
             delete next[id];
@@ -1054,8 +1108,7 @@ function App() {
       setError(cleanErrorMessage(reason, "启动失败，请检查程序路径和启动参数。"));
     } finally {
       if (!waitingForRuntime) {
-        launchingAppIdsRef.current.delete(id);
-        setLaunchingAppIds(new Set(launchingAppIdsRef.current));
+        setRuntimeActions([id]);
         setFolderLaunchStatuses((current) => {
           const next = { ...current };
           delete next[id];
@@ -1074,15 +1127,16 @@ function App() {
       const timer = folderLaunchClearTimers.current.get(id);
       if (timer) window.clearTimeout(timer);
       folderLaunchClearTimers.current.delete(id);
-      launchingAppIdsRef.current.add(id);
+      pendingRuntimeActionsRef.current.set(id, { action: "launch", startedAt: Date.now() });
     }
-    setLaunchingAppIds(new Set(launchingAppIdsRef.current));
+    syncPendingRuntimeActions();
     setFolderLaunchStatuses((current) => ({ ...current, ...Object.fromEntries(memberIds.map((id) => [id, "queued" as const])) }));
     try {
       setError("");
       const result = await api().launchFolder(folderId);
       setApps(result.apps);
       setFolderLaunchStatuses((current) => ({ ...current, ...Object.fromEntries(result.results.map((item) => [item.appId, item.status === "launched" ? "waiting" : item.status])) }));
+      setRuntimeActions(result.results.filter((item) => item.status !== "launched").map((item) => item.appId));
       const failed = result.results.filter((item) => item.status === "failed");
       if (failed.length) setError(`${failed.length} 个应用启动失败`);
       void api().getManagedRunningStatus()
@@ -1092,6 +1146,7 @@ function App() {
         const delay = item.status === "launched" ? 60000 : item.status === "failed" ? 8000 : 4200;
         folderLaunchClearTimers.current.set(item.appId, window.setTimeout(() => {
           if (item.status === "launched") {
+            setRuntimeActions([item.appId]);
             setFolderLaunchStatuses((current) => ({ ...current, [item.appId]: "launched" }));
             folderLaunchClearTimers.current.set(item.appId, window.setTimeout(() => {
               setFolderLaunchStatuses((current) => {
@@ -1113,6 +1168,7 @@ function App() {
       }
     } catch (reason) {
       setFolderLaunchStatuses((current) => ({ ...current, ...Object.fromEntries(memberIds.map((id) => [id, "failed" as const])) }));
+      setRuntimeActions(memberIds);
       setError(cleanErrorMessage(reason, "批量启动失败"));
       for (const id of memberIds) {
         folderLaunchClearTimers.current.set(id, window.setTimeout(() => {
@@ -1124,9 +1180,6 @@ function App() {
           folderLaunchClearTimers.current.delete(id);
         }, 8000));
       }
-    } finally {
-      for (const id of memberIds) launchingAppIdsRef.current.delete(id);
-      setLaunchingAppIds(new Set(launchingAppIdsRef.current));
     }
   };
   const targetSearchGroupId = () => appGroups.some((group) => group.id === activeSection)
@@ -1162,6 +1215,7 @@ function App() {
   }, [activeSection, appGroups, focusAppCardById, openInternalResult, runtimeApps, selectedAppId]);
   const focusAppWindow = async (app: RuntimeApp) => {
     const requestId = ++focusRequestSeq.current;
+    setRuntimeActions([app.id], "wake");
     try {
       setError("");
       const result = await api().focusAppWindow(app.id, focusHintsForApp(app));
@@ -1170,6 +1224,8 @@ function App() {
       if (message) setNotice(message);
     } catch (reason) {
       if (requestId === focusRequestSeq.current) setError(cleanErrorMessage(reason, "唤起应用窗口失败"));
+    } finally {
+      setRuntimeActions([app.id]);
     }
   };
   const runManagedSearchResult = useCallback((result: Extract<InternalSearchResult, { kind: "app" }>) => {
@@ -1286,7 +1342,7 @@ function App() {
   const runKeyboardAppAction = useCallback((app: RuntimeApp, command: "activate" | "menu" | "edit", menuPosition?: { x: number; y: number }) => {
     const action = command === "activate" ? resolveAppKeyboardAction({
       isRunning: app.metrics.isRunning,
-      isLaunching: launchingAppIdsRef.current.has(app.id),
+      isLaunching: launchingAppIds[app.id]?.state === "launching",
       isInvalid: invalidAppIds.has(app.id)
     }, "Enter") : command === "menu" ? "context-menu" : "edit";
     if (action === "launching-feedback") handleLaunchingFeedback(app);

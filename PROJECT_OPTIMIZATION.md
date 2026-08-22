@@ -6,6 +6,8 @@
 
 最后核对日期：`2026-08-19`。当前代码基线已包含轻量化发布体积治理和统一 Wake Engine。既有合并卡片键盘交互、透明图标提取、快捷方式拖入、右键菜单视口适配、“普通权限主界面 + 会话级高权限进程控制”、渐进披露设置页和多主题外观继续保留；Wallpaper Glass 与 Clear Desktop 自身保持独立。主界面默认保持普通权限；关闭应用先尝试普通 `taskkill`，只有确认目标仍在运行时才按需请求 UAC，授权成功后由隐藏的受限 helper 完成关闭并在本次会话复用。Microsoft Store / MSIX 应用使用稳定 AUMID 作为启动身份，旧 WindowsApps 版本路径会在首次启动时原位迁移。首次启动在后台按默认模板筛选少量候选，只自动添加当前电脑已确认存在的应用；缺失项静默跳过。设置页默认只显示“启动与操作”、当前外观摘要和折叠的高级设置，分组管理位于独立页签，“关于”保持低强调弹窗入口。搜索服务会保留最近实际返回给界面的有限候选快照，避免多个异步查询乱序完成后覆盖当前候选 ID，导致用户对仍可见的开始菜单或 Store 结果按 Enter 时错误提示“未找到该应用候选”。多应用卡片现在可以整卡拖入另一张多应用卡片：目标卡片保留名称和位置，源卡片成员按原顺序追加并随源卡片一起收起；悬停吸附、整组图标收缩和成功回弹共同表达合并过程，自身目标及卡片边缘误触不会触发合并。Wake Policy / Profile 统一决定普通窗口、Self Launch 与 AUMID 激活路径；默认未知应用只查找窗口，微信与 Notion 只允许恢复当前可见或任务栏最小化的窗口，托盘隐藏窗口会在任何恢复动作前被拒绝并提示用户手动打开，窗口缓存与右键窗口列表也不能绕过；MuMu / WeGame 只发送一次自唤醒请求，Codex 与 Store 应用完成一次激活后只观察窗口而不再次强制聚焦。应用编辑器的高级设置允许用户覆盖自动策略，诊断 JSON 会记录所选 Profile、策略、候选窗口、恢复结果、失败原因及外部操作次数。轻量化后 helper 从 154.19 MiB 降至约 14.05 MiB；本轮完整测试为 91 个测试文件 / 432 项测试，生产构建和交付包结果见本轮最终验证记录。
 
+补充核对日期：`2026-08-20`。本轮 P0 治理已引入安全首屏缓存、启动阶段标记、统一应用生命周期状态、分级运行采样和更稳定的窗口候选选择；上段 `2026-08-19` 代表此前 Wake Engine / 轻量化基线，不再是最新验证日期。
+
 维护硬性约定：每次代码、配置、样式、测试或构建流程发生改动，都必须在同一提交中同步更新本文档，至少记录受影响能力、验证结果或新的维护注意事项，避免文档再次落后于实际代码。
 
 发布硬性约定：每次完成改动并通过必要验证后，都必须重新生成 Windows 安装版和便携版，确保 `release` 中的交付文件与当前代码一致。
@@ -1308,6 +1310,16 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
   - `npm run smoke`
   - `npm run package:win`
 
+### 11.1 2026-08-20 P0 启动、状态与后台性能治理
+
+- 应用卡片不再分别用“运行指标 + 启动中 ID 集合”猜测状态。`src/renderer/app-runtime-state.ts` 把 Runtime 识别结果与短暂的 launch / wake / close 动作统一为 `stopped / launching / running / waking / closing / unknown`；失败是动作结果，不会把仍在运行的应用错误改成 stopped。多应用卡片从成员状态派生进度，运行检测继续是事实来源。
+- 普通分组只请求 managed 快照，完整进程快照只在用户进入进程页时采集。可见普通分组基础间隔为 5 秒，设置页 10 秒，窗口隐藏时 12 秒，持续空闲后进一步降频；恢复可见时立即刷新一次。原先固定 500ms 的 `tasklist.exe` 循环已删除，快速探测只在启动 / 关闭动作等待确认期间以 1 秒间隔运行。
+- `RuntimeMonitor` 继续保证同一时刻最多一份兼容采样（managed 请求可复用 full），并记录 managed/full 请求数、真实采集数、平均耗时、缓存命中和 single-flight 复用；`RuntimeService` 额外记录 native helper / PowerShell fallback 次数。这些信息只进入本地“关于”诊断，不上传网络。
+- `startup-view-cache.json` 仅缓存分组、卡片 ID/名称/顺序、图标缓存信息、多应用卡片、主题、布局和窗口尺寸，用于真实配置读取完成前稳定首屏；不保存可执行路径、PID、进程状态、唤醒诊断或其它高风险字段。缓存损坏会备份并忽略，真实配置始终在后台加载后覆盖缓存，缓存不能成为第二配置源。
+- 启动诊断记录 `process-start`、`electron-ready`、`main-window-created`、`renderer-mounted`、`first-ui-visible`、`config-hydrated`、`first-managed-snapshot` 与 `background-init-completed`。当前运行与上一次运行的本地阶段耗时可复制，用于同机对比；不得把这些标记改成遥测。
+- Wake Engine 的候选选择在既有进程关系、路径、名称、标题、类名、可见性、最小化、尺寸、owner / tool-window 过滤基础上，明确提高最近成功窗口、当前前台窗口和真实交互窗口的优先级，并保持稳定句柄排序。微信 / Notion 等特殊限制仍只能在 `wake-profiles.ts` 中配置，不能用通用评分绕过隐藏托盘窗口禁令；每次请求的外部状态改变上限仍为一次。
+- 本轮新增 `app-runtime-state.test.ts`、`runtime-polling.test.ts`、`startup-state-service.test.ts`，并扩充多窗口候选测试；最终验证为 typecheck 通过、94 个测试文件 / 441 项测试通过、生产构建通过、Electron Smoke 通过、helper Smoke 覆盖 194 个快捷方式通过。Windows x64 重打包通过：helper 14.05 MiB、安装版 82.96 MiB、便携版 82.72 MiB，语言包严格为 `en-US.pak + zh-CN.pak`；最终 SHA-256 分别为安装版 `70688de6e5842208c3f0bfc88f6a48beaddad708cbb482be86761d7b43e393a0`、便携版 `ce45a41bfc2d765c55de89e6a7b29cb1a3dea7cd74cd39075e36ffc00181ff4e`。
+
 ## 12. 关键文件索引
 
 - `D:\Code\Start Engineer\package.json`
@@ -1324,6 +1336,8 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
   - Electron 生命周期、窗口创建、服务装配、进程终止适配和应用添加编排。
 - `D:\Code\Start Engineer\src\main\config-store.ts`
   - JSON 配置缓存、规范化、损坏备份和默认恢复。
+- `D:\Code\Start Engineer\src\main\startup-state-service.ts`
+  - 安全首屏缓存、损坏恢复、当前/上次启动阶段耗时记录。
 - `D:\Code\Start Engineer\src\main\app-service.ts`
   - 应用配置读写、编辑、分组迁移、排序和删除。
 - `D:\Code\Start Engineer\src\main\group-service.ts`
@@ -1380,6 +1394,8 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
   - `window.startEngineer` 暴露层，保留 `window.commandDeck` 兼容别名。
 - `D:\Code\Start Engineer\src\renderer\main.tsx`
   - 渲染层状态、轮询、搜索、菜单、设置、导入、拖拽和操作反馈。
+- `D:\Code\Start Engineer\src\renderer\app-runtime-state.ts`、`runtime-polling.ts`
+  - 统一应用生命周期状态，以及按页面、可见性和空闲时间分级的采样策略。
 - `D:\Code\Start Engineer\src\renderer\app-edit-dialog.tsx`
   - 应用名称、启动程序、参数与渐进披露的唤醒方式设置；Self Launch 风险提示和 AUMID 可用性限制。
 - `D:\Code\Start Engineer\src\renderer\window-focus-feedback.ts`
@@ -1395,7 +1411,7 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 - `D:\Code\Start Engineer\src\renderer\styles.css`
   - 全局布局、应用/多应用卡片、启动关闭反馈、设置页、多主题、Wallpaper Glass、Clear Desktop 和 UI 编辑样式。
 - `D:\Code\Start Engineer\src\renderer\startup-schedule.ts`
-  - 启动后延迟任务和进程页预热时机。
+  - 启动后非关键任务与后台初始化完成标记；不得恢复无条件完整进程预热。
 - `D:\Code\Start Engineer\scripts\smoke.mjs`
   - 生产构建烟测。
 

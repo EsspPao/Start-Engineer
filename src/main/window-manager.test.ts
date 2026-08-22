@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { AppEntry, AppMetrics } from "../shared/types.js";
 import type { FocusWindowCandidate } from "./focus-window.js";
 import { resolveWakePolicy } from "./wake-profiles.js";
-import { AppWindowManager, buildWindowDiagnostics, focusStagePids, focusStagesFromCandidates, toAppWindowInfo } from "./window-manager.js";
+import { AppWindowManager, buildWindowDiagnostics, focusStagePids, focusStagesFromCandidates, selectWakeCandidate, toAppWindowInfo } from "./window-manager.js";
 
 const app = (overrides: Partial<AppEntry> = {}): AppEntry => ({
   id: "app-1",
@@ -49,6 +49,17 @@ const emptyScan = () => JSON.stringify({ allWindowsScanned: 24, relatedWindows: 
 const scanWith = (item: FocusWindowCandidate) => JSON.stringify({ allWindowsScanned: 24, relatedWindows: [item], filteredWindows: [], finalCandidates: [item] });
 
 describe("window manager wake engine", () => {
+  it("prefers a recently successful interactive window over a higher-scored secondary window", () => {
+    const recent = candidate({ handle: 21, score: 800, visible: true, width: 900, height: 700 });
+    const secondary = candidate({ handle: 22, score: 1200, visible: true, width: 1200, height: 800 });
+    expect(selectWakeCandidate([secondary, recent], resolveWakePolicy(app()), recent.handle)?.handle).toBe(recent.handle);
+  });
+
+  it("never selects hidden tray-style windows for profiles that forbid hidden restoration", () => {
+    const hidden = candidate({ handle: 31, score: 9000, visible: false, iconic: false });
+    const visible = candidate({ handle: 32, score: 500, visible: true });
+    expect(selectWakeCandidate([hidden, visible], resolveWakePolicy(app({ name: "Notion", processName: "Notion" })))?.handle).toBe(visible.handle);
+  });
   it("builds staged window candidates from runtime process data", () => {
     const stages = focusStagesFromCandidates(app(), metrics(), [{ pid: 102, name: "DemoChild.exe", path: "C:\\Apps\\Demo\\DemoChild.exe", parentPid: 100 }], true);
     expect(stages.map((stage) => stage.label)).toEqual(["matched", "children", "directory", "name", "title"]);

@@ -161,8 +161,51 @@ export type AppPreferencesState = AppPreferences & {
   elevatedTerminationStatus: ElevatedTerminationStatus;
   administratorMessage?: string;
 };
+
+export type StartupViewCache = {
+  version: 1;
+  savedAt: number;
+  activeSection: SectionId;
+  groups: AppGroup[];
+  apps: Array<Pick<AppEntry, "id" | "name" | "category" | "groupId" | "accent" | "iconCachePath" | "iconDataUrl">>;
+  folders: AppFolder[];
+  groupGridOrders: GroupGridOrder[];
+  appearance: Pick<AppPreferences, "uiTheme" | "wallpaperGlassIntensity" | "wallpaperGlassVariant" | "uiLayout">;
+  windowBounds?: WindowBounds;
+};
 export type SnapshotMode = "full" | "managed";
 export type RuntimeSnapshot = { apps: AppEntry[]; metrics: AppMetrics[]; processes: ProcessInfo[] };
+
+export type AppLifecycleState = "stopped" | "launching" | "running" | "waking" | "closing" | "unknown";
+export type AppRuntimeAction = "launch" | "wake" | "close";
+export type AppRuntimeState = {
+  appId: string;
+  state: AppLifecycleState;
+  stateSince: number;
+  matchedPids: number[];
+  associatedPids: number[];
+  lastAction?: AppRuntimeAction;
+};
+export type AppRuntimeStateMap = Record<string, AppRuntimeState>;
+
+export type RuntimePerformanceDiagnostics = {
+  requests: Record<SnapshotMode, number>;
+  collections: Record<SnapshotMode, number>;
+  averageCollectionMs: Record<SnapshotMode, number>;
+  cacheHits: number;
+  singleFlightReuses: number;
+  nativeRequests: number;
+  fallbackRequests: number;
+};
+
+export type StartupPerformanceMarker = {
+  name: string;
+  elapsedMs: number;
+};
+export type StartupPerformanceDiagnostics = {
+  current: StartupPerformanceMarker[];
+  previous: StartupPerformanceMarker[];
+};
 
 export type AppRunningStatus = {
   appId: string;
@@ -333,10 +376,15 @@ export type AppInfo = {
   userDataPath: string;
   isPackaged: boolean;
   repositoryUrl: string;
+  runtimeDiagnostics?: RuntimePerformanceDiagnostics;
+  startupDiagnostics?: StartupPerformanceDiagnostics;
 };
 
 export type StartEngineerApi = {
   getAppInfo: () => Promise<AppInfo>;
+  getStartupViewCache: () => Promise<StartupViewCache | null>;
+  saveStartupViewCache: (cache: StartupViewCache) => Promise<void>;
+  markStartupPerformance: (name: string) => Promise<void>;
   openUserDataDirectory: () => Promise<void>;
   openProjectHomepage: () => Promise<void>;
   listGroups: () => Promise<AppGroup[]>;

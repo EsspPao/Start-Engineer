@@ -1,5 +1,5 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { AppEntry, AppFolder, AppMetrics, FolderLaunchVisualStatus, GroupGridItemId, ProcessInfo } from "../shared/types";
+import type { AppEntry, AppFolder, AppMetrics, AppRuntimeStateMap, FolderLaunchVisualStatus, GroupGridItemId, ProcessInfo } from "../shared/types";
 import { resolveAppCardActivation } from "./app-card-interaction";
 
 type RuntimeApp = AppEntry & { metrics: AppMetrics };
@@ -12,6 +12,10 @@ const formatDisk = (bytes: number) => (bytes ? `${(bytes / 1024 / 1024).toFixed(
 const initials = (name: string) => [...name].filter((char) => /\p{L}|\p{N}/u.test(char)).slice(0, 2).join("").toUpperCase() || "APP";
 const SortMark = ({ active, direction }: { active: boolean; direction: "asc" | "desc" }) => <span className={`sort ${active ? "active" : ""}`}>{active ? direction === "asc" ? "▲" : "▼" : "◆"}</span>;
 const GridIcon = () => <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="4" y="4" width="7" height="7" rx="1" /><rect x="13" y="4" width="7" height="7" rx="1" /><rect x="4" y="13" width="7" height="7" rx="1" /><rect x="13" y="13" width="7" height="7" rx="1" /></svg>;
+const runtimeIsRunning = (states: AppRuntimeStateMap, app: RuntimeApp) => {
+  const state = states[app.id]?.state;
+  return state ? state === "running" || state === "waking" || state === "closing" : app.metrics.isRunning;
+};
 const ProcessIcon = ({ process }: { process: DisplayProcess }) => {
   const generated = process.iconDataUrl?.startsWith("data:image/svg+xml");
   return <div className={`process-icon ${process.iconDataUrl ? "has-image" : "fallback"} ${generated ? "generated" : ""}`} aria-hidden="true">
@@ -38,7 +42,7 @@ export const ProcessPage = memo(function ProcessPage({ processes, loading, locke
   </div></section>;
 });
 
-export const GroupPage = memo(function GroupPage({ apps, folders = [], launchingAppIds, selectedAppId, invalidAppIds, draggingAppId, runningCount, showAppNames, onSelectApp, onFocusApp, onLaunchApp, onLaunchingFeedback, onCloseAll, onAdd, onContextMenu, onPointerDown, onRequestClose, onFolderDrop }: { apps: RuntimeApp[]; folders?: AppFolder[]; launchingAppIds: Set<string>; selectedAppId: string; invalidAppIds: Set<string>; draggingAppId?: string; runningCount: number; showAppNames: boolean; onSelectApp: (app: RuntimeApp) => void; onFocusApp: (app: RuntimeApp) => void; onLaunchApp: (app: RuntimeApp) => void; onLaunchingFeedback: (app: RuntimeApp) => void; onCloseAll: () => void; onAdd: () => void; onContextMenu: (event: React.MouseEvent, app: RuntimeApp) => void; onPointerDown: (event: React.PointerEvent, app: RuntimeApp) => void; onRequestClose: (app: RuntimeApp) => void; onFolderDrop?: (folderId: string) => void; onLaunchFolder?: (folderId: string) => void }) {
+export const GroupPage = memo(function GroupPage({ apps, folders = [], launchingAppIds: runtimeStates, selectedAppId, invalidAppIds, draggingAppId, runningCount, showAppNames, onSelectApp, onFocusApp, onLaunchApp, onLaunchingFeedback, onCloseAll, onAdd, onContextMenu, onPointerDown, onRequestClose, onFolderDrop }: { apps: RuntimeApp[]; folders?: AppFolder[]; launchingAppIds: AppRuntimeStateMap; selectedAppId: string; invalidAppIds: Set<string>; draggingAppId?: string; runningCount: number; showAppNames: boolean; onSelectApp: (app: RuntimeApp) => void; onFocusApp: (app: RuntimeApp) => void; onLaunchApp: (app: RuntimeApp) => void; onLaunchingFeedback: (app: RuntimeApp) => void; onCloseAll: () => void; onAdd: () => void; onContextMenu: (event: React.MouseEvent, app: RuntimeApp) => void; onPointerDown: (event: React.PointerEvent, app: RuntimeApp) => void; onRequestClose: (app: RuntimeApp) => void; onFolderDrop?: (folderId: string) => void; onLaunchFolder?: (folderId: string) => void }) {
   const runActivation = (actions: ReturnType<typeof resolveAppCardActivation>, app: RuntimeApp) => {
     for (const action of actions) {
       if (action === "select") onSelectApp(app);
@@ -50,10 +54,10 @@ export const GroupPage = memo(function GroupPage({ apps, folders = [], launching
   const scheduleSingleClick = (clickDetail: number, app: RuntimeApp, isLaunching: boolean) => {
     if (draggingAppId) return;
     if (clickDetail !== 1) return;
-    runActivation(resolveAppCardActivation({ isRunning: app.metrics.isRunning, isLaunching }, "single"), app);
+    runActivation(resolveAppCardActivation({ isRunning: runtimeIsRunning(runtimeStates, app), isLaunching }, "single"), app);
   };
   const activateDoubleClick = (app: RuntimeApp, isLaunching: boolean) => {
-    if (!draggingAppId) runActivation(resolveAppCardActivation({ isRunning: app.metrics.isRunning, isLaunching }, "double"), app);
+    if (!draggingAppId) runActivation(resolveAppCardActivation({ isRunning: runtimeIsRunning(runtimeStates, app), isLaunching }, "double"), app);
   };
 
   return (
@@ -61,12 +65,13 @@ export const GroupPage = memo(function GroupPage({ apps, folders = [], launching
       <div className="app-grid" tabIndex={-1}>
         {folders.map((folder) => <button key={folder.id} className="app-card folder-card" data-folder-id={folder.id} onClick={() => window.dispatchEvent(new CustomEvent("start-engineer:folder-open", { detail: folder.id }))} onPointerDown={(event) => window.dispatchEvent(new CustomEvent("start-engineer:folder-drag-start", { detail: { folderId: folder.id, x: event.clientX, y: event.clientY } }))} onPointerUp={() => onFolderDrop?.(folder.id)}><div className="folder-icon">{folder.appIds.slice(0, 4).map((id) => { const app = apps.find((item) => item.id === id); return app?.iconDataUrl ? <img key={id} src={app.iconDataUrl} alt="" /> : <GridIcon key={id} />; })}</div>{showAppNames ? <span className="app-name">{folder.name}</span> : null}</button>)}
         {apps.length ? apps.map((app) => {
-          const isClosing = launchingAppIds.has(app.id) && app.metrics.isRunning;
-          const isLaunching = launchingAppIds.has(app.id) && !isClosing;
+          const isClosing = runtimeStates[app.id]?.state === "closing";
+          const isLaunching = runtimeStates[app.id]?.state === "launching";
+          const isRunning = runtimeIsRunning(runtimeStates, app);
           const isCurrent = app.id === selectedAppId;
-          const isInvalid = invalidAppIds.has(app.id) && !app.metrics.isRunning;
+          const isInvalid = invalidAppIds.has(app.id) && !isRunning;
           return (
-            <div key={app.id} data-app-card-id={app.id} className={`app-card-wrap ${showAppNames ? "" : "names-hidden"} ${app.metrics.isRunning ? "running" : ""} ${isCurrent ? "current" : ""} ${isLaunching ? "launching" : ""} ${isClosing ? "closing-app" : ""} ${isInvalid ? "invalid" : ""} ${app.id === draggingAppId ? "drag-placeholder" : ""}`}>
+            <div key={app.id} data-app-card-id={app.id} className={`app-card-wrap ${showAppNames ? "" : "names-hidden"} ${isRunning ? "running" : ""} ${isCurrent ? "current" : ""} ${isLaunching ? "launching" : ""} ${isClosing ? "closing-app" : ""} ${isInvalid ? "invalid" : ""} ${app.id === draggingAppId ? "drag-placeholder" : ""}`}>
               <button
                 className={`app-card ${showAppNames ? "" : "names-hidden"} ${isCurrent ? "current" : ""} ${app.id === draggingAppId ? "dragging" : ""} ${isLaunching ? "launching" : ""}`}
                 title={app.name}
@@ -84,7 +89,7 @@ export const GroupPage = memo(function GroupPage({ apps, folders = [], launching
                 {isLaunching ? <span className="launching-overlay"><i aria-hidden="true" />启动中</span> : null}
                 {isClosing ? <span className="launching-overlay closing-overlay"><i aria-hidden="true" />关闭中</span> : null}
               </button>
-              {app.metrics.isRunning ? (
+              {isRunning ? (
                 <button
                   type="button"
                   className="running-status-button"
@@ -118,7 +123,7 @@ type UnifiedGroupPageProps = {
   itemOrder: GroupGridItemId[];
   expandedFolderId: string;
   recentlyMergedFolderId?: string;
-  launchingAppIds: Set<string>;
+  launchingAppIds: AppRuntimeStateMap;
   folderLaunchStatuses?: Record<string, FolderLaunchVisualStatus>;
   selectedItemId: GroupGridItemId | "";
   invalidAppIds: Set<string>;
@@ -142,7 +147,7 @@ type UnifiedGroupPageProps = {
 };
 
 export const UnifiedGroupPage = memo(function UnifiedGroupPage(props: UnifiedGroupPageProps) {
-  const { apps, allApps, folders, itemOrder, expandedFolderId, launchingAppIds, folderLaunchStatuses = {}, selectedItemId, invalidAppIds, draggingItemId, runningCount, showAppNames } = props;
+  const { apps, allApps, folders, itemOrder, expandedFolderId, launchingAppIds: runtimeStates, folderLaunchStatuses = {}, selectedItemId, invalidAppIds, draggingItemId, runningCount, showAppNames } = props;
   const [folderOrigin, setFolderOrigin] = useState<DOMRect | null>(null);
   const folderClickTimer = useRef<number | null>(null);
   const [renderedFolderId, setRenderedFolderId] = useState(expandedFolderId);
@@ -198,9 +203,9 @@ export const UnifiedGroupPage = memo(function UnifiedGroupPage(props: UnifiedGro
     if (document.documentElement.dataset.cardDragging) return;
     const launchStatus = folderLaunchStatuses[app.id];
     const hasLaunchFeedback = launchStatus === "queued" || launchStatus === "launching" || launchStatus === "waiting";
-    const isClosing = launchingAppIds.has(app.id) && app.metrics.isRunning && !hasLaunchFeedback;
-    const isLaunching = !isClosing && (launchingAppIds.has(app.id) || hasLaunchFeedback);
-    for (const action of resolveAppCardActivation({ isRunning: app.metrics.isRunning, isLaunching }, mode)) {
+    const isClosing = runtimeStates[app.id]?.state === "closing" && !hasLaunchFeedback;
+    const isLaunching = !isClosing && (runtimeStates[app.id]?.state === "launching" || hasLaunchFeedback);
+    for (const action of resolveAppCardActivation({ isRunning: runtimeIsRunning(runtimeStates, app), isLaunching }, mode)) {
       if (action === "select") props.onSelectApp(app);
       else if (action === "focus") props.onFocusApp(app);
       else if (action === "launch") props.onLaunchApp(app);
@@ -211,16 +216,17 @@ export const UnifiedGroupPage = memo(function UnifiedGroupPage(props: UnifiedGro
   const appCard = (app: RuntimeApp, sourceFolderId?: string) => {
     const launchStatus = folderLaunchStatuses[app.id];
     const hasLaunchFeedback = launchStatus === "queued" || launchStatus === "launching" || launchStatus === "waiting";
-    const isClosing = launchingAppIds.has(app.id) && app.metrics.isRunning && !hasLaunchFeedback;
-    const isLaunching = !isClosing && (launchingAppIds.has(app.id) || hasLaunchFeedback);
+    const isClosing = runtimeStates[app.id]?.state === "closing" && !hasLaunchFeedback;
+    const isLaunching = !isClosing && (runtimeStates[app.id]?.state === "launching" || hasLaunchFeedback);
+    const isRunning = runtimeIsRunning(runtimeStates, app);
     const isCurrent = selectedItemId === `app:${app.id}`;
-    const isInvalid = invalidAppIds.has(app.id) && !app.metrics.isRunning;
+    const isInvalid = invalidAppIds.has(app.id) && !isRunning;
     const itemId = `app:${app.id}` as const;
-    return <div key={`${sourceFolderId ?? "outer"}-${app.id}`} data-app-card-id={app.id} data-grid-item-id={sourceFolderId ? undefined : itemId} data-folder-member-id={sourceFolderId ? app.id : undefined} className={`app-card-wrap ${showAppNames ? "" : "names-hidden"} ${app.metrics.isRunning ? "running" : ""} ${isCurrent ? "current" : ""} ${isLaunching ? "launching" : ""} ${isClosing ? "closing-app" : ""} ${isInvalid ? "invalid" : ""} ${draggingItemId === itemId ? "drag-placeholder" : ""}`}>
+    return <div key={`${sourceFolderId ?? "outer"}-${app.id}`} data-app-card-id={app.id} data-grid-item-id={sourceFolderId ? undefined : itemId} data-folder-member-id={sourceFolderId ? app.id : undefined} className={`app-card-wrap ${showAppNames ? "" : "names-hidden"} ${isRunning ? "running" : ""} ${isCurrent ? "current" : ""} ${isLaunching ? "launching" : ""} ${isClosing ? "closing-app" : ""} ${isInvalid ? "invalid" : ""} ${draggingItemId === itemId ? "drag-placeholder" : ""}`}>
       <button className={`app-card ${showAppNames ? "" : "names-hidden"} ${isCurrent ? "current" : ""} ${isLaunching ? "launching" : ""} ${isClosing ? "closing-app" : ""}`} title={app.name} aria-label={app.name} aria-busy={isLaunching || isClosing} onClick={(event) => { if (event.detail === 1) activate(app, "single"); }} onDoubleClick={() => activate(app, "double")} onContextMenu={(event) => props.onContextMenu(event, app)} onPointerDown={(event) => props.onAppPointerDown(event, app, sourceFolderId)}>
         {isInvalid ? <span className="invalid-path-badge">!</span> : null}<div className="card-icon">{app.iconDataUrl ? <img src={app.iconDataUrl} draggable={false} alt="" /> : <GridIcon />}</div>{showAppNames ? <span className="app-name">{app.name}</span> : null}{isLaunching ? <span className="launching-overlay"><i />启动中</span> : null}{isClosing ? <span className="launching-overlay closing-overlay"><i />关闭中</span> : null}
       </button>
-      {app.metrics.isRunning ? <button type="button" className="running-status-button" aria-label="关闭应用" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); props.onRequestClose(app); }}><span className="running-dot" /><span className="running-close-x">×</span></button> : null}
+      {isRunning ? <button type="button" className="running-status-button" aria-label="关闭应用" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); props.onRequestClose(app); }}><span className="running-dot" /><span className="running-close-x">×</span></button> : null}
     </div>;
   };
 
@@ -242,8 +248,8 @@ export const UnifiedGroupPage = memo(function UnifiedGroupPage(props: UnifiedGro
     const columns = Math.max(1, Math.ceil(Math.sqrt(Math.max(1, members.length))));
     const iconSize = Math.max(8, Math.min(42, Math.floor((94 - (columns - 1) * 2) / columns)));
     const folderIsLaunching = members.some((app) => folderLaunchStatuses[app.id] === "queued" || folderLaunchStatuses[app.id] === "launching" || folderLaunchStatuses[app.id] === "waiting");
-    const folderIsClosing = members.some((app) => launchingAppIds.has(app.id) && app.metrics.isRunning);
-    const runningMemberCount = members.filter((app) => app.metrics.isRunning).length;
+    const folderIsClosing = members.some((app) => runtimeStates[app.id]?.state === "closing");
+    const runningMemberCount = members.filter((app) => runtimeIsRunning(runtimeStates, app)).length;
     const folderHasRunningApps = runningMemberCount > 0;
     const folderIsRunning = members.length > 0 && runningMemberCount === members.length;
     const folderIsPartiallyRunning = folderHasRunningApps && !folderIsRunning;
@@ -253,8 +259,8 @@ export const UnifiedGroupPage = memo(function UnifiedGroupPage(props: UnifiedGro
         <button className={["app-card", "folder-card", !showAppNames && "names-hidden", selectedItemId === itemId && "current", renderedFolderId === folder.id && "folder-source-hidden"].filter(Boolean).join(" ")} title={`${folder.name}：单击展开，双击启动全部`} aria-label={`${folder.name}，合并卡片`} aria-pressed={selectedItemId === itemId} onClick={(event) => { if (event.detail !== 1 || document.documentElement.dataset.cardDragging) return; props.onSelectFolder(folder.id); const origin = event.currentTarget.getBoundingClientRect(); if (folderClickTimer.current) window.clearTimeout(folderClickTimer.current); folderClickTimer.current = window.setTimeout(() => { folderClickTimer.current = null; setFolderOrigin(origin); props.onToggleFolder(folder.id); }, 220); }} onDoubleClick={(event) => { event.preventDefault(); event.stopPropagation(); if (folderClickTimer.current) { window.clearTimeout(folderClickTimer.current); folderClickTimer.current = null; } if (!document.documentElement.dataset.cardDragging) props.onLaunchFolder(folder.id); }} onPointerDown={(event) => props.onFolderPointerDown(event, folder)}>
           <div className="folder-icon" style={{ "--folder-columns": columns, "--folder-icon-size": `${iconSize}px` } as React.CSSProperties}>
             {members.map((app) => {
-              const status = launchingAppIds.has(app.id) && app.metrics.isRunning ? "closing" : folderLaunchStatuses[app.id];
-              return <span key={app.id} className={["folder-member-launch", status, folderIsPartiallyRunning && app.metrics.isRunning && "member-running"].filter(Boolean).join(" ")}>{app.iconDataUrl ? <img src={app.iconDataUrl} draggable={false} alt="" /> : <GridIcon />}<i aria-hidden="true" /></span>;
+              const status = runtimeStates[app.id]?.state === "closing" ? "closing" : folderLaunchStatuses[app.id];
+              return <span key={app.id} className={["folder-member-launch", status, folderIsPartiallyRunning && runtimeIsRunning(runtimeStates, app) && "member-running"].filter(Boolean).join(" ")}>{app.iconDataUrl ? <img src={app.iconDataUrl} draggable={false} alt="" /> : <GridIcon />}<i aria-hidden="true" /></span>;
             })}
           </div>
           {showAppNames ? <span className="app-name">{folder.name}</span> : null}
