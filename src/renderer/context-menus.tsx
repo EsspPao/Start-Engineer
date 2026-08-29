@@ -1,12 +1,9 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { AppGroup, AppWindowInfo, ProcessInfo } from "../shared/types";
+import type { AppGroup, AppWindowInfo } from "../shared/types";
 import { cleanErrorMessage } from "./error-message";
-import type { ConfirmState } from "./overlay-components";
 import { focusHintsForApp, focusResultMessage, type RuntimeApp } from "./window-focus-feedback";
 
-export type DisplayProcess = ProcessInfo & { isEnded?: boolean };
 export type MenuState =
-  | { kind: "process"; x: number; y: number; process: ProcessInfo }
   | { kind: "app"; x: number; y: number; appId: string }
   | { kind: "group"; x: number; y: number; groupId: string }
   | null;
@@ -15,11 +12,6 @@ function api() {
   const resolved = window.startEngineer ?? window.commandDeck;
   if (!resolved) throw new Error("Start Engineer API is unavailable");
   return resolved;
-}
-
-export function ProcessContextMenu({ state, process, onClose, onConfirm, onError }: { state: Extract<MenuState, { kind: "process" }>; process: DisplayProcess; onClose: () => void; onConfirm: (value: ConfirmState) => void; onError: (message: string) => void }) {
-  const copy = async (value: string) => { try { await api().writeClipboardText(value); onClose(); } catch (reason) { onError(reason instanceof Error ? reason.message : "复制失败"); } };
-  return <ContextMenu x={state.x} y={state.y} onClose={onClose}><div className="process-menu-header"><strong>{process.name}</strong><span>{process.isEnded ? "进程已结束" : `${process.processCount} 个进程`}</span></div><MenuDivider /><MenuButton disabled={!process.canTerminate || process.isEnded} title={process.terminationBlockedReason} danger onClick={() => { onClose(); onConfirm({ title: "结束进程组", message: `确定结束 ${process.name} 的 ${process.pids.length} 个进程吗？`, confirmLabel: "结束进程组", onConfirm: () => api().killProcessGroup({ name: process.name, pids: process.pids }) }); }}>结束进程组</MenuButton><MenuButton disabled={!process.exePath} onClick={() => { onClose(); if (process.exePath) void api().showItemInFolder(process.exePath).catch((reason) => onError(reason.message)); }}>打开文件所在位置</MenuButton><MenuDivider /><MenuButton onClick={() => void copy(process.name)}>复制进程名称</MenuButton><MenuButton disabled={!process.exePath} onClick={() => process.exePath && void copy(process.exePath)}>复制文件路径</MenuButton><MenuButton disabled={process.isEnded} onClick={() => void copy(process.pids.join(", "))}>复制 PID</MenuButton></ContextMenu>;
 }
 
 export function AppContextMenu({ state, app, groups, onClose, onLaunch, onKill, onEdit, onMove, onRemove, onNotice, onError }: { state: Extract<MenuState, { kind: "app" }>; app?: RuntimeApp; groups: AppGroup[]; onClose: () => void; onLaunch: (id: string) => void; onKill: (app: RuntimeApp) => void; onEdit: (app: RuntimeApp) => void; onMove: (id: string, groupId: string) => Promise<void>; onRemove: (app: RuntimeApp) => void; onNotice: (message: string) => void; onError: (message: string) => void }) {
@@ -69,7 +61,7 @@ export function GroupContextMenu({ state, groups, onClose, onCreate, onEdit, onD
     onClose();
     void onReorder(next.map((item) => item.id));
   };
-  return <ContextMenu x={state.x} y={state.y} onClose={onClose}><div className="process-menu-header"><strong>{group.name}</strong><span>应用分组</span></div><MenuDivider /><MenuButton onClick={() => { onClose(); onEdit(group); }}>重命名 / 更换图标</MenuButton><MenuButton onClick={() => { onClose(); onCreate(); }}>新建分组</MenuButton><MenuButton disabled={index === 0} onClick={() => move(-1)}>上移</MenuButton><MenuButton disabled={index === groups.length - 1} onClick={() => move(1)}>下移</MenuButton><MenuDivider /><MenuButton danger disabled={groups.length <= 1} onClick={() => onDelete(group.id)}>删除分组</MenuButton></ContextMenu>;
+  return <ContextMenu x={state.x} y={state.y} onClose={onClose}><div className="context-menu-header"><strong>{group.name}</strong><span>应用分组</span></div><MenuDivider /><MenuButton onClick={() => { onClose(); onEdit(group); }}>重命名 / 更换图标</MenuButton><MenuButton onClick={() => { onClose(); onCreate(); }}>新建分组</MenuButton><MenuButton disabled={index === 0} onClick={() => move(-1)}>上移</MenuButton><MenuButton disabled={index === groups.length - 1} onClick={() => move(1)}>下移</MenuButton><MenuDivider /><MenuButton danger disabled={groups.length <= 1} onClick={() => onDelete(group.id)}>删除分组</MenuButton></ContextMenu>;
 }
 
 const CONTEXT_MENU_MARGIN = 8;

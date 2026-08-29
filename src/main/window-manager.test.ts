@@ -49,6 +49,36 @@ const emptyScan = () => JSON.stringify({ allWindowsScanned: 24, relatedWindows: 
 const scanWith = (item: FocusWindowCandidate) => JSON.stringify({ allWindowsScanned: 24, relatedWindows: [item], filteredWindows: [], finalCandidates: [item] });
 
 describe("window manager wake engine", () => {
+  it.each([
+    {
+      name: "WeChat mixed tray and taskbar windows",
+      entry: app({ name: "微信", processName: "Weixin", executablePath: "E:\\Tencent\\xwechat\\Weixin.exe" }),
+      windows: [
+        candidate({ handle: 11, title: "微信", visible: false, iconic: false, score: 1_200 }),
+        candidate({ handle: 12, title: "WxTrayIconMessageWindow", visible: false, iconic: false, toolWindow: true, score: 1_100 }),
+        candidate({ handle: 13, title: "微信", visible: true, iconic: true, score: 850 }),
+      ],
+      expectedHandle: 13,
+    },
+    {
+      name: "Notion hidden tray-only window",
+      entry: app({ name: "Notion", processName: "Notion", executablePath: "C:\\Program Files\\Notion\\Notion.exe" }),
+      windows: [candidate({ handle: 21, title: "Notion", visible: false, iconic: false, score: 4_000 })],
+      expectedHandle: undefined,
+    },
+    {
+      name: "Chromium primary window beside an owned utility window",
+      entry: app({ name: "Electron Demo", processName: "ElectronDemo" }),
+      windows: [
+        candidate({ handle: 31, title: "Utility", visible: true, toolWindow: true, owner: 30, score: 1_000 }),
+        candidate({ handle: 32, title: "Electron Demo", visible: true, toolWindow: false, owner: 0, score: 800 }),
+      ],
+      expectedHandle: 32,
+    },
+  ])("selects a safe candidate for $name", ({ entry, windows, expectedHandle }) => {
+    expect(selectWakeCandidate(windows, resolveWakePolicy(entry))?.handle).toBe(expectedHandle);
+  });
+
   it("prefers a recently successful interactive window over a higher-scored secondary window", () => {
     const recent = candidate({ handle: 21, score: 800, visible: true, width: 900, height: 700 });
     const secondary = candidate({ handle: 22, score: 1200, visible: true, width: 1200, height: 800 });
@@ -287,6 +317,27 @@ describe("window manager wake engine", () => {
       diagnostics: { externalActionsPerformed: 1 }
     });
     expect(activateRunningApp).not.toHaveBeenCalled();
+  });
+
+  it("does not let a stale request focus the previously selected application", async () => {
+    let releaseFirstScan: ((value: string) => void) | undefined;
+    const firstScan = new Promise<string>((resolve) => { releaseFirstScan = resolve; });
+    let scanCount = 0;
+    const runHelper = vi.fn(async (command: string) => {
+      if (command === "focus") return JSON.stringify({ focused: true });
+      scanCount += 1;
+      if (scanCount === 1) return firstScan;
+      return scanWith(candidate({ handle: 202, title: "Second", pid: 200 }));
+    });
+    const manager = new AppWindowManager({ runPowerShell: vi.fn(), runWindowFocusHelper: runHelper, getProcesses: vi.fn(async () => []) });
+    const first = manager.focusAppWindow(app({ id: "first", name: "First" }), metrics({ appId: "first" }));
+    await vi.waitFor(() => expect(scanCount).toBe(1));
+    const second = manager.focusAppWindow(app({ id: "second", name: "Second" }), metrics({ appId: "second", pids: [200], matchedPids: [200] }));
+
+    await expect(second).resolves.toMatchObject({ success: true, focused: true });
+    releaseFirstScan!(scanWith(candidate({ handle: 101, title: "First" })));
+    await expect(first).resolves.toMatchObject({ success: false, reason: "stale-request", diagnostics: { externalActionsPerformed: 0 } });
+    expect(runHelper.mock.calls.filter((call) => call[0] === "focus")).toHaveLength(1);
   });
 
   it("uses the slow process fallback only when runtime metrics provide no candidate pid", async () => {

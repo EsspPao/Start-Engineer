@@ -4,7 +4,7 @@ import { ALL_APPS_SECTION_ID } from "./navigation";
 type RuntimeApp = AppEntry & { metrics: AppMetrics };
 
 export function navigationSectionIds(appGroups: AppGroup[]) {
-  return ["processes", ALL_APPS_SECTION_ID, ...appGroups.map((group) => group.id), "settings"];
+  return [ALL_APPS_SECTION_ID, ...appGroups.map((group) => group.id), "settings"];
 }
 
 export function mergeAllAppsOrder(existingOrder: string[], orderedVisibleIds: string[], availableAppIds: string[]) {

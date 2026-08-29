@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { DiscoveredAppCandidate, EverythingSearchResult, InstallableAppCandidate, InternalSearchResult, ProcessInfo, StartEngineerApi } from "../shared/types";
+import type { DiscoveredAppCandidate, EverythingSearchResult, InstallableAppCandidate, InternalSearchResult, StartEngineerApi } from "../shared/types";
 import { cleanErrorMessage } from "./error-message";
 import { buildInternalSearchResults } from "./search";
 import { buildSearchableAppIdentityKey } from "./search-panel-behavior";
@@ -8,10 +8,9 @@ import type { RuntimeApp } from "./window-focus-feedback";
 type UseSearchResultsOptions = {
   client: StartEngineerApi;
   runtimeApps: RuntimeApp[];
-  processes: ProcessInfo[];
 };
 
-export function useSearchResults({ client, runtimeApps, processes }: UseSearchResultsOptions) {
+export function useSearchResults({ client, runtimeApps }: UseSearchResultsOptions) {
   const [query, setQuery] = useState("");
   const [discoveredResults, setDiscoveredResults] = useState<DiscoveredAppCandidate[]>([]);
   const [installableResults, setInstallableResults] = useState<InstallableAppCandidate[]>([]);
@@ -25,9 +24,8 @@ export function useSearchResults({ client, runtimeApps, processes }: UseSearchRe
   runtimeAppsRef.current = runtimeApps;
 
   const managedSearchResults = useMemo(
-    () => buildInternalSearchResults(query, runtimeApps, processes)
-      .filter((result): result is Extract<InternalSearchResult, { kind: "app" }> => result.kind === "app"),
-    [processes, query, runtimeApps],
+    () => buildInternalSearchResults(query, runtimeApps),
+    [query, runtimeApps],
   );
   const searchableAppIdentityKey = useMemo(() => buildSearchableAppIdentityKey(runtimeApps), [runtimeApps]);
   const appSearchResultCount = managedSearchResults.length + discoveredResults.length + installableResults.length;
@@ -54,8 +52,7 @@ export function useSearchResults({ client, runtimeApps, processes }: UseSearchRe
           if (searchRequest.current !== requestId) return;
           setDiscoveredResults(results);
           setInstallableResults(installable);
-          const hasManagedResults = buildInternalSearchResults(trimmed, runtimeAppsRef.current, [])
-            .some((result) => result.kind === "app");
+          const hasManagedResults = buildInternalSearchResults(trimmed, runtimeAppsRef.current).length > 0;
           if (results.length || installable.length || hasManagedResults) {
             setFileResults([]);
             setSearchLoading(false);

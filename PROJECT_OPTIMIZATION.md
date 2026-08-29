@@ -8,6 +8,10 @@
 
 补充核对日期：`2026-08-20`。本轮 P0 治理已引入安全首屏缓存、启动阶段标记、统一应用生命周期状态、分级运行采样和更稳定的窗口候选选择；上段 `2026-08-19` 代表此前 Wake Engine / 轻量化基线，不再是最新验证日期。
 
+补充核对日期：`2026-08-23`。本轮 P1 已把运行快照调度迁入 `use-runtime-polling.ts`，把启动、唤起、关闭和批量动作迁入 `use-app-actions.ts`，并由 `use-app-runtime-actions.ts` 统一防重与过期结果隔离。`main.tsx` 从约 1478 行降至约 1215 行。应用动作错误统一归一化为稳定错误码、短用户文案和独立诊断字段；Wake Engine 增加固定窗口样本与并发 stale request 回归。最终构建、打包和校验和见 `11.2`。
+
+补充核对日期：`2026-08-24`。低频且不完整的“进程”一级模块已从产品界面移除，同时删除进程页、进程右键菜单、内部进程搜索和 renderer 全量快照请求。应用运行识别、窗口唤醒、应用级关闭、批量关闭、运行指标与本地诊断仍由底层 Runtime / Wake Engine 提供；旧首屏缓存若保存 `processes` section，会自动回落到首个用户应用分组。详情与最终验证见 `11.3`。
+
 维护硬性约定：每次代码、配置、样式、测试或构建流程发生改动，都必须在同一提交中同步更新本文档，至少记录受影响能力、验证结果或新的维护注意事项，避免文档再次落后于实际代码。
 
 发布硬性约定：每次完成改动并通过必要验证后，都必须重新生成 Windows 安装版和便携版，确保 `release` 中的交付文件与当前代码一致。
@@ -26,12 +30,12 @@ helper 构建冒烟在 GitHub CI 中是强制门槛；`scripts/smoke-window-help
 
 ## 1. 项目定位与当前状态
 
-Start Engineer 当前是一个 Windows 桌面启动台与进程监控工具，正在从“个人应用分组启动器”演进为“桌面启动台 / 任务栏辅助入口”。项目面向 Windows 10/11，使用 Electron + React + TypeScript 实现，并带有一个 Windows-only C# 窗口聚焦 helper。
+Start Engineer 当前是一个 Windows 桌面启动台与任务栏辅助入口。项目面向 Windows 10/11，使用 Electron + React + TypeScript 实现，并带有一个 Windows-only C# 窗口聚焦 helper。
 
 当前核心能力：
 
 - 按用户分组管理应用。
-- 系统分组包括 `进程`、`已添加应用`、`设置`。
+- 一级系统入口只保留 `已添加应用` 与 `设置`；用户应用分组位于两者之间。
 - `已添加应用` 是聚合视图，Microsoft Store 应用优先按 AUMID、普通应用按 `executablePath` 去重显示全部已添加应用，并保存独立排序。
 - 添加、修改、移动、删除应用。
 - 支持通过文件选择器、搜索候选、拖入 `.exe` 或 `.lnk` 添加应用。
@@ -48,8 +52,7 @@ Start Engineer 当前是一个 Windows 桌面启动台与进程监控工具，�
 - 多应用卡片支持单击或 Enter 原位放大、双击或默认 `Ctrl+Enter` 启动全部成员；成员可从放大卡片拖回外层、转移到其他卡片或移动到其他分组。
 - 支持方向键 / WASD 网格导航，Enter 执行普通应用主操作或展开合并卡片，Esc 分层退出。
 - 应用内快捷键可以录制、冲突校验、立即生效和恢复全部默认；默认支持相邻分组切换及 `Ctrl+1` 到 `Ctrl+9` 直达前九个用户分组。
-- 支持关闭单个应用、一次关闭多应用卡片成员、关闭当前视图或全部运行应用、结束进程页中的进程组。
-- 支持进程监控页，默认显示已管理应用，可切换全部进程。
+- 支持关闭单个应用、一次关闭多应用卡片成员、关闭当前视图或全部运行应用。
 - 支持运行状态识别，运行指标包含 `matchedPids`、`associatedPids`、`matchedProcessNames`、`matchedPaths`。
 - 支持同一程序出现在多个用户分组时同步运行绿点。
 - 支持原生窗口扫描 / 聚焦 helper，PowerShell 作为 fallback。
@@ -69,7 +72,7 @@ Start Engineer 当前是一个 Windows 桌面启动台与进程监控工具，�
 - “关于 Start Engineer”降为设置页页脚的低强调入口；弹窗读取真实应用/运行时/Windows 版本，可打开数据目录、项目主页并复制不包含应用列表或配置内容的诊断摘要，支持遮罩、Esc、焦点循环与焦点恢复。
 - 首次导入 QA 标记只允许未打包开发构建使用；安装版和便携版即使用户数据目录误留标记也会忽略，不能切换到隐藏测试配置。
 - 支持应用卡片拖拽排序、拖到侧栏移动分组，以及设置页分组拖拽排序。
-- 普通分组页顶部只显示分组名称，不显示容易与合并卡片成员数混淆的应用数量；进程、聚合应用和设置页副标题不受影响。
+- 普通分组页顶部只显示分组名称，不显示容易与合并卡片成员数混淆的应用数量；聚合应用和设置页仍按各自任务显示副标题。
 
 当前验证与打包脚本：
 
@@ -151,10 +154,10 @@ Start Engineer 的长期方向是“桌面启动台 / 任务栏辅助入口”�
 
 ### 2.3 轻量优先
 
-启动台首先要“出现得快、操作不粘、后台安静”。当前已有 Splash、启动后延迟刷新图标、进程页后台预热、managed/full 快照分离等优化。后续仍应继续：
+启动台首先要“出现得快、操作不粘、后台安静”。当前已有 Splash、启动后延迟刷新图标、仅采 managed 运行快照和按可见性/空闲时间自动降频等优化。后续仍应继续：
 
 - 首屏优先展示应用和分组。
-- Everything、图标刷新、进程 full 快照都应延后或后台处理。
+- Everything 与图标刷新应延后或后台处理；renderer 正常路径不得恢复 full 进程快照。
 - 托盘/隐藏状态下避免高频轮询。
 - 不为视觉效果引入持续大面积动画。
 - 高频列表中避免昂贵滤镜。
@@ -360,20 +363,17 @@ D:\Code\Start Engineer
 
 ### 3.4 渲染层职责
 
-`src/renderer/main.tsx` 是渲染层组合入口。当前已迁出完整设置页、设置偏好控制器、设置页分组拖拽、搜索请求状态机、外部应用拖入、统一网格拖拽、快捷键设置、搜索结果、应用编辑、右键菜单、通用弹层、分组管理组件和通用图标，但以下职责仍然集中：
+`src/renderer/main.tsx` 是渲染层组合入口。当前已迁出完整设置页、设置偏好控制器、设置页分组拖拽、搜索请求状态机、外部应用拖入、统一网格拖拽、运行快照轮询、应用动作控制器、快捷键设置、搜索结果、应用编辑、右键菜单、通用弹层、分组管理组件和通用图标，但以下职责仍然集中：
 
 - 加载分组、应用、偏好。
 - 系统 section 和用户 section 切换。
-- 运行快照轮询。
-- 进程页后台预热。
 - 搜索结果动作与搜索框焦点恢复。
 - 键盘导航和焦点恢复。
 - 旧聚合视图应用卡片拖拽排序和移动分组。
-- 多应用卡片放大和启动反馈；统一网格拖拽、成员迁移和混合排序已迁入独立 hook。
-- 应用启动/关闭反馈。
+- 多应用卡片放大；统一网格拖拽、成员迁移、混合排序与启动/关闭反馈已迁入独立 hook。
 - 主题属性和 UI layout 属性写入 `document.documentElement.dataset`。
 
-`src/renderer/pages.tsx` 包含 `ProcessPage` 和 `GroupPage`。其中进程页使用轻量虚拟列表，分组页负责应用卡片、底部操作栏和卡片交互。
+`src/renderer/pages.tsx` 包含普通分组与统一混合网格页面，负责应用卡片、多应用卡片、底部操作栏和卡片交互。旧 `ProcessPage` 已随低频进程模块删除。
 
 渲染层后续建议拆分：
 
@@ -382,14 +382,13 @@ D:\Code\Start Engineer
 - `TopbarSearch`
 - `GroupPage`
 - `AllAppsPage` 或聚合视图 hook
-- `ProcessPage`
 - `SettingsPage`（已完成）
 - `SearchPanel`
 - `ContextMenus`
 - `Dialogs`
 - `ImportWizard`
-- `useRuntimePolling`
-- `useAppActions`
+- `useRuntimePolling`（已完成）
+- `useAppActions`（已完成）
 
 ## 4. 数据模型与配置
 
@@ -429,12 +428,11 @@ Smoke 模式使用临时目录：
 
 `src/shared/types.ts` 中：
 
-- `SystemSectionId = "processes" | "all-apps" | "settings"`
+- `SystemSectionId = "all-apps" | "settings"`
 - `SectionId = SystemSectionId | string`
 
 当前语义：
 
-- `processes`：进程监控页。
 - `all-apps`：系统聚合应用视图，不写入 `groups.json`。
 - 用户分组：来自 `groups.json`，可重命名、删除、拖拽排序。
 - `settings`：设置页。
@@ -775,7 +773,6 @@ Wake Engine 与策略配置：
 - 单应用关闭。
 - 多应用卡片成员批量关闭。
 - 当前分组及全部已管理运行应用批量关闭。
-- 进程页结束进程组。
 - 批量 PID 去重。
 - 结束多个无关应用时并行执行，减少串行等待。
 - 危险进程保护。
@@ -808,14 +805,11 @@ Wake Engine 与策略配置：
 
 - `SnapshotMode = "full" | "managed"`。
 - `managed` 通过原生 Toolhelp/Win32 采集已管理应用、已知 PID 及其子进程，只返回应用和指标。
-- `full` 通过同一常驻 helper 采集完整进程资源，再返回应用、指标和聚合进程列表。
+- `full` 仍作为底层诊断/兼容能力保留，可通过同一常驻 helper 聚合完整进程资源，但 renderer 正常路径不再请求它。
 - 约 800ms TTL。
 - single-flight：`full` 不复用 managed-only 采集；managed 可以复用 full。
-- 进程页刷新频率高于应用页/设置页。
-- 进程页默认 `processFilter = "managed"`，用户可切到全部进程。
-- 启动后后台预热一次 full 快照。
-- 进程页使用虚拟列表。
-- 非托管进程图标异步解析，不阻塞首个 full 结果。
+- 启动台页面只请求 managed 快照；设置页、窗口隐藏和持续空闲分别自动降频。
+- `use-runtime-polling.ts` 使用请求代次与最新序号拒绝页面切换前启动的迟到快照；恢复可见时立即刷新，隐藏或空闲时自动降频。
 
 采集来源：
 
@@ -826,7 +820,6 @@ Wake Engine 与策略配置：
 风险：
 
 - helper 故障后的 PowerShell + CIM 回退成本仍高，若频繁出现应优先修 helper，而不是长期运行在回退模式。
-- 全进程快照在低性能机器上可能慢。
 - 进程路径可能读不到。
 - CPU/磁盘速率需要两次采样，首次为 0 属正常。
 
@@ -834,7 +827,7 @@ Wake Engine 与策略配置：
 
 - 记录 managed/full 原生采集耗时和 fallback 次数，建立性能基线。
 - 保持应用页仅采已管理应用相关 PID，避免功能回归成全量轮询。
-- 增加“低功耗监控”或“进程页手动刷新”高级选项。
+- 若真实低性能设备仍有压力，优先继续调整自动 managed 降频，不恢复用户可见的进程页或新增默认设置项。
 
 ### 5.8 搜索、添加和 Everything 兜底
 
@@ -1026,7 +1019,7 @@ UI 分享码：
 
 - 第一阶段：普通应用启动改用 `CreateProcessW`；管理员启动和管理员 `taskkill` 改用 `ShellExecuteExW`；管理员状态改由 .NET Windows Identity 判断。
 - 第二阶段：新增由 Electron 托管的常驻 native runtime helper，使用 JSON Lines 复用进程；应用页的 `managed` 快照只采已管理应用、已知 PID 和子进程。
-- 第三阶段：进程页 `full` 快照改用 Win32 完整采集；ZIP 解压改用 `ZipFile`，开始菜单快捷方式改用原生 COM，高分辨率 Shell 图标改由 helper 提取。
+- 第三阶段：当时的 `full` 快照改用 Win32 完整采集；该 UI 现已移除，底层 full 能力仅保留给诊断/兼容路径。ZIP 解压改用 `ZipFile`，开始菜单快捷方式改用原生 COM，高分辨率 Shell 图标改由 helper 提取。
 
 当前正常路径不再周期性创建 PowerShell 进程。仍保留 PowerShell 的位置：
 
@@ -1051,12 +1044,12 @@ UI 分享码：
 - `main.ts` 从约 1900 行降到约 335 行；配置、应用、应用添加、分组、启动、运行时、搜索、搜索依赖、偏好、图标、管理员、进程控制和应用窗口均有独立服务。
 - IPC 已按 `library / runtime / search / preferences / window` 分区注册，入口不再直接注册处理器。
 - IPC 契约测试会检查 preload 与全部注册器的调用/事件通道，并阻止重复注册。
-- `main.tsx` 已迁出完整设置页、偏好编辑、搜索请求、外部应用拖入和统一网格拖拽等控制器，当前约 1478 行；相较本轮开始约 1835 行进一步减少约 19%。
+- `main.tsx` 已迁出完整设置页、偏好编辑、搜索请求、外部应用拖入、统一网格拖拽、运行快照调度和应用动作控制器，当前约 1215 行；相较最初约 1835 行减少约 34%。
 
 剩余风险：
 
 - `main.ts` 已只保留顶层 Electron 生命周期、服务组装和 IPC 注册器调用，主进程拆分目标基本达成。
-- `main.tsx` 当前主要剩余运行快照轮询、启动/关闭应用动作、键盘导航和旧聚合视图拖拽；下一轮应优先提取 `useRuntimePolling` 与 `useAppActions`，不再继续拆分已经稳定的设置页。
+- `main.tsx` 当前主要剩余键盘导航、搜索结果动作和旧聚合视图拖拽；后续应优先清理旧聚合视图的独立拖拽路径，不再继续拆分已经稳定的设置页或为行数制造细碎 Hook。
 - 服务之间目前使用构造参数和闭包注入，后续新增跨服务能力时应避免重新直接导入全局状态。
 
 ### 6.4 默认偏好与产品决策存在差异
@@ -1109,16 +1102,19 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 - `native/window-focus-helper/Program.cs`
 - `src/shared/types.ts`
 
-### 7.2 进程监控降负载
+### 7.2 运行状态监控降负载
 
-目标：降低全进程采集成本。
+状态：第一轮已完成。
 
-建议：
+- renderer 只采 managed app 相关进程，不再请求 full 快照。
+- 可见应用页、设置页、窗口隐藏和持续空闲分别使用不同采样频率。
+- 页面切换和可见性变化使用 generation/sequence 拒绝迟到响应，pending action 快速探测只在确有动作时运行。
+- Runtime diagnostics 已记录 managed/full 请求、真实采集、平均耗时、缓存与 fallback 次数。
 
-- 应用页只采 managed app 相关进程。
-- 进程页首次显示使用后台预热结果。
-- 增加低功耗模式。
-- 评估长期运行采集 helper。
+下一步只依据低性能机器的真实诊断数据继续调整：
+
+- 评估是否需要用户可见的低功耗模式；当前自动降频优先，不增加默认设置项。
+- helper fallback 频率异常时优先修复 helper，不把 PowerShell/CIM 当长期采集方案。
 
 涉及：
 
@@ -1157,13 +1153,12 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 - 已将 taskkill/native helper/PowerShell 提权终止适配迁入 `process-control-service.ts`。
 - `main.ts` 当前仅保留 Electron 顶层生命周期、服务创建和 IPC 注册器调用。
 
-下一轮建议：
+渲染层本轮完成：
 
-- 应用添加、拖入程序和 EXE 文件选择已迁入 `app-addition-service.ts`。
-- 设置页分组排序与跨组拖拽已迁入 `use-settings-group-drag.ts`。
-- 完整设置页及偏好编辑已迁入 `settings-page.tsx` 与 `use-settings-preferences.ts`。
-- 搜索请求、外部应用拖入和统一网格拖拽分别迁入独立 hook，并由边界测试防止职责回流。
-- 下一步优先拆分运行快照轮询和应用启动/关闭动作；旧聚合视图拖拽在移除旧视图时一并删除，不与统一网格状态机强行合并。
+- `use-runtime-polling.ts` 统一 managed/full 调度、可见性、空闲降频、single in-flight 与迟到响应隔离。
+- `use-app-runtime-actions.ts` 原子登记每个应用的 launch/wake/close 动作；重复点击不会创建第二个动作，旧 ticket 不能清除后续状态。
+- `use-app-actions.ts` 统一单应用和批量启动、唤起、关闭、运行确认、失败反馈和多应用卡片进度。
+- 下一步只处理旧聚合视图拖拽和键盘导航边界，不与已稳定的统一网格状态机强行重写。
 
 ### 7.4 设置页信息架构重整
 
@@ -1178,14 +1173,11 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 
 ### 7.5 错误模型统一
 
-目标：让 Toast、弹窗、诊断信息各司其职。
+状态：应用运行主路径第一轮已完成。
 
-建议：
-
-- 定义统一错误码。
-- 用户短文案和开发诊断分离。
-- Toast 不展示 PowerShell 堆栈。
-- 诊断信息可复制为 Markdown 或 JSON。
+- `AppActionFailure` 使用 `domain + code + retryable + diagnostics`，覆盖 launch/wake/close/runtime。
+- `app-action-error.ts` 将 Win32 errorCode、WakeFailureReason 和 IPC 异常映射为稳定用户短文案；原始技术信息只留在 diagnostics，不进入 Toast。
+- 既有 `cleanErrorMessage` 继续服务非应用动作页面；后续扩展统一错误码时按域渐进迁移，不一次重写全部 IPC。
 
 ## 8. 中优先级优化建议
 
@@ -1313,12 +1305,42 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 ### 11.1 2026-08-20 P0 启动、状态与后台性能治理
 
 - 应用卡片不再分别用“运行指标 + 启动中 ID 集合”猜测状态。`src/renderer/app-runtime-state.ts` 把 Runtime 识别结果与短暂的 launch / wake / close 动作统一为 `stopped / launching / running / waking / closing / unknown`；失败是动作结果，不会把仍在运行的应用错误改成 stopped。多应用卡片从成员状态派生进度，运行检测继续是事实来源。
-- 普通分组只请求 managed 快照，完整进程快照只在用户进入进程页时采集。可见普通分组基础间隔为 5 秒，设置页 10 秒，窗口隐藏时 12 秒，持续空闲后进一步降频；恢复可见时立即刷新一次。原先固定 500ms 的 `tasklist.exe` 循环已删除，快速探测只在启动 / 关闭动作等待确认期间以 1 秒间隔运行。
+- 普通分组只请求 managed 快照。可见普通分组基础间隔为 5 秒，设置页 10 秒，窗口隐藏时 12 秒，持续空闲后进一步降频；恢复可见时立即刷新一次。原先固定 500ms 的 `tasklist.exe` 循环已删除，快速探测只在启动 / 关闭动作等待确认期间以 1 秒间隔运行。
 - `RuntimeMonitor` 继续保证同一时刻最多一份兼容采样（managed 请求可复用 full），并记录 managed/full 请求数、真实采集数、平均耗时、缓存命中和 single-flight 复用；`RuntimeService` 额外记录 native helper / PowerShell fallback 次数。这些信息只进入本地“关于”诊断，不上传网络。
 - `startup-view-cache.json` 仅缓存分组、卡片 ID/名称/顺序、图标缓存信息、多应用卡片、主题、布局和窗口尺寸，用于真实配置读取完成前稳定首屏；不保存可执行路径、PID、进程状态、唤醒诊断或其它高风险字段。缓存损坏会备份并忽略，真实配置始终在后台加载后覆盖缓存，缓存不能成为第二配置源。
 - 启动诊断记录 `process-start`、`electron-ready`、`main-window-created`、`renderer-mounted`、`first-ui-visible`、`config-hydrated`、`first-managed-snapshot` 与 `background-init-completed`。当前运行与上一次运行的本地阶段耗时可复制，用于同机对比；不得把这些标记改成遥测。
 - Wake Engine 的候选选择在既有进程关系、路径、名称、标题、类名、可见性、最小化、尺寸、owner / tool-window 过滤基础上，明确提高最近成功窗口、当前前台窗口和真实交互窗口的优先级，并保持稳定句柄排序。微信 / Notion 等特殊限制仍只能在 `wake-profiles.ts` 中配置，不能用通用评分绕过隐藏托盘窗口禁令；每次请求的外部状态改变上限仍为一次。
 - 本轮新增 `app-runtime-state.test.ts`、`runtime-polling.test.ts`、`startup-state-service.test.ts`，并扩充多窗口候选测试；最终验证为 typecheck 通过、94 个测试文件 / 441 项测试通过、生产构建通过、Electron Smoke 通过、helper Smoke 覆盖 194 个快捷方式通过。Windows x64 重打包通过：helper 14.05 MiB、安装版 82.96 MiB、便携版 82.72 MiB，语言包严格为 `en-US.pak + zh-CN.pak`；最终 SHA-256 分别为安装版 `70688de6e5842208c3f0bfc88f6a48beaddad708cbb482be86761d7b43e393a0`、便携版 `ce45a41bfc2d765c55de89e6a7b29cb1a3dea7cd74cd39075e36ffc00181ff4e`。
+
+### 11.2 2026-08-23 P1 运行时动作可靠性与渲染层瘦身
+
+- `use-runtime-polling.ts` 接管按 section、窗口可见性和空闲时间分级的调度。每次请求携带 generation/sequence，页面切换前启动或已被新请求取代的快照不得覆盖当前界面；pending action 的 1 秒快速探测仍只做轻量运行确认。
+
+- `use-app-runtime-actions.ts` 用原子 registry 管理 launch/wake/close ticket。同一应用已有动作时拒绝重复请求，批量动作只有全部成员空闲时才整体登记；旧 ticket 不能清除后续动作。
+- `use-app-actions.ts` 统一单应用和多应用卡片的启动、唤起、关闭、批量关闭、运行确认、超时及反馈。`main.tsx` 不再直接维护动作 Map、轮询 timer 或 folder launch timer，并从约 1478 行降至约 1215 行。
+- `AppActionFailure` 与 `app-action-error.ts` 将 Win32 errorCode、WakeFailureReason 和 IPC 异常归一化为稳定 `domain/code/retryable`；用户 Toast 只使用短文案，原始技术信息仅位于 diagnostics。页面属性 `launchingAppIds` 已更名为实际语义 `runtimeStates`。
+- Wake Engine 新增微信混合托盘/任务栏、Notion 纯托盘、Chromium owner/tool window 固定样本，以及两个并发请求的 stale 隔离测试；前一个请求不得在用户已选择下一应用后执行 focus。
+- 最终验证：typecheck 通过，97 个测试文件 / 453 项测试通过，生产构建、helper Smoke（194 个快捷方式）和 Electron Smoke 通过。Windows x64 安装版与便携版已重新打包，helper 14.05 MiB、安装版 82.96 MiB、便携版 82.72 MiB，语言包严格为 `en-US.pak + zh-CN.pak`；最终 SHA-256 分别为安装版 `70bb805dc0c04908a6a201910671f583b0285976ce6089befbf765a877d686f8`、便携版 `12eac41f7a5695b69dba3e0339d625a58820945ea659f932fb0e538a6f0ee628`。
+
+### 11.3 2026-08-24 移除低频进程界面
+
+- 删除侧栏“进程”入口、`ProcessPage`、进程筛选/排序/虚拟列表、进程右键菜单、进程结果搜索和对应 CSS 主体；产品一级导航回归“已添加应用 + 用户分组 + 设置”。
+- `GroupService.listGroups()` 不再发布 `processes` 系统分组，`SystemSectionId` 只保留 `all-apps | settings`。旧 `startup-view-cache.json` 中的 `processes` 会由 `resolveLoadedSection()` 安全迁移到首个用户分组，不产生空白页。
+- preload 与主进程不再暴露 `processes:snapshot` / `processes:killGroup`。renderer 的运行调度固定请求 managed 快照，关闭应用、批量关闭、运行绿点、窗口唤醒和诊断仍使用现有 Runtime / Wake Engine，不因移除页面而降级。
+- 内部搜索现在只返回 Start Engineer 已添加应用；设置页说明与“关于”定位同步改为桌面启动台。底层 `ProcessInfo`、full 采集和进程终止服务继续服务诊断、启动关联、窗口匹配与应用级关闭，不得误删。
+- 最终验证：`npm run typecheck` 通过；完整 Vitest 共 `97` 个测试文件、`449` 项测试全部通过；生产构建、原生窗口唤醒 helper 冒烟和 Electron 生产包启动冒烟均通过。
+- Windows 产物已重新打包并通过体积检查：安装版 `82.96 MiB`，便携版 `82.72 MiB`，仅保留 `en-US.pak` 与 `zh-CN.pak` 两个 locale。
+- 发布校验：安装版 SHA-256 为 `996103a93ea48ac6629063ef7a1a02cfc08f696b02f321ba2564c5cd8d2d6aa8`；便携版 SHA-256 为 `6ca583e349fa334030eb4aa7f8f4ae47ec12a1aa877d9ff531aa74b315378714`。
+
+### 11.4 2026-08-24 拖拽取消与悬浮预览清理
+
+- 修复“已添加应用”中拖拽卡片后，因窗口外释放事件丢失而导致预览持续跟随鼠标、无法退出的问题。
+- 已添加应用、普通分组/多应用卡片与设置页分组管理统一补齐拖拽生命周期：起始元素捕获指针；`Escape`、`pointercancel`、窗口失焦、页面隐藏以及检测到主按钮已释放时均立即取消拖拽。
+- 取消操作只清理候选对象、预览、合并高亮、动画计时器和全局拖拽标记，不执行排序、移动分组或合并卡片；正常 `pointerup` 仍按原逻辑完成放置。
+- 旧版“已添加应用”拖拽状态改为 ref 与 React state 同步提交，避免全局监听器读取旧闭包；实际拖拽结束后的合成 click 也会被全局拖拽标记拦截，防止误启动应用。
+- 新增 `pointer-drag-lifecycle.ts` 与回归测试，覆盖主按钮释放判定、三套拖拽控制器的取消监听和应用卡片指针捕获。
+- 最终验证：`npm run typecheck` 通过；完整 Vitest 共 `98` 个测试文件、`454` 项测试全部通过；生产构建、原生窗口 helper 冒烟和 Electron 生产包启动冒烟均通过。
+- Windows 产物已重新打包并通过体积检查：安装版 `82.96 MiB`，便携版 `82.72 MiB`，仅保留 `en-US.pak` 与 `zh-CN.pak`；安装版 SHA-256 为 `ec48f5b447f0275f02249155e038f7b88d628f010a84261fcc2d883bbf131dc9`，便携版为 `ccf755154235a6c3b7e2b20f4772da41daf8dc2cbf2725b974ee50593555e83d`。
 
 ## 12. 关键文件索引
 
@@ -1365,7 +1387,7 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 - `D:\Code\Start Engineer\src\main\runtime-ipc.ts`、`search-ipc.ts`、`preferences-ipc.ts`、`window-ipc.ts`
   - 运行时、搜索、偏好和窗口相关 IPC 注册。
 - `D:\Code\Start Engineer\src\main\runtime-monitor.ts`
-  - 进程采集结果聚合、应用匹配、运行指标、进程页数据。
+  - 进程采集结果聚合、应用匹配、运行指标与底层诊断数据。
 - `D:\Code\Start Engineer\src\main\window-manager.ts`
   - 策略驱动的 Wake Engine：窗口优先、单次外部操作上限、缓存与 stale request、激活后只观察、统一结果/失败原因、窗口列表和 JSON 诊断。
 - `D:\Code\Start Engineer\src\main\wake-profiles.ts`
@@ -1396,18 +1418,24 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
   - 渲染层状态、轮询、搜索、菜单、设置、导入、拖拽和操作反馈。
 - `D:\Code\Start Engineer\src\renderer\app-runtime-state.ts`、`runtime-polling.ts`
   - 统一应用生命周期状态，以及按页面、可见性和空闲时间分级的采样策略。
+- `D:\Code\Start Engineer\src\renderer\use-runtime-polling.ts`
+  - 运行快照调度、请求代次、可见性恢复、空闲降频和 pending action 快速探测。
+- `D:\Code\Start Engineer\src\renderer\use-app-runtime-actions.ts`、`use-app-actions.ts`
+  - 应用动作原子登记、防重复/防迟到，以及启动、唤起、关闭和多应用卡片批量反馈。
+- `D:\Code\Start Engineer\src\renderer\app-action-error.ts`
+  - 应用动作稳定错误码、可重试属性、短用户文案与技术诊断分离。
 - `D:\Code\Start Engineer\src\renderer\app-edit-dialog.tsx`
   - 应用名称、启动程序、参数与渐进披露的唤醒方式设置；Self Launch 风险提示和 AUMID 可用性限制。
 - `D:\Code\Start Engineer\src\renderer\window-focus-feedback.ts`
   - Wake Engine 统一失败原因到简洁用户提示的映射；已接受的一次激活请求不误报失败。
 - `D:\Code\Start Engineer\src\renderer\context-menus.tsx`
-  - 进程、应用和分组右键菜单，以及基于实际尺寸的视口边界定位。
+  - 应用和分组右键菜单，以及基于实际尺寸的视口边界定位。
 - `D:\Code\Start Engineer\src\renderer\section-apps.ts`
   - 普通分组和 `all-apps` 聚合视图的应用列表、去重和排序辅助。
 - `D:\Code\Start Engineer\src\renderer\keyboard-navigation.ts`
   - 应用网格键盘导航、按键规范化和可配置命令匹配辅助。
 - `D:\Code\Start Engineer\src\renderer\pages.tsx`
-  - 进程页和分组页组件。
+  - 普通分组页与统一混合网格页面组件。
 - `D:\Code\Start Engineer\src\renderer\styles.css`
   - 全局布局、应用/多应用卡片、启动关闭反馈、设置页、多主题、Wallpaper Glass、Clear Desktop 和 UI 编辑样式。
 - `D:\Code\Start Engineer\src\renderer\startup-schedule.ts`

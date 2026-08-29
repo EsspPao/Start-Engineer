@@ -1,4 +1,4 @@
-export type SystemSectionId = "processes" | "all-apps" | "settings";
+export type SystemSectionId = "all-apps" | "settings";
 export type SectionId = SystemSectionId | string;
 
 export type AppWakeStrategy = "auto" | "window-only" | "self-launch" | "aumid";
@@ -188,6 +188,32 @@ export type AppRuntimeState = {
 };
 export type AppRuntimeStateMap = Record<string, AppRuntimeState>;
 
+export type AppActionDomain = "launch" | "wake" | "close" | "runtime";
+export type AppActionErrorCode =
+  | "app-not-found"
+  | "executable-missing"
+  | "working-directory-invalid"
+  | "permission-denied"
+  | "elevation-cancelled"
+  | "store-registration-missing"
+  | "service-unavailable"
+  | "no-interactive-window"
+  | "tray-restore-unsupported"
+  | "focus-blocked-by-windows"
+  | "activation-failed"
+  | "stale-request"
+  | "operation-failed";
+export type AppActionFailure = {
+  domain: AppActionDomain;
+  code: AppActionErrorCode;
+  retryable: boolean;
+  diagnostics?: {
+    technicalMessage?: string;
+    nativeErrorCode?: number;
+    wakeReason?: WakeFailureReason;
+  };
+};
+
 export type RuntimePerformanceDiagnostics = {
   requests: Record<SnapshotMode, number>;
   collections: Record<SnapshotMode, number>;
@@ -221,9 +247,7 @@ export type EverythingSearchResult = {
   modifiedAt?: string;
 };
 
-export type InternalSearchResult =
-  | { kind: "app"; id: string; name: string; groupId: string; processName: string; isRunning: boolean }
-  | { kind: "process"; name: string; pid: number; pids: number[]; processCount: number; isManagedApp: boolean };
+export type InternalSearchResult = { kind: "app"; id: string; name: string; groupId: string; processName: string; isRunning: boolean };
 
 export type SearchDependencyStatus = {
   state: "ready" | "missing" | "downloading" | "extracting" | "starting" | "failed";
@@ -428,7 +452,6 @@ export type StartEngineerApi = {
   killGroupApps: (groupId: string) => Promise<BatchKillResult>;
   killAllApps: () => Promise<BatchKillResult>;
   removeApp: (id: string) => Promise<AppEntry[]>;
-  killProcessGroup: (input: { name: string; pids: number[] }) => Promise<void>;
   showItemInFolder: (path: string) => Promise<void>;
   writeClipboardText: (text: string) => Promise<void>;
   searchEverything: (query: string) => Promise<EverythingSearchResult[]>;
@@ -439,7 +462,6 @@ export type StartEngineerApi = {
   openSearchResult: (path: string) => Promise<void>;
   showSearchResultInFolder: (path: string) => Promise<void>;
   getMetricsSnapshot: () => Promise<AppMetrics[]>;
-  getProcessSnapshot: () => Promise<ProcessInfo[]>;
   getRuntimeSnapshot: (mode?: SnapshotMode, force?: boolean) => Promise<RuntimeSnapshot>;
   getManagedRunningStatus: () => Promise<AppRunningStatus[]>;
   getPreferences: () => Promise<AppPreferencesState>;

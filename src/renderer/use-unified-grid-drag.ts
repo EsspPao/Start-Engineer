@@ -2,6 +2,8 @@ import { useEffect, useRef, type Dispatch, type MutableRefObject, type SetStateA
 import type { AppEntry, AppFolder, GroupGridItemId, GroupGridOrder, StartEngineerApi } from "../shared/types";
 import { hitTestAppOrder, reuseOrderIfEqual, type AppDragRect } from "./app-drag-order";
 import { cleanErrorMessage } from "./error-message";
+import { isEscapeKeyboardEvent } from "./keyboard-navigation";
+import { primaryPointerButtonReleased } from "./pointer-drag-lifecycle";
 
 type AppGroupId = AppEntry["groupId"];
 export type MergeTarget = { kind: "app" | "folder"; id: string };
@@ -18,7 +20,7 @@ type UseUnifiedGridDragOptions = {
   apps: AppEntry[];
   folders: AppFolder[];
   candidateRef: MutableRefObject<UnifiedDragCandidate | null>;
-  setDrag: Dispatch<SetStateAction<DragState>>;
+  setDrag: (state: DragState) => void;
   applyFolderMutation: (result: FolderMutation) => void;
   setFolders: Dispatch<SetStateAction<AppFolder[]>>;
   setGroupGridOrders: Dispatch<SetStateAction<GroupGridOrder[]>>;
@@ -86,9 +88,21 @@ export function useUnifiedGridDrag(options: UseUnifiedGridDragOptions) {
       if (mergeHover.current) window.clearTimeout(mergeHover.current.readyTimer);
       mergeHover.current = null;
     };
+    const cancel = () => {
+      const hadUnifiedDrag = Boolean(candidateRef.current || dragState.current);
+      candidateRef.current = null;
+      dragState.current = null;
+      resetMergeHover();
+      updateMergeFeedback();
+      if (!hadUnifiedDrag) return;
+      delete document.documentElement.dataset.cardDragging;
+      setDrag(null);
+    };
     const move = (event: PointerEvent) => {
       const candidate = candidateRef.current;
-      if (!candidate || Math.hypot(event.clientX - candidate.startX, event.clientY - candidate.startY) <= 6) return;
+      if (!candidate) return;
+      if (primaryPointerButtonReleased(event)) { cancel(); return; }
+      if (Math.hypot(event.clientX - candidate.startX, event.clientY - candidate.startY) <= 6) return;
       document.documentElement.dataset.cardDragging = "true";
       const hit = document.elementFromPoint(event.clientX, event.clientY);
       const targetGroup = hit?.closest<HTMLElement>("[data-drop-group]")?.dataset.dropGroup;
@@ -148,6 +162,7 @@ export function useUnifiedGridDrag(options: UseUnifiedGridDragOptions) {
     const up = () => {
       const candidate = candidateRef.current;
       let current = dragState.current;
+      const wasDragging = Boolean(current);
       if (current && candidate && mergeHover.current && performance.now() - mergeHover.current.since >= APP_MERGE_HOVER_MS) {
         if (candidate.kind === "app") {
           current = mergeHover.current.target.kind === "app"
@@ -162,7 +177,7 @@ export function useUnifiedGridDrag(options: UseUnifiedGridDragOptions) {
       resetMergeHover();
       updateMergeFeedback();
       setDrag(null);
-      if (!candidate || !document.documentElement.dataset.cardDragging) return;
+      if (!candidate || !wasDragging) return;
       window.setTimeout(() => { delete document.documentElement.dataset.cardDragging; }, 0);
       if (candidate.kind === "folder" && candidate.folderId) {
         if (current?.targetFolderId && current.targetFolderId !== candidate.folderId) {
@@ -207,13 +222,24 @@ export function useUnifiedGridDrag(options: UseUnifiedGridDragOptions) {
           .catch((reason) => setError(cleanErrorMessage(reason, "移动应用失败")));
       } else if (current?.previewOrder) void client.reorderGroupItems(activeSection, current.previewOrder as GroupGridItemId[]).then(setGroupGridOrders);
     };
+    const key = (event: KeyboardEvent) => { if (isEscapeKeyboardEvent(event)) cancel(); };
+    const onVisibilityChange = () => { if (document.visibilityState === "hidden") cancel(); };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
+    window.addEventListener("blur", cancel);
+    window.addEventListener("keydown", key);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       resetMergeHover();
       updateMergeFeedback();
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", cancel);
+      window.removeEventListener("blur", cancel);
+      window.removeEventListener("keydown", key);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      if (candidateRef.current || dragState.current) cancel();
     };
   }, [activeSection, applyFolderMutation, apps, candidateRef, client, folders, onFolderMergeComplete, onGroupTransfer, setDrag, setError, setFolders, setGroupGridOrders]);
 }

@@ -6,7 +6,6 @@ export function resolveSearchEscapeAction(searchFocused: boolean, query: string)
 }
 
 export function pageFocusSelector(activeSection: string, selectedAppId: string) {
-  if (activeSection === "processes") return ".process-table";
   if (activeSection === "settings") return ".settings-page";
   if (selectedAppId) return `[data-app-card-id="${cssEscapeForSelector(selectedAppId)}"] .app-card`;
   return ".app-grid";

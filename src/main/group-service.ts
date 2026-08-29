@@ -12,7 +12,6 @@ type GroupServiceOptions = {
 };
 
 const systemGroups: AppGroup[] = [
-  { id: "processes", name: "进程", icon: "activity", isSystem: true, order: -1 },
   { id: "settings", name: "设置", icon: "settings", isSystem: true, order: Number.MAX_SAFE_INTEGER }
 ];
 const allowedGroupIcons = new Set(["compass", "briefcase", "wrench", "grid", "star", "gamepad", "folder", "music", "code"]);
@@ -57,7 +56,7 @@ export class GroupService {
 
   loadGroups() { return this.groups.load(); }
   saveGroups(groups: AppGroup[]) { return this.groups.save(groups); }
-  listGroups() { return [systemGroups[0], ...this.loadGroups(), systemGroups[1]]; }
+  listGroups() { return [...this.loadGroups(), systemGroups[0]]; }
   loadFolders() { return this.folders.load(); }
   saveFolders(folders: AppFolder[]) { return this.folders.save(folders); }
   loadGridOrders() { return this.gridOrders.load(); }

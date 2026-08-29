@@ -67,13 +67,6 @@ describe("app card styles", () => {
     expect(styles).toMatch(/\.group-actions\s+\.group-close-action[\s\S]*?background:\s*color-mix\(in srgb,var\(--liquid-button-glass\)/i);
   });
 
-  it("keeps process icons on a neutral holder instead of a full colored tile", () => {
-    expect(styles).toMatch(/\.process-icon\s*\{[^}]*width:\s*38px;[^}]*height:\s*38px;[^}]*background:\s*color-mix\(/i);
-    expect(styles).toMatch(/\.process-icon\.has-image img\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;/i);
-    expect(styles).toMatch(/\.process-icon-fallback\s*\{[^}]*width:\s*27px;[^}]*height:\s*27px;[^}]*background:\s*linear-gradient/i);
-    expect(styles).not.toMatch(/\.process-icon\s*\{[^}]*background:\s*linear-gradient/i);
-  });
-
   it("applies a constrained liquid glass material to buttons without changing global focus behavior", () => {
     expect(styles).toContain("--liquid-button-highlight");
     expect(styles).toMatch(/\.search-button::before,\s*[\s\S]*?\.toast button::before\s*\{[\s\S]*?background:\s*linear-gradient\(180deg,var\(--liquid-button-highlight\),transparent\)/i);

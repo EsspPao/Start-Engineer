@@ -12,7 +12,7 @@ type UseExecutableDropOptions = {
   onNotice: (message: string) => void;
   onSearchDismiss: () => void;
   onAdded: (groupId: string, appId: string) => void;
-  refreshRuntimeData: (mode: "full" | "managed", force: boolean) => Promise<unknown>;
+  refreshRuntimeData: (force: boolean) => Promise<unknown>;
 };
 
 function hasDraggedFiles(event: DragEvent<HTMLElement>) {
@@ -34,7 +34,7 @@ export function useExecutableDrop(options: UseExecutableDropOptions) {
       onNotice(dropNoticeForResult(result));
       onSearchDismiss();
       if (result.addedAppIds.length) onAdded(groupId, result.addedAppIds[0]);
-      await refreshRuntimeData(activeSection === "processes" ? "full" : "managed", true);
+      await refreshRuntimeData(true);
     } catch (reason) {
       onError(cleanErrorMessage(reason, "添加应用失败"));
     }

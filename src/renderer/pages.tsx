@@ -1,48 +1,14 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { AppEntry, AppFolder, AppMetrics, AppRuntimeStateMap, FolderLaunchVisualStatus, GroupGridItemId, ProcessInfo } from "../shared/types";
+import type { AppEntry, AppFolder, AppMetrics, AppRuntimeStateMap, FolderLaunchVisualStatus, GroupGridItemId } from "../shared/types";
 import { resolveAppCardActivation } from "./app-card-interaction";
 
 type RuntimeApp = AppEntry & { metrics: AppMetrics };
-type DisplayProcess = ProcessInfo & { isEnded?: boolean };
-type SortKey = "name" | "cpuPercent" | "memoryBytes" | "diskBytesPerSecond";
-type ProcessFilter = "all" | "managed";
-
-const formatMemory = (bytes: number) => (bytes ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : "--");
-const formatDisk = (bytes: number) => (bytes ? `${(bytes / 1024 / 1024).toFixed(1)} MB/s` : "0.0 MB/s");
-const initials = (name: string) => [...name].filter((char) => /\p{L}|\p{N}/u.test(char)).slice(0, 2).join("").toUpperCase() || "APP";
-const SortMark = ({ active, direction }: { active: boolean; direction: "asc" | "desc" }) => <span className={`sort ${active ? "active" : ""}`}>{active ? direction === "asc" ? "▲" : "▼" : "◆"}</span>;
 const GridIcon = () => <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="4" y="4" width="7" height="7" rx="1" /><rect x="13" y="4" width="7" height="7" rx="1" /><rect x="4" y="13" width="7" height="7" rx="1" /><rect x="13" y="13" width="7" height="7" rx="1" /></svg>;
 const runtimeIsRunning = (states: AppRuntimeStateMap, app: RuntimeApp) => {
   const state = states[app.id]?.state;
   return state ? state === "running" || state === "waking" || state === "closing" : app.metrics.isRunning;
 };
-const ProcessIcon = ({ process }: { process: DisplayProcess }) => {
-  const generated = process.iconDataUrl?.startsWith("data:image/svg+xml");
-  return <div className={`process-icon ${process.iconDataUrl ? "has-image" : "fallback"} ${generated ? "generated" : ""}`} aria-hidden="true">
-    {process.iconDataUrl ? <img src={process.iconDataUrl} alt="" /> : <span className="process-icon-fallback">{initials(process.name)}</span>}
-  </div>;
-};
-
-export const ProcessPage = memo(function ProcessPage({ processes, loading, lockedProcessName, sortKey, sortDirection, changeSort, filter, setFilter, onContextMenu }: { processes: DisplayProcess[]; loading?: boolean; lockedProcessName: string; sortKey: SortKey; sortDirection: "asc" | "desc"; changeSort: (key: SortKey) => void; filter: ProcessFilter; setFilter: (value: ProcessFilter) => void; onContextMenu: (event: React.MouseEvent, process: ProcessInfo) => void }) {
-  const rowHeight = 58;
-  const tableRef = useRef<HTMLDivElement>(null);
-  const [viewport, setViewport] = useState({ top: 0, height: 600 });
-  useEffect(() => {
-    const element = tableRef.current;
-    if (!element) return;
-    const observer = new ResizeObserver(() => setViewport((current) => ({ ...current, height: element.clientHeight })));
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
-  const start = Math.max(0, Math.floor(Math.max(0, viewport.top - 52) / rowHeight) - 6);
-  const visible = processes.slice(start, start + Math.ceil(viewport.height / rowHeight) + 12);
-  return <section className="content no-drag"><div className="table-toolbar"><div className="segmented"><button className={filter === "all" ? "selected" : ""} onClick={() => setFilter("all")}>全部进程</button><button className={filter === "managed" ? "selected" : ""} onClick={() => setFilter("managed")}>已管理应用</button></div></div><div ref={tableRef} className="process-table" tabIndex={-1} onScroll={(event) => setViewport({ top: event.currentTarget.scrollTop, height: event.currentTarget.clientHeight })}>
-    <div className="process-row header"><button onClick={() => changeSort("name")}>进程 <SortMark active={sortKey === "name"} direction={sortDirection} /></button><button onClick={() => changeSort("name")}>名称 <SortMark active={sortKey === "name"} direction={sortDirection} /></button><button onClick={() => changeSort("cpuPercent")}>CPU <SortMark active={sortKey === "cpuPercent"} direction={sortDirection} /></button><button onClick={() => changeSort("memoryBytes")}>内存 <SortMark active={sortKey === "memoryBytes"} direction={sortDirection} /></button><button onClick={() => changeSort("diskBytesPerSecond")}>磁盘 <SortMark active={sortKey === "diskBytesPerSecond"} direction={sortDirection} /></button></div>
-    {processes.length ? <div className="process-virtual-body" style={{ height: processes.length * rowHeight }}>{visible.map((process, index) => <div style={{ transform: `translateY(${(start + index) * rowHeight}px)` }} className={`process-row virtual ${process.name.toLowerCase() === lockedProcessName ? "locked" : ""} ${process.isEnded ? "ended" : ""}`} key={process.name.toLowerCase()} onContextMenu={(event) => onContextMenu(event, process)}><ProcessIcon process={process} /><div><p>{process.name}</p><span title={`PID: ${process.pids.join(", ")}`}>{process.isEnded ? "已结束" : process.processCount > 1 ? `${process.processCount} 个进程` : `PID ${process.pid}`}</span></div><span>{process.isEnded ? "--" : `${process.cpuPercent.toFixed(1)}%`}</span><span>{process.isEnded ? "--" : formatMemory(process.memoryBytes)}</span><span>{process.isEnded ? "--" : formatDisk(process.diskBytesPerSecond)}</span></div>)}</div> : loading ? <div className="search-empty process-empty"><strong>正在加载进程</strong><span>首次打开进程页时会在后台准备完整列表。</span></div> : <div className="search-empty process-empty"><strong>没有匹配的进程</strong><span>修改或清除搜索内容后再试。</span></div>}
-  </div></section>;
-});
-
-export const GroupPage = memo(function GroupPage({ apps, folders = [], launchingAppIds: runtimeStates, selectedAppId, invalidAppIds, draggingAppId, runningCount, showAppNames, onSelectApp, onFocusApp, onLaunchApp, onLaunchingFeedback, onCloseAll, onAdd, onContextMenu, onPointerDown, onRequestClose, onFolderDrop }: { apps: RuntimeApp[]; folders?: AppFolder[]; launchingAppIds: AppRuntimeStateMap; selectedAppId: string; invalidAppIds: Set<string>; draggingAppId?: string; runningCount: number; showAppNames: boolean; onSelectApp: (app: RuntimeApp) => void; onFocusApp: (app: RuntimeApp) => void; onLaunchApp: (app: RuntimeApp) => void; onLaunchingFeedback: (app: RuntimeApp) => void; onCloseAll: () => void; onAdd: () => void; onContextMenu: (event: React.MouseEvent, app: RuntimeApp) => void; onPointerDown: (event: React.PointerEvent, app: RuntimeApp) => void; onRequestClose: (app: RuntimeApp) => void; onFolderDrop?: (folderId: string) => void; onLaunchFolder?: (folderId: string) => void }) {
+export const GroupPage = memo(function GroupPage({ apps, folders = [], runtimeStates, selectedAppId, invalidAppIds, draggingAppId, runningCount, showAppNames, onSelectApp, onFocusApp, onLaunchApp, onLaunchingFeedback, onCloseAll, onAdd, onContextMenu, onPointerDown, onRequestClose, onFolderDrop }: { apps: RuntimeApp[]; folders?: AppFolder[]; runtimeStates: AppRuntimeStateMap; selectedAppId: string; invalidAppIds: Set<string>; draggingAppId?: string; runningCount: number; showAppNames: boolean; onSelectApp: (app: RuntimeApp) => void; onFocusApp: (app: RuntimeApp) => void; onLaunchApp: (app: RuntimeApp) => void; onLaunchingFeedback: (app: RuntimeApp) => void; onCloseAll: () => void; onAdd: () => void; onContextMenu: (event: React.MouseEvent, app: RuntimeApp) => void; onPointerDown: (event: React.PointerEvent, app: RuntimeApp) => void; onRequestClose: (app: RuntimeApp) => void; onFolderDrop?: (folderId: string) => void; onLaunchFolder?: (folderId: string) => void }) {
   const runActivation = (actions: ReturnType<typeof resolveAppCardActivation>, app: RuntimeApp) => {
     for (const action of actions) {
       if (action === "select") onSelectApp(app);
@@ -52,12 +18,12 @@ export const GroupPage = memo(function GroupPage({ apps, folders = [], launching
     }
   };
   const scheduleSingleClick = (clickDetail: number, app: RuntimeApp, isLaunching: boolean) => {
-    if (draggingAppId) return;
+    if (draggingAppId || document.documentElement.dataset.cardDragging) return;
     if (clickDetail !== 1) return;
     runActivation(resolveAppCardActivation({ isRunning: runtimeIsRunning(runtimeStates, app), isLaunching }, "single"), app);
   };
   const activateDoubleClick = (app: RuntimeApp, isLaunching: boolean) => {
-    if (!draggingAppId) runActivation(resolveAppCardActivation({ isRunning: runtimeIsRunning(runtimeStates, app), isLaunching }, "double"), app);
+    if (!draggingAppId && !document.documentElement.dataset.cardDragging) runActivation(resolveAppCardActivation({ isRunning: runtimeIsRunning(runtimeStates, app), isLaunching }, "double"), app);
   };
 
   return (
@@ -123,7 +89,7 @@ type UnifiedGroupPageProps = {
   itemOrder: GroupGridItemId[];
   expandedFolderId: string;
   recentlyMergedFolderId?: string;
-  launchingAppIds: AppRuntimeStateMap;
+  runtimeStates: AppRuntimeStateMap;
   folderLaunchStatuses?: Record<string, FolderLaunchVisualStatus>;
   selectedItemId: GroupGridItemId | "";
   invalidAppIds: Set<string>;
@@ -147,7 +113,7 @@ type UnifiedGroupPageProps = {
 };
 
 export const UnifiedGroupPage = memo(function UnifiedGroupPage(props: UnifiedGroupPageProps) {
-  const { apps, allApps, folders, itemOrder, expandedFolderId, launchingAppIds: runtimeStates, folderLaunchStatuses = {}, selectedItemId, invalidAppIds, draggingItemId, runningCount, showAppNames } = props;
+  const { apps, allApps, folders, itemOrder, expandedFolderId, runtimeStates, folderLaunchStatuses = {}, selectedItemId, invalidAppIds, draggingItemId, runningCount, showAppNames } = props;
   const [folderOrigin, setFolderOrigin] = useState<DOMRect | null>(null);
   const folderClickTimer = useRef<number | null>(null);
   const [renderedFolderId, setRenderedFolderId] = useState(expandedFolderId);

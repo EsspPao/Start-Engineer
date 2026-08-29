@@ -1,15 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import type { AppEntry, AppFolder, AppGroup, AppMetrics, AppPreferencesState, AppRuntimeAction, AppRuntimeStateMap, DiscoveredAppCandidate, EverythingSearchResult, FocusWindowHints, FolderLaunchVisualStatus, GroupGridItemId, GroupGridOrder, GroupInput, InstallableAppCandidate, InternalSearchResult, ProcessInfo, SearchDependencyStatus, SearchProvider, SectionId, StartEngineerApi, StartupViewCache, UiTheme, UpdatePreferencesInput, WallpaperGlassIntensity } from "../shared/types";
+import type { AppEntry, AppFolder, AppGroup, AppMetrics, AppPreferencesState, DiscoveredAppCandidate, EverythingSearchResult, GroupGridItemId, GroupGridOrder, GroupInput, InstallableAppCandidate, InternalSearchResult, SearchDependencyStatus, SearchProvider, SectionId, StartEngineerApi, StartupViewCache, UiTheme, UpdatePreferencesInput, WallpaperGlassIntensity } from "../shared/types";
 import { defaultUiLayoutPreferences } from "../shared/ui-layout-share";
 import { defaultKeyboardShortcuts } from "../main/preferences";
-import { GroupPage, ProcessPage, UnifiedGroupPage } from "./pages";
+import { GroupPage, UnifiedGroupPage } from "./pages";
 import { resolveAppKeyboardAction } from "./app-card-interaction";
 import { sortAppsForDisplay } from "./app-display";
 import { completePreviewOrder, hitTestAppOrder, reuseOrderIfEqual, type AppDragRect } from "./app-drag-order";
-import { matchesAppSearch, matchesProcessSearch } from "./search";
+import { matchesAppSearch } from "./search";
 import { buildLaunchFeedbackMessage } from "./launch-feedback";
-import { shouldOfferExecutableReplacement } from "./launch-error";
 import { ALL_APPS_SECTION_ID, firstAppGroupId, resolveLoadedSection } from "./navigation";
 import { STARTUP_BACKGROUND_COMPLETE_MS, STARTUP_DEFERRED_IMPORT_MS, STARTUP_DEFERRED_RUNTIME_MS } from "./startup-schedule";
 import { findAppShortcut } from "../shared/app-shortcuts";
@@ -18,32 +17,26 @@ import { buildThemeAttributes } from "./theme-attributes";
 import { collapsedFolderKeyboardSelection, expandedFolderKeyboardSelection, isEscapeKeyboardEvent, keyboardBlockKeyFromEventLike, isTextInputTarget, pickDirectionalApp, pickIndexedGroup, pickRelativeGroup, resolveFolderKeyboardAction, shouldSuppressNavigationAfterGroupMove, type AppCardRect } from "./keyboard-navigation";
 import { SearchResultsPanel } from "./search-results-panel";
 import { AppEditDialog, type AppEditState } from "./app-edit-dialog";
-import { AppContextMenu, GroupContextMenu, ProcessContextMenu, type DisplayProcess, type MenuState } from "./context-menus";
+import { AppContextMenu, GroupContextMenu, type MenuState } from "./context-menus";
 import { ConfirmDialog, ToastStack, type ConfirmState } from "./overlay-components";
-import { focusHintsForApp, focusResultMessage, type RuntimeApp } from "./window-focus-feedback";
+import type { RuntimeApp } from "./window-focus-feedback";
 import { BrandLogo, Icon } from "./ui-icons";
 import { GroupDeleteDialog, GroupEditDialog, type GroupDeleteState, type GroupEditState } from "./group-management";
 import { useExecutableDrop } from "./use-executable-drop";
 import { useSearchResults } from "./use-search-results";
 import { useUnifiedGridDrag, type DragState, type UnifiedDragCandidate } from "./use-unified-grid-drag";
+import { capturePointerForDrag, primaryPointerButtonReleased } from "./pointer-drag-lifecycle";
 import { pageFocusSelector, resolveSearchEscapeAction, resolveSectionAppFocusTarget, shouldFocusAddedApp } from "./search-focus";
 import { resolveSearchResultAction } from "./search-results-selection";
 import { appSectionApps, mergeAllAppsOrder, navigationSectionIds } from "./section-apps";
-import { applyKillAppResult, killAppResultHasMetrics, killAppResultHasRunningStatuses } from "./kill-app-result";
-import { applyRunningStatusToMetrics } from "./running-status";
-import { FAST_RUNNING_STATUS_INTERVAL_MS } from "./fast-running-status";
-import { runtimePollingPlan } from "./runtime-polling";
-import { reconcileAppRuntimeStates, type PendingRuntimeAction, type PendingRuntimeActionMap } from "./app-runtime-state";
+import { useAppActions } from "./use-app-actions";
 import { SettingsPage } from "./settings-page";
 import "./styles.css";
 
-type SortKey = "name" | "cpuPercent" | "memoryBytes" | "diskBytesPerSecond";
-type ProcessFilter = "all" | "managed";
 type AppGroupId = AppEntry["groupId"];
 type EditState = AppEditState;
 
 const fallbackGroups: AppGroup[] = [
-  { id: "processes", name: "进程", icon: "activity", isSystem: true, order: -1 },
   { id: "games", name: "二游", icon: "compass", isSystem: false, order: 0 },
   { id: "office", name: "办公", icon: "briefcase", isSystem: false, order: 1 },
   { id: "tools", name: "工具", icon: "wrench", isSystem: false, order: 2 },
@@ -136,11 +129,9 @@ const fallbackApi: StartEngineerApi = {
   killGroupApps: electronOnly,
   killAllApps: electronOnly,
   removeApp: async () => [],
-  killProcessGroup: async () => electronOnly(),
   showItemInFolder: async () => electronOnly(),
   writeClipboardText: async () => electronOnly(),
   getMetricsSnapshot: async () => [],
-  getProcessSnapshot: async () => [],
   getRuntimeSnapshot: async () => ({ apps: [], metrics: [], processes: [] }),
   getManagedRunningStatus: async () => [],
   searchEverything: electronOnly,
@@ -192,65 +183,63 @@ function App() {
   const [groupGridOrders, setGroupGridOrders] = useState<GroupGridOrder[]>([]);
   const [expandedFolderId, setExpandedFolderId] = useState("");
   const [metrics, setMetrics] = useState<AppMetrics[]>([]);
-  const [processes, setProcesses] = useState<ProcessInfo[]>([]);
-  const [processesLoading, setProcessesLoading] = useState(false);
   const [activeSection, setActiveSection] = useState<SectionId>(() => firstAppGroupId(fallbackGroups));
   const [selectedAppId, setSelectedAppId] = useState("");
   const [selectedGridItemId, setSelectedGridItemId] = useState<GroupGridItemId | "">("");
   const [preferences, setPreferences] = useState<AppPreferencesState>({ launchAtStartup: false, closeBehavior: "tray", globalShortcutEnabled: true, globalShortcut: "Ctrl+Shift+Space", uiTheme: "apple", wallpaperGlassIntensity: 55, wallpaperGlassVariant: "dark", runAsAdministrator: false, searchProvider: "everything", sortRunningAppsFirst: true, showAppNames: false, keyboardShortcuts: defaultKeyboardShortcuts, uiLayout: defaultUiLayoutPreferences, allAppsView: { orderedAppIds: [] }, firstRunImportCompleted: false, globalShortcutStatus: "registered", isRunningAsAdministrator: false, administratorStatusLoading: false, administratorRestartRequired: false, elevatedTerminationStatus: "disabled" });
   const [searchDependencyStatus, setSearchDependencyStatus] = useState<SearchDependencyStatus>({ state: "missing" });
   const [systemIsDark, setSystemIsDark] = useState(() => window.matchMedia("(prefers-color-scheme: dark)").matches);
-  const [sortKey, setSortKey] = useState<SortKey>("cpuPercent");
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
-  const [processFilter, setProcessFilter] = useState<ProcessFilter>("managed");
   const [menu, setMenu] = useState<MenuState>(null);
-  const [lockedProcessName, setLockedProcessName] = useState("");
-  const [lockedProcessOrder, setLockedProcessOrder] = useState<string[]>([]);
   const [confirm, setConfirm] = useState<ConfirmState>(null);
   const [edit, setEdit] = useState<EditState>(null);
   const [groupEdit, setGroupEdit] = useState<GroupEditState>(null);
   const [groupDelete, setGroupDelete] = useState<GroupDeleteState>(null);
-  const [drag, setDrag] = useState<DragState>(null);
+  const [drag, setDragState] = useState<DragState>(null);
+  const dragStateRef = useRef<DragState>(null);
+  const commitDrag = useCallback((next: DragState) => {
+    dragStateRef.current = next;
+    setDragState(next);
+  }, []);
   const [recentlyMergedFolderId, setRecentlyMergedFolderId] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [configHydrated, setConfigHydrated] = useState(false);
-  const [pendingRuntimeActions, setPendingRuntimeActions] = useState<PendingRuntimeActionMap>({});
-  const [runtimeStateByAppId, setRuntimeStateByAppId] = useState<AppRuntimeStateMap>({});
-  const [folderLaunchStatuses, setFolderLaunchStatuses] = useState<Record<string, FolderLaunchVisualStatus>>({});
-  const [invalidAppIds, setInvalidAppIds] = useState<Set<string>>(new Set());
   const dragCandidate = useRef<{ appId: string; sourceGroupId: AppGroupId; startX: number; startY: number; grabOffsetX: number; grabOffsetY: number; width: number; height: number; initialOrder: string[] } | null>(null);
   const unifiedDragCandidate = useRef<UnifiedDragCandidate | null>(null);
   const suppressFolderClick = useRef(false);
   const iconRefreshStarted = useRef(false);
   const firstRunAutoImportStarted = useRef(false);
-  const runtimePollingStarted = useRef(false);
-  const firstManagedSnapshotMarked = useRef(false);
-  const lastInteractionAt = useRef(Date.now());
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const focusRequestSeq = useRef(0);
-  const pendingRuntimeActionsRef = useRef(new Map<string, PendingRuntimeAction>());
-  const folderLaunchClearTimers = useRef(new Map<string, number>());
   const folderMergeFeedbackTimer = useRef(0);
   const groupNavigationBlockKeyRef = useRef<string | null>(null);
-  const syncPendingRuntimeActions = useCallback(() => setPendingRuntimeActions(Object.fromEntries(pendingRuntimeActionsRef.current)), []);
-  const setRuntimeActions = useCallback((ids: string[], action?: AppRuntimeAction) => {
-    const startedAt = Date.now();
-    for (const id of ids) {
-      if (action) pendingRuntimeActionsRef.current.set(id, { action, startedAt });
-      else pendingRuntimeActionsRef.current.delete(id);
-    }
-    syncPendingRuntimeActions();
-  }, [syncPendingRuntimeActions]);
+  const editApp = useCallback((app: AppEntry) => setEdit({ id: app.id, name: app.name, executablePath: app.executablePath, launchArgs: app.launchArgs ?? "", appUserModelId: app.appUserModelId, wakeStrategy: app.wakeStrategy ?? "auto" }), []);
+  const closeExpandedFolder = useCallback((folderId: string) => {
+    const selection = collapsedFolderKeyboardSelection(folderId);
+    setExpandedFolderId(selection.expandedFolderId);
+    setSelectedGridItemId(selection.selectedItemId);
+    setSelectedAppId(selection.selectedAppId);
+  }, []);
   const metricsByApp = useMemo(() => new Map(metrics.map((metric) => [metric.appId, metric])), [metrics]);
   const runtimeApps = useMemo<RuntimeApp[]>(() => apps.map((item) => ({ ...item, metrics: metricsByApp.get(item.id) ?? emptyMetrics(item.id) })), [apps, metricsByApp]);
-  const launchingAppIds = useMemo(() => reconcileAppRuntimeStates(apps, metrics, pendingRuntimeActions, runtimeStateByAppId), [apps, metrics, pendingRuntimeActions, runtimeStateByAppId]);
+  const { closeAllApps, closeApp, closeFolderApps, closeGroupApps, focusAppWindow, folderLaunchStatuses, invalidAppIds, launchApp, launchFolder: launchFolderWithFeedback, refreshRuntimeData, runtimeStates } = useAppActions({
+    client: api(),
+    activeSection,
+    runtimeApps,
+    metrics,
+    folders,
+    startupDelayMs: STARTUP_DEFERRED_RUNTIME_MS,
+    canApplyRuntimeResult: () => !unifiedDragCandidate.current,
+    onAppsChange: setApps,
+    onMetricsChange: setMetrics,
+    onError: setError,
+    onNotice: setNotice,
+    onExecutableReplacementRequired: editApp,
+    onCloseExpandedFolder: closeExpandedFolder,
+  });
   const appGroups = useMemo(() => groups.filter((group) => !group.isSystem).sort((a, b) => a.order - b.order), [groups]);
-  const { discoveredResults, fileResults, installableResults, managedSearchResults, query, searchError, searchLoading, searchPanelOpen, searchResultCount, searchSelectedIndex, setDiscoveredResults, setFileResults, setInstallableResults, setQuery, setSearchPanelOpen, setSearchSelectedIndex } = useSearchResults({ client: api(), runtimeApps, processes });
+  const { discoveredResults, fileResults, installableResults, managedSearchResults, query, searchError, searchLoading, searchPanelOpen, searchResultCount, searchSelectedIndex, setDiscoveredResults, setFileResults, setInstallableResults, setQuery, setSearchPanelOpen, setSearchSelectedIndex } = useSearchResults({ client: api(), runtimeApps });
   const closeMenu = useCallback(() => {
     setMenu(null);
-    setLockedProcessName("");
-    setLockedProcessOrder([]);
   }, []);
 
   useEffect(() => {
@@ -275,62 +264,6 @@ function App() {
     document.documentElement.style.colorScheme = themeAttributes.colorScheme;
     window.localStorage.setItem("start-engineer-ui-theme", preferences.uiTheme);
   }, [preferences.uiTheme, themeAttributes]);
-
-  useEffect(() => {
-    const unsubscribe = api().onFolderLaunchProgress((progress) => {
-      const visualStatus = progress.status === "launched" ? "waiting" : progress.status;
-      setFolderLaunchStatuses((current) => ({ ...current, [progress.appId]: visualStatus }));
-      setRuntimeActions([progress.appId], progress.status === "launching" || progress.status === "launched" ? "launch" : undefined);
-    });
-    return () => {
-      unsubscribe();
-      for (const timer of folderLaunchClearTimers.current.values()) window.clearTimeout(timer);
-      folderLaunchClearTimers.current.clear();
-    };
-  }, [setRuntimeActions]);
-
-  useEffect(() => {
-    const confirmed = metrics.filter((metric) => metric.isRunning && folderLaunchStatuses[metric.appId] === "waiting").map((metric) => metric.appId);
-    if (!confirmed.length) return;
-    setFolderLaunchStatuses((current) => ({ ...current, ...Object.fromEntries(confirmed.map((id) => [id, "launched" as const])) }));
-    for (const id of confirmed) {
-      pendingRuntimeActionsRef.current.delete(id);
-      const timer = folderLaunchClearTimers.current.get(id);
-      if (timer) window.clearTimeout(timer);
-      folderLaunchClearTimers.current.set(id, window.setTimeout(() => {
-        setFolderLaunchStatuses((current) => {
-          const next = { ...current };
-          delete next[id];
-          return next;
-        });
-        folderLaunchClearTimers.current.delete(id);
-      }, 4200));
-    }
-    syncPendingRuntimeActions();
-  }, [folderLaunchStatuses, metrics, syncPendingRuntimeActions]);
-
-  const refreshRuntimeData = useCallback(async (mode: "full" | "managed" = "full", force = false) => {
-    if (mode === "full") setProcessesLoading(true);
-    try {
-      const snapshot = await api().getRuntimeSnapshot(mode, force);
-      if (unifiedDragCandidate.current) return;
-      setApps(snapshot.apps);
-      setMetrics(snapshot.metrics);
-      if (mode === "full") setProcesses(snapshot.processes);
-      if (mode === "managed" && !firstManagedSnapshotMarked.current) {
-        firstManagedSnapshotMarked.current = true;
-        void api().markStartupPerformance("first-managed-snapshot");
-      }
-    } catch (reason) {
-      setError(cleanErrorMessage(reason, "资源监控刷新失败"));
-    } finally {
-      if (mode === "full") setProcessesLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    setRuntimeStateByAppId((current) => reconcileAppRuntimeStates(apps, metrics, pendingRuntimeActions, current));
-  }, [apps, metrics, pendingRuntimeActions]);
 
   useEffect(() => {
     void api().markStartupPerformance("renderer-mounted");
@@ -387,81 +320,6 @@ function App() {
       window.clearTimeout(backgroundTimer);
     };
   }, []);
-
-  useEffect(() => {
-    const markInteraction = () => { lastInteractionAt.current = Date.now(); };
-    window.addEventListener("pointerdown", markInteraction, { passive: true });
-    window.addEventListener("keydown", markInteraction);
-    return () => {
-      window.removeEventListener("pointerdown", markInteraction);
-      window.removeEventListener("keydown", markInteraction);
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    let timer = 0;
-    let startupTimer = 0;
-    let running = false;
-    const schedule = () => {
-      const plan = runtimePollingPlan(activeSection, document.hidden, Date.now() - lastInteractionAt.current);
-      timer = window.setTimeout(async () => {
-        if (!cancelled && !running) {
-          running = true;
-          await refreshRuntimeData(plan.mode);
-          running = false;
-        }
-        if (!cancelled) schedule();
-      }, plan.intervalMs);
-    };
-    const start = () => {
-      window.clearTimeout(timer);
-      if (!document.hidden && !running) {
-        running = true;
-        window.requestAnimationFrame(() => void refreshRuntimeData(activeSection === "processes" ? "full" : "managed").finally(() => {
-          running = false;
-          if (!cancelled) schedule();
-        }));
-      } else schedule();
-    };
-    document.addEventListener("visibilitychange", start);
-    if (runtimePollingStarted.current) start();
-    else startupTimer = window.setTimeout(() => { runtimePollingStarted.current = true; start(); }, STARTUP_DEFERRED_RUNTIME_MS);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-      window.clearTimeout(startupTimer);
-      document.removeEventListener("visibilitychange", start);
-    };
-  }, [activeSection, refreshRuntimeData]);
-
-  useEffect(() => {
-    if (activeSection === "processes" || Object.keys(pendingRuntimeActions).length === 0) return;
-    let cancelled = false;
-    let timer = 0;
-    let running = false;
-    const schedule = () => {
-      timer = window.setTimeout(async () => {
-        if (!cancelled && !document.hidden && !running && pendingRuntimeActionsRef.current.size > 0) {
-          running = true;
-          try {
-            const statuses = await api().getManagedRunningStatus();
-            if (!cancelled && !unifiedDragCandidate.current) setMetrics((current) => applyRunningStatusToMetrics(current, statuses));
-          } catch {
-            // Full runtime snapshots continue to refresh detailed state if the fast probe is unavailable.
-          } finally {
-            running = false;
-          }
-        }
-        if (!cancelled) schedule();
-      }, FAST_RUNNING_STATUS_INTERVAL_MS);
-    };
-    schedule();
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [activeSection, pendingRuntimeActions]);
 
   useEffect(() => {
     if (!configHydrated) return;
@@ -525,41 +383,11 @@ function App() {
       const [nextFolders, nextOrders] = await Promise.all([api().listFolders(), api().listGroupGridOrders()]);
       setFolders(nextFolders);
       setGroupGridOrders(nextOrders);
-      await refreshRuntimeData(activeSection === "processes" ? "full" : "managed", true);
+      await refreshRuntimeData(true);
     } catch (reason) {
       setError(cleanErrorMessage(reason));
     }
   }, [activeSection, refreshRuntimeData]);
-
-  const setAppsClosing = useCallback((ids: string[], closing: boolean) => {
-    setRuntimeActions(ids, closing ? "close" : undefined);
-  }, []);
-
-  const closeApp = useCallback(async (appId: string) => {
-    setError("");
-    let refreshedByKill = false;
-    setAppsClosing([appId], true);
-    try {
-      const result = await api().killApp(appId);
-      const next = applyKillAppResult(result);
-      setApps(next.apps);
-      if (next.metrics) {
-        setMetrics(next.metrics);
-        refreshedByKill = killAppResultHasMetrics(result);
-      }
-      if (next.runningStatuses) {
-        setMetrics((current) => applyRunningStatusToMetrics(current, next.runningStatuses!));
-        refreshedByKill = killAppResultHasRunningStatuses(result);
-      }
-    } catch (reason) {
-      setError(cleanErrorMessage(reason, "结束应用失败"));
-    } finally {
-      if (!refreshedByKill) {
-        await refreshRuntimeData(activeSection === "processes" ? "full" : "managed", true);
-      }
-      setAppsClosing([appId], false);
-    }
-  }, [activeSection, refreshRuntimeData, setAppsClosing]);
 
   const requestCloseApp = useCallback((app: RuntimeApp) => setConfirm({
     title: "结束应用进程",
@@ -567,26 +395,6 @@ function App() {
     confirmLabel: "结束进程",
     onConfirm: async () => { await closeApp(app.id); }
   }), [closeApp]);
-
-  const closeFolderApps = useCallback(async (folderId: string) => {
-    const memberIds = folders.find((folder) => folder.id === folderId)?.appIds.filter((id) => runtimeApps.find((app) => app.id === id)?.metrics.isRunning) ?? [];
-    setAppsClosing(memberIds, true);
-    try {
-      setError("");
-      const result = await api().killFolderApps(folderId);
-      setApps(result.apps);
-      if (result.runningStatuses) setMetrics((current) => applyRunningStatusToMetrics(current, result.runningStatuses!));
-      else await refreshRuntimeData(activeSection === "processes" ? "full" : "managed", true);
-      const stopped = result.results.filter((item) => item.status === "terminated").length;
-      const remaining = result.results.filter((item) => item.status !== "terminated");
-      setNotice(`已关闭 ${stopped} 个应用`);
-      if (remaining.length) setError(remaining.map((item) => `${item.name}：${item.message || "结束失败"}`).join("；"));
-    } catch (reason) {
-      setError(cleanErrorMessage(reason, "结束卡片内应用失败"));
-    } finally {
-      setAppsClosing(memberIds, false);
-    }
-  }, [activeSection, folders, refreshRuntimeData, runtimeApps, setAppsClosing]);
 
   const requestCloseFolder = useCallback((folderId: string) => {
     const folder = folders.find((item) => item.id === folderId);
@@ -722,7 +530,7 @@ function App() {
     apps,
     folders,
     candidateRef: unifiedDragCandidate,
-    setDrag,
+    setDrag: commitDrag,
     applyFolderMutation,
     setFolders,
     setGroupGridOrders,
@@ -732,9 +540,18 @@ function App() {
   });
 
   useEffect(() => {
-    const cancelDrag = () => { dragCandidate.current = null; setDrag(null); };
     let frame = 0;
     let latestEvent: PointerEvent | null = null;
+    const cancelDrag = () => {
+      dragCandidate.current = null;
+      latestEvent = null;
+      if (frame) {
+        window.cancelAnimationFrame(frame);
+        frame = 0;
+      }
+      delete document.documentElement.dataset.cardDragging;
+      commitDrag(null);
+    };
     const updateDrag = () => {
       frame = 0;
       const event = latestEvent;
@@ -751,7 +568,8 @@ function App() {
       }).filter((rect) => Boolean(rect.id));
       const canSortInCurrentGroup = !targetGroup && (activeSection === ALL_APPS_SECTION_ID || app?.groupId === activeSection) && cardIds.includes(candidate.appId);
       const previewOrder = canSortInCurrentGroup ? hitTestAppOrder(cardIds, cardRects, candidate.appId, event.clientX, event.clientY) : undefined;
-      setDrag({
+      document.documentElement.dataset.cardDragging = "true";
+      commitDrag({
         appId: candidate.appId,
         x: event.clientX,
         y: event.clientY,
@@ -767,15 +585,18 @@ function App() {
     const onMove = (event: PointerEvent) => {
       const candidate = dragCandidate.current;
       if (!candidate) return;
-      if (!drag && Math.hypot(event.clientX - candidate.startX, event.clientY - candidate.startY) <= 6) return;
+      if (primaryPointerButtonReleased(event)) { cancelDrag(); return; }
+      if (!dragStateRef.current && Math.hypot(event.clientX - candidate.startX, event.clientY - candidate.startY) <= 6) return;
       latestEvent = event;
       if (!frame) frame = window.requestAnimationFrame(updateDrag);
     };
     const onUp = () => {
-      const current = drag;
+      const current = dragStateRef.current;
       const candidate = dragCandidate.current;
       dragCandidate.current = null;
-      setDrag(null);
+      latestEvent = null;
+      commitDrag(null);
+      window.setTimeout(() => { delete document.documentElement.dataset.cardDragging; }, 0);
       if (current?.targetGroup) void moveAppToGroup(current.appId, current.targetGroup);
       else if (candidate && current) {
         const targetId = document.elementFromPoint(current.x, current.y)?.closest<HTMLElement>("[data-app-card-id]")?.dataset.appCardId;
@@ -791,7 +612,7 @@ function App() {
       }
     };
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
+      if (isEscapeKeyboardEvent(event)) {
         closeMenu();
         setConfirm(null);
         setEdit(null);
@@ -800,16 +621,24 @@ function App() {
         cancelDrag();
       }
     };
+    const onVisibilityChange = () => { if (document.visibilityState === "hidden") cancelDrag(); };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", cancelDrag);
+    window.addEventListener("blur", cancelDrag);
     window.addEventListener("keydown", onKey);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", cancelDrag);
+      window.removeEventListener("blur", cancelDrag);
       window.removeEventListener("keydown", onKey);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       if (frame) window.cancelAnimationFrame(frame);
+      dragCandidate.current = null;
     };
-  }, [activeSection, apps, closeMenu, drag, moveAppToGroup, reorderAppsInGroup]);
+  }, [activeSection, apps, closeMenu, commitDrag, moveAppToGroup, reorderAppsInGroup]);
 
   const pageQuery = "";
   const isAllAppsSection = activeSection === ALL_APPS_SECTION_ID;
@@ -852,36 +681,6 @@ function App() {
     () => [...activeGridItemOrder, ...expandedFolderMemberItemIds],
     [activeGridItemOrder, expandedFolderMemberItemIds]
   );
-  const visibleProcesses = useMemo<DisplayProcess[]>(() => {
-    const direction = sortDirection === "asc" ? 1 : -1;
-    const sorted = processes
-      .filter((item) => processFilter === "all" || item.isManagedApp)
-      .filter((item) => matchesProcessSearch(item, pageQuery))
-      .sort((a, b) => sortKey === "name" ? a.name.localeCompare(b.name) * direction : (a[sortKey] - b[sortKey]) * direction);
-
-    if (!lockedProcessName || lockedProcessOrder.length === 0) return sorted;
-
-    const byName = new Map(sorted.map((item) => [item.name.toLowerCase(), item as DisplayProcess]));
-    if (!byName.has(lockedProcessName) && menu?.kind === "process") {
-      byName.set(lockedProcessName, {
-        ...menu.process,
-        cpuPercent: 0,
-        memoryBytes: 0,
-        diskBytesPerSecond: 0,
-        canTerminate: false,
-        terminationBlockedReason: "进程已结束",
-        isEnded: true
-      });
-    }
-
-    const ordered = lockedProcessOrder.flatMap((name) => {
-      const item = byName.get(name);
-      if (!item) return [];
-      byName.delete(name);
-      return [item];
-    });
-    return [...ordered, ...byName.values()];
-  }, [lockedProcessName, lockedProcessOrder, menu, processFilter, processes, pageQuery, sortDirection, sortKey]);
   useEffect(() => {
     if (!isAppSection || !isAllAppsSection) return;
     if (!visibleApps.some((app) => app.id === selectedAppId)) setSelectedAppId(visibleApps[0]?.id ?? "");
@@ -906,10 +705,8 @@ function App() {
   const draggedApp = runtimeApps.find((item) => item.id === drag?.appId);
   const draggedFolder = folders.find((item) => item.id === drag?.folderId);
   const activeGroup = groups.find((group) => group.id === activeSection);
-  const pageTitle = activeSection === "processes" ? "进程监控" : isAllAppsSection ? "已添加应用" : activeSection === "settings" ? "偏好设置" : activeGroup?.name ?? "应用";
-  const pageSubtitle = activeSection === "processes"
-    ? `${visibleProcesses.length} 个进程正在显示`
-    : isAllAppsSection
+  const pageTitle = isAllAppsSection ? "已添加应用" : activeSection === "settings" ? "偏好设置" : activeGroup?.name ?? "应用";
+  const pageSubtitle = isAllAppsSection
       ? `${visibleApps.length} 个应用 / ${activeGroupApps.filter((app) => app.metrics.isRunning).length} 个运行中`
       : activeSection === "settings"
         ? "调整常用偏好与管理应用分组"
@@ -934,18 +731,6 @@ function App() {
       return api().getPreferences();
     }).then(setPreferences).catch((reason) => setSearchDependencyStatus({ state: "failed", message: cleanErrorMessage(reason, "准备 Everything 搜索依赖失败") }));
   }, []);
-  const processMenuItem: DisplayProcess | undefined = menu?.kind === "process"
-    ? processes.find((item) => item.name.toLowerCase() === menu.process.name.toLowerCase()) ?? {
-      ...menu.process,
-      cpuPercent: 0,
-      memoryBytes: 0,
-      diskBytesPerSecond: 0,
-      canTerminate: false,
-      terminationBlockedReason: "进程已结束",
-      isEnded: true
-    }
-    : undefined;
-
   const closeFloatingUi = useCallback(() => {
     closeMenu();
     setSearchPanelOpen(false);
@@ -965,12 +750,6 @@ function App() {
     window.requestAnimationFrame(() => {
       document.querySelector<HTMLElement>(selector)?.focus({ preventScroll: true });
     });
-  }, []);
-  const closeExpandedFolder = useCallback((folderId: string) => {
-    const selection = collapsedFolderKeyboardSelection(folderId);
-    setExpandedFolderId(selection.expandedFolderId);
-    setSelectedGridItemId(selection.selectedItemId);
-    setSelectedAppId(selection.selectedAppId);
   }, []);
   useEffect(() => {
     if (!expandedFolderId) return;
@@ -1009,7 +788,6 @@ function App() {
 
   const switchSection = (id: SectionId) => {
     if (drag) return;
-    if (id === "processes" && !processes.length) setProcessesLoading(true);
     setActiveSection(id);
     setSelectedGridItemId("");
     setQuery("");
@@ -1027,160 +805,13 @@ function App() {
       setSelectedAppId("");
     }
   };
-  const changeSort = (key: SortKey) => {
-    closeMenu();
-    if (key === sortKey) setSortDirection((value) => value === "asc" ? "desc" : "asc");
-    else { setSortKey(key); setSortDirection(key === "name" ? "asc" : "desc"); }
-  };
   const openMenu = (next: Exclude<MenuState, null>) => {
     setMenu({ ...next, x: Math.min(next.x, window.innerWidth - 250), y: Math.min(next.y, window.innerHeight - 430) });
-  };
-  const openProcessMenu = (event: React.MouseEvent, process: ProcessInfo) => {
-    event.preventDefault();
-    event.stopPropagation();
-    setLockedProcessName(process.name.toLowerCase());
-    setLockedProcessOrder(visibleProcesses.map((item) => item.name.toLowerCase()));
-    openMenu({ kind: "process", x: event.clientX, y: event.clientY, process });
-  };
-  const changeProcessFilter = (value: ProcessFilter) => {
-    closeMenu();
-    setProcessFilter(value);
   };
   const addApp = () => {
     const groupId = appGroups.some((group) => group.id === activeSection) ? activeSection : appGroups[0]?.id;
     if (!groupId) return;
     void runAppAction(() => api().addAppFromDialog(groupId));
-  };
-  const launchApp = async (id: string) => {
-    if (pendingRuntimeActionsRef.current.has(id)) return;
-    const appName = runtimeApps.find((app) => app.id === id)?.name ?? "应用";
-    setRuntimeActions([id], "launch");
-    setFolderLaunchStatuses((current) => ({ ...current, [id]: "launching" }));
-    let waitingForRuntime = false;
-    try {
-      setError("");
-      setNotice(buildLaunchFeedbackMessage("starting", appName));
-      const result = await api().launchApp(id);
-      setApps(result.apps);
-      if (result.status === "failed") {
-        setNotice("");
-        const failedApp = runtimeApps.find((item) => item.id === id);
-        if (shouldOfferExecutableReplacement(failedApp, result)) {
-          setInvalidAppIds((current) => new Set(current).add(id));
-          setError(result.message || "程序路径不存在，请重新选择启动程序。");
-          if (failedApp) editApp(failedApp);
-          return;
-        }
-        setError(result.message || "启动失败，请检查程序路径和启动参数。");
-        return;
-      }
-      setInvalidAppIds((current) => {
-        if (!current.has(id)) return current;
-        const next = new Set(current);
-        next.delete(id);
-        return next;
-      });
-      setNotice(buildLaunchFeedbackMessage(result.status, appName));
-      if (result.status === "launched") {
-        waitingForRuntime = true;
-        setFolderLaunchStatuses((current) => ({ ...current, [id]: "waiting" }));
-        const previousTimer = folderLaunchClearTimers.current.get(id);
-        if (previousTimer) window.clearTimeout(previousTimer);
-        folderLaunchClearTimers.current.set(id, window.setTimeout(() => {
-          setRuntimeActions([id]);
-          setFolderLaunchStatuses((current) => {
-            const next = { ...current };
-            delete next[id];
-            return next;
-          });
-          folderLaunchClearTimers.current.delete(id);
-          setNotice(`${appName} 已收到启动请求，仍在等待运行状态`);
-        }, 60000));
-        void api().getManagedRunningStatus()
-          .then((statuses) => setMetrics((current) => applyRunningStatusToMetrics(current, statuses)))
-          .catch(() => undefined);
-      } else if (result.status === "alreadyRunning") {
-        const statuses = await api().getManagedRunningStatus();
-        setMetrics((current) => applyRunningStatusToMetrics(current, statuses));
-      }
-    } catch (reason) {
-      setNotice("");
-      setError(cleanErrorMessage(reason, "启动失败，请检查程序路径和启动参数。"));
-    } finally {
-      if (!waitingForRuntime) {
-        setRuntimeActions([id]);
-        setFolderLaunchStatuses((current) => {
-          const next = { ...current };
-          delete next[id];
-          return next;
-        });
-      }
-    }
-  };
-  const launchFolderWithFeedback = async (folderId: string) => {
-    const folder = folders.find((item) => item.id === folderId);
-    if (!folder) return;
-    const memberIds = folder.appIds.filter((id) => runtimeApps.some((app) => app.id === id));
-    if (!memberIds.length || memberIds.some((id) => folderLaunchStatuses[id] === "queued" || folderLaunchStatuses[id] === "launching")) return;
-    closeExpandedFolder(folderId);
-    for (const id of memberIds) {
-      const timer = folderLaunchClearTimers.current.get(id);
-      if (timer) window.clearTimeout(timer);
-      folderLaunchClearTimers.current.delete(id);
-      pendingRuntimeActionsRef.current.set(id, { action: "launch", startedAt: Date.now() });
-    }
-    syncPendingRuntimeActions();
-    setFolderLaunchStatuses((current) => ({ ...current, ...Object.fromEntries(memberIds.map((id) => [id, "queued" as const])) }));
-    try {
-      setError("");
-      const result = await api().launchFolder(folderId);
-      setApps(result.apps);
-      setFolderLaunchStatuses((current) => ({ ...current, ...Object.fromEntries(result.results.map((item) => [item.appId, item.status === "launched" ? "waiting" : item.status])) }));
-      setRuntimeActions(result.results.filter((item) => item.status !== "launched").map((item) => item.appId));
-      const failed = result.results.filter((item) => item.status === "failed");
-      if (failed.length) setError(`${failed.length} 个应用启动失败`);
-      void api().getManagedRunningStatus()
-        .then((statuses) => setMetrics((current) => applyRunningStatusToMetrics(current, statuses)))
-        .catch(() => undefined);
-      for (const item of result.results) {
-        const delay = item.status === "launched" ? 60000 : item.status === "failed" ? 8000 : 4200;
-        folderLaunchClearTimers.current.set(item.appId, window.setTimeout(() => {
-          if (item.status === "launched") {
-            setRuntimeActions([item.appId]);
-            setFolderLaunchStatuses((current) => ({ ...current, [item.appId]: "launched" }));
-            folderLaunchClearTimers.current.set(item.appId, window.setTimeout(() => {
-              setFolderLaunchStatuses((current) => {
-                const next = { ...current };
-                delete next[item.appId];
-                return next;
-              });
-              folderLaunchClearTimers.current.delete(item.appId);
-            }, 4200));
-            return;
-          }
-          setFolderLaunchStatuses((current) => {
-            const next = { ...current };
-            delete next[item.appId];
-            return next;
-          });
-          folderLaunchClearTimers.current.delete(item.appId);
-        }, delay));
-      }
-    } catch (reason) {
-      setFolderLaunchStatuses((current) => ({ ...current, ...Object.fromEntries(memberIds.map((id) => [id, "failed" as const])) }));
-      setRuntimeActions(memberIds);
-      setError(cleanErrorMessage(reason, "批量启动失败"));
-      for (const id of memberIds) {
-        folderLaunchClearTimers.current.set(id, window.setTimeout(() => {
-          setFolderLaunchStatuses((current) => {
-            const next = { ...current };
-            delete next[id];
-            return next;
-          });
-          folderLaunchClearTimers.current.delete(id);
-        }, 8000));
-      }
-    }
   };
   const targetSearchGroupId = () => appGroups.some((group) => group.id === activeSection)
     ? activeSection
@@ -1213,21 +844,6 @@ function App() {
       setError(cleanErrorMessage(reason, "添加失败"));
     }
   }, [activeSection, appGroups, focusAppCardById, openInternalResult, runtimeApps, selectedAppId]);
-  const focusAppWindow = async (app: RuntimeApp) => {
-    const requestId = ++focusRequestSeq.current;
-    setRuntimeActions([app.id], "wake");
-    try {
-      setError("");
-      const result = await api().focusAppWindow(app.id, focusHintsForApp(app));
-      if (requestId !== focusRequestSeq.current) return;
-      const message = focusResultMessage(result);
-      if (message) setNotice(message);
-    } catch (reason) {
-      if (requestId === focusRequestSeq.current) setError(cleanErrorMessage(reason, "唤起应用窗口失败"));
-    } finally {
-      setRuntimeActions([app.id]);
-    }
-  };
   const runManagedSearchResult = useCallback((result: Extract<InternalSearchResult, { kind: "app" }>) => {
     const app = runtimeApps.find((item) => item.id === result.id);
     setSearchPanelOpen(false);
@@ -1291,22 +907,7 @@ function App() {
         title: "关闭全部已添加应用",
         message: `将结束 ${runningApps.length} 个应用：${runningApps.map((app) => app.name).join("、")}。是否继续？`,
         confirmLabel: "关闭全部",
-        onConfirm: async () => {
-          const ids = runningApps.map((app) => app.id);
-          setAppsClosing(ids, true);
-          try {
-            const result = await api().killAllApps();
-            setApps(result.apps);
-            if (result.runningStatuses) setMetrics((current) => applyRunningStatusToMetrics(current, result.runningStatuses!));
-            else await refreshRuntimeData("managed", true);
-            const stopped = result.results.filter((item) => item.status === "terminated").length;
-            const remaining = result.results.filter((item) => item.status !== "terminated");
-            setNotice(`已关闭 ${stopped} 个应用`);
-            if (remaining.length) setError(remaining.map((item) => `${item.name}：${item.message || "结束失败"}`).join("；"));
-          } finally {
-            setAppsClosing(ids, false);
-          }
-        }
+        onConfirm: async () => { await closeAllApps(runningApps.map((app) => app.id)); }
       });
       return;
     }
@@ -1320,29 +921,13 @@ function App() {
       title: "关闭当前分组全部应用",
       message: `将结束 ${runningApps.length} 个应用：${runningApps.map((app) => app.name).join("、")}。是否继续？`,
       confirmLabel: "关闭全部",
-      onConfirm: async () => {
-        const ids = runningApps.map((app) => app.id);
-        setAppsClosing(ids, true);
-        try {
-          const result = await api().killGroupApps(activeGroup.id);
-          setApps(result.apps);
-          if (result.runningStatuses) setMetrics((current) => applyRunningStatusToMetrics(current, result.runningStatuses!));
-          else await refreshRuntimeData("managed", true);
-          const stopped = result.results.filter((item) => item.status === "terminated").length;
-          const remaining = result.results.filter((item) => item.status !== "terminated");
-          setNotice(`已关闭 ${stopped} 个应用`);
-          if (remaining.length) setError(remaining.map((item) => `${item.name}：${item.message || "结束失败"}`).join("；"));
-        } finally {
-          setAppsClosing(ids, false);
-        }
-      }
+      onConfirm: async () => { await closeGroupApps(activeGroup.id, runningApps.map((app) => app.id)); }
     });
   };
-  const editApp = (app: AppEntry) => setEdit({ id: app.id, name: app.name, executablePath: app.executablePath, launchArgs: app.launchArgs ?? "", appUserModelId: app.appUserModelId, wakeStrategy: app.wakeStrategy ?? "auto" });
   const runKeyboardAppAction = useCallback((app: RuntimeApp, command: "activate" | "menu" | "edit", menuPosition?: { x: number; y: number }) => {
     const action = command === "activate" ? resolveAppKeyboardAction({
       isRunning: app.metrics.isRunning,
-      isLaunching: launchingAppIds[app.id]?.state === "launching",
+      isLaunching: runtimeStates[app.id]?.state === "launching",
       isInvalid: invalidAppIds.has(app.id)
     }, "Enter") : command === "menu" ? "context-menu" : "edit";
     if (action === "launching-feedback") handleLaunchingFeedback(app);
@@ -1517,9 +1102,6 @@ function App() {
       <aside className="sidebar no-drag">
         <div className="brand-icon" aria-hidden="true"><BrandLogo /></div>
         <nav className="nav">
-          {groups.filter((group) => group.id === "processes").map((group) => <button key={group.id} className={`nav-button ${activeSection === group.id ? "active" : ""}`} onClick={() => switchSection(group.id)}>
-            <Icon name={group.icon} /><span>{group.name}</span>
-          </button>)}
           <button className={`nav-button ${activeSection === ALL_APPS_SECTION_ID ? "active" : ""}`} onClick={() => switchSection(ALL_APPS_SECTION_ID)}>
             <Icon name="grid" /><span>已添加应用</span>
           </button>
@@ -1546,14 +1128,12 @@ function App() {
           </div>
         </header>
 
-        {activeSection === "processes" ? <ProcessPage processes={visibleProcesses} loading={processesLoading} lockedProcessName={lockedProcessName} sortKey={sortKey} sortDirection={sortDirection} changeSort={changeSort} filter={processFilter} setFilter={changeProcessFilter} onContextMenu={openProcessMenu} />
-          : activeSection === "settings" ? <SettingsPage client={api()} apps={runtimeApps} groups={appGroups} preferences={preferences} onPreferencesChange={savePreferences} onWallpaperIntensityPreview={previewWallpaperGlassIntensity} onThemeChange={saveTheme} onAdd={addApp} onAddToGroup={(groupId) => void runAppAction(() => api().addAppFromDialog(groupId))} onCreate={() => setGroupEdit({ name: "", icon: "grid" })} onEdit={(group) => setGroupEdit({ id: group.id, name: group.name, icon: group.icon })} onDelete={requestDeleteGroup} onReorder={reorderGroups} onOpenApp={(app) => { setActiveSection(app.groupId); setSelectedAppId(app.id); }} onAppContextMenu={(event, app) => { event.preventDefault(); event.stopPropagation(); openMenu({ kind: "app", x: event.clientX, y: event.clientY, appId: app.id }); }} onMoveApp={moveAppWithinSettings} />
-          : <GroupPage apps={displayedApps} folders={folders.filter((folder) => folder.groupId === activeSection)} launchingAppIds={launchingAppIds} selectedAppId={selectedAppId} invalidAppIds={invalidAppIds} draggingAppId={drag?.appId} runningCount={activeGroupApps.filter((app) => app.metrics.isRunning).length} showAppNames={preferences.uiLayout.showAppNames} onSelectApp={handleAppSelection} onFocusApp={(app) => void focusAppWindow(app)} onLaunchApp={(app) => void launchApp(app.id)} onLaunchingFeedback={handleLaunchingFeedback} onCloseAll={() => void requestCloseGroupApps()} onAdd={addApp} onContextMenu={(event, app) => { event.preventDefault(); event.stopPropagation(); if (!drag) openMenu({ kind: "app", x: event.clientX, y: event.clientY, appId: app.id }); }} onPointerDown={(event, app) => { if (event.button !== 0) return; const rect = event.currentTarget.getBoundingClientRect(); dragCandidate.current = { appId: app.id, sourceGroupId: app.groupId, startX: event.clientX, startY: event.clientY, grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top, width: rect.width, height: rect.height, initialOrder: displayedApps.map((item) => item.id) }; }} onRequestClose={requestCloseApp} onFolderDrop={(folderId) => { const appId = drag?.appId; const folder = folders.find((item) => item.id === folderId); if (!appId || !folder || folder.appIds.includes(appId)) return; void api().updateFolder({ id: folderId, appIds: [...folder.appIds, appId] }).then(setFolders); }} onLaunchFolder={(folderId) => void api().launchFolder(folderId).then((result) => { setApps(result.apps); setNotice(`已处理 ${result.results.length} 个应用`); })} />}
-        {isAppSection && !isAllAppsSection ? <UnifiedGroupPage apps={visibleApps} allApps={runtimeApps} folders={activeFolders} itemOrder={activeGridItemOrder} expandedFolderId={expandedFolderId} recentlyMergedFolderId={recentlyMergedFolderId} launchingAppIds={launchingAppIds} folderLaunchStatuses={folderLaunchStatuses} selectedItemId={selectedGridItemId} invalidAppIds={invalidAppIds} draggingItemId={drag?.itemId} runningCount={activeGroupApps.filter((app) => app.metrics.isRunning).length} showAppNames={preferences.uiLayout.showAppNames} onSelectApp={handleAppSelection} onSelectFolder={(folderId) => { setSelectedGridItemId(`folder:${folderId}`); setSelectedAppId(""); }} onFocusApp={(app) => void focusAppWindow(app)} onLaunchApp={(app) => void launchApp(app.id)} onLaunchingFeedback={handleLaunchingFeedback} onCloseAll={() => void requestCloseGroupApps()} onAdd={addApp} onContextMenu={(event, app) => { event.preventDefault(); event.stopPropagation(); if (!drag) openMenu({ kind: "app", x: event.clientX, y: event.clientY, appId: app.id }); }} onAppPointerDown={(event, app, sourceFolderId) => { if (event.button !== 0) return; const rect = event.currentTarget.getBoundingClientRect(); unifiedDragCandidate.current = { kind: "app", appId: app.id, sourceFolderId, itemId: `app:${app.id}`, startX: event.clientX, startY: event.clientY, grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top, width: rect.width, height: rect.height }; }} onFolderPointerDown={(event, folder) => { if (event.button !== 0) return; const rect = event.currentTarget.getBoundingClientRect(); unifiedDragCandidate.current = { kind: "folder", folderId: folder.id, itemId: `folder:${folder.id}`, startX: event.clientX, startY: event.clientY, grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top, width: rect.width, height: rect.height }; }} onToggleFolder={(folderId) => { if (document.documentElement.dataset.cardDragging) return; if (expandedFolderId === folderId) closeExpandedFolder(folderId); else { setExpandedFolderId(folderId); setSelectedGridItemId(`folder:${folderId}`); setSelectedAppId(""); } }} onLaunchFolder={(folderId) => { void launchFolderWithFeedback(folderId); }} onRequestCloseFolder={requestCloseFolder} onRequestClose={requestCloseApp} /> : null}
+        {activeSection === "settings" ? <SettingsPage client={api()} apps={runtimeApps} groups={appGroups} preferences={preferences} onPreferencesChange={savePreferences} onWallpaperIntensityPreview={previewWallpaperGlassIntensity} onThemeChange={saveTheme} onAdd={addApp} onAddToGroup={(groupId) => void runAppAction(() => api().addAppFromDialog(groupId))} onCreate={() => setGroupEdit({ name: "", icon: "grid" })} onEdit={(group) => setGroupEdit({ id: group.id, name: group.name, icon: group.icon })} onDelete={requestDeleteGroup} onReorder={reorderGroups} onOpenApp={(app) => { setActiveSection(app.groupId); setSelectedAppId(app.id); }} onAppContextMenu={(event, app) => { event.preventDefault(); event.stopPropagation(); openMenu({ kind: "app", x: event.clientX, y: event.clientY, appId: app.id }); }} onMoveApp={moveAppWithinSettings} />
+          : <GroupPage apps={displayedApps} folders={folders.filter((folder) => folder.groupId === activeSection)} runtimeStates={runtimeStates} selectedAppId={selectedAppId} invalidAppIds={invalidAppIds} draggingAppId={drag?.appId} runningCount={activeGroupApps.filter((app) => app.metrics.isRunning).length} showAppNames={preferences.uiLayout.showAppNames} onSelectApp={handleAppSelection} onFocusApp={(app) => void focusAppWindow(app)} onLaunchApp={(app) => void launchApp(app.id)} onLaunchingFeedback={handleLaunchingFeedback} onCloseAll={() => void requestCloseGroupApps()} onAdd={addApp} onContextMenu={(event, app) => { event.preventDefault(); event.stopPropagation(); if (!drag) openMenu({ kind: "app", x: event.clientX, y: event.clientY, appId: app.id }); }} onPointerDown={(event, app) => { if (event.button !== 0) return; capturePointerForDrag(event.currentTarget, event.pointerId); const rect = event.currentTarget.getBoundingClientRect(); dragCandidate.current = { appId: app.id, sourceGroupId: app.groupId, startX: event.clientX, startY: event.clientY, grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top, width: rect.width, height: rect.height, initialOrder: displayedApps.map((item) => item.id) }; }} onRequestClose={requestCloseApp} onFolderDrop={(folderId) => { const appId = drag?.appId; const folder = folders.find((item) => item.id === folderId); if (!appId || !folder || folder.appIds.includes(appId)) return; void api().updateFolder({ id: folderId, appIds: [...folder.appIds, appId] }).then(setFolders); }} onLaunchFolder={(folderId) => void api().launchFolder(folderId).then((result) => { setApps(result.apps); setNotice(`已处理 ${result.results.length} 个应用`); })} />}
+        {isAppSection && !isAllAppsSection ? <UnifiedGroupPage apps={visibleApps} allApps={runtimeApps} folders={activeFolders} itemOrder={activeGridItemOrder} expandedFolderId={expandedFolderId} recentlyMergedFolderId={recentlyMergedFolderId} runtimeStates={runtimeStates} folderLaunchStatuses={folderLaunchStatuses} selectedItemId={selectedGridItemId} invalidAppIds={invalidAppIds} draggingItemId={drag?.itemId} runningCount={activeGroupApps.filter((app) => app.metrics.isRunning).length} showAppNames={preferences.uiLayout.showAppNames} onSelectApp={handleAppSelection} onSelectFolder={(folderId) => { setSelectedGridItemId(`folder:${folderId}`); setSelectedAppId(""); }} onFocusApp={(app) => void focusAppWindow(app)} onLaunchApp={(app) => void launchApp(app.id)} onLaunchingFeedback={handleLaunchingFeedback} onCloseAll={() => void requestCloseGroupApps()} onAdd={addApp} onContextMenu={(event, app) => { event.preventDefault(); event.stopPropagation(); if (!drag) openMenu({ kind: "app", x: event.clientX, y: event.clientY, appId: app.id }); }} onAppPointerDown={(event, app, sourceFolderId) => { if (event.button !== 0) return; capturePointerForDrag(event.currentTarget, event.pointerId); const rect = event.currentTarget.getBoundingClientRect(); unifiedDragCandidate.current = { kind: "app", appId: app.id, sourceFolderId, itemId: `app:${app.id}`, startX: event.clientX, startY: event.clientY, grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top, width: rect.width, height: rect.height }; }} onFolderPointerDown={(event, folder) => { if (event.button !== 0) return; capturePointerForDrag(event.currentTarget, event.pointerId); const rect = event.currentTarget.getBoundingClientRect(); unifiedDragCandidate.current = { kind: "folder", folderId: folder.id, itemId: `folder:${folder.id}`, startX: event.clientX, startY: event.clientY, grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top, width: rect.width, height: rect.height }; }} onToggleFolder={(folderId) => { if (document.documentElement.dataset.cardDragging) return; if (expandedFolderId === folderId) closeExpandedFolder(folderId); else { setExpandedFolderId(folderId); setSelectedGridItemId(`folder:${folderId}`); setSelectedAppId(""); } }} onLaunchFolder={(folderId) => { void launchFolderWithFeedback(folderId); }} onRequestCloseFolder={requestCloseFolder} onRequestClose={requestCloseApp} /> : null}
         {notice || error ? <ToastStack notice={notice} error={error} onDismissNotice={() => setNotice("")} onDismissError={() => setError("")} /> : null}
       </section>
 
-      {menu?.kind === "process" && processMenuItem ? <ProcessContextMenu state={menu} process={processMenuItem} onClose={closeMenu} onConfirm={setConfirm} onError={setError} /> : null}
       {menu?.kind === "app" ? <AppContextMenu state={menu} app={runtimeApps.find((item) => item.id === menu.appId)} groups={appGroups} onClose={closeMenu} onLaunch={launchApp} onKill={requestCloseApp} onEdit={editApp} onMove={activeSection === "settings" ? moveAppWithinSettings : moveAppToGroup} onRemove={(app) => setConfirm({ title: "移除应用", message: `确定从 Start Engineer 中移除 ${app.name} 吗？本地程序文件不会被删除。`, confirmLabel: "移除应用", onConfirm: async () => { await runAppAction(() => api().removeApp(app.id)); setSelectedAppId(""); } })} onNotice={setNotice} onError={setError} /> : null}
       {menu?.kind === "group" ? <GroupContextMenu state={menu} groups={appGroups} onClose={closeMenu} onCreate={() => setGroupEdit({ name: "", icon: "grid" })} onEdit={(group) => setGroupEdit({ id: group.id, name: group.name, icon: group.icon })} onDelete={requestDeleteGroup} onReorder={reorderGroups} /> : null}
       {confirm ? <ConfirmDialog state={confirm} onClose={() => setConfirm(null)} onError={(message) => { setConfirm(null); setError(cleanErrorMessage(message)); }} /> : null}

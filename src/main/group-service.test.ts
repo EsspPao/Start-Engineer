@@ -23,6 +23,14 @@ function setup(initialApps = [app("a"), app("b"), app("c")]) {
 }
 
 describe("GroupService", () => {
+  it("publishes only the settings system group after removing the process module", () => {
+    const { service } = setup();
+    const groups = service.listGroups();
+
+    expect(groups.some((group) => group.id === "processes")).toBe(false);
+    expect(groups.at(-1)).toMatchObject({ id: "settings", isSystem: true });
+  });
+
   it("creates a folder and replaces member cards in the mixed grid", () => {
     const { service } = setup();
     service.saveGridOrders([{ groupId: "games", itemIds: ["app:a", "app:b", "app:c"] }]);

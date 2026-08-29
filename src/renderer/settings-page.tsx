@@ -11,6 +11,7 @@ import { Icon } from "./ui-icons";
 import { useSettingsGroupDrag } from "./use-settings-group-drag";
 import { useSettingsPreferences } from "./use-settings-preferences";
 import type { RuntimeApp } from "./window-focus-feedback";
+import { capturePointerForDrag } from "./pointer-drag-lifecycle";
 export function SettingsPage({ client, apps, groups, preferences, onPreferencesChange, onWallpaperIntensityPreview, onThemeChange, onAdd, onAddToGroup, onCreate, onEdit, onDelete, onReorder, onOpenApp, onAppContextMenu, onMoveApp }: {
     client: StartEngineerApi;
     apps: RuntimeApp[];
@@ -111,7 +112,7 @@ export function SettingsPage({ client, apps, groups, preferences, onPreferencesC
           <div className="preference-row running-sort-preference"><span><strong>运行应用置顶</strong><small>分组内已启动应用自动显示在前面，关闭后恢复原有顺序。</small></span><button className={`setting-switch ${preferences.sortRunningAppsFirst ? "enabled" : ""}`} role="switch" aria-checked={preferences.sortRunningAppsFirst} disabled={savingPreference !== null} onClick={() => void savePreference("runningSort", { sortRunningAppsFirst: !preferences.sortRunningAppsFirst })}><i /></button></div>
           <div className="preference-row app-name-preference"><span><strong>显示应用名称</strong><small>在主界面卡片下方显示应用名称，关闭后只保留图标和状态。</small></span><button className={`setting-switch ${preferences.uiLayout.showAppNames ? "enabled" : ""}`} role="switch" aria-checked={preferences.uiLayout.showAppNames} disabled={savingPreference !== null} onClick={() => saveLayoutPreference({ showAppNames: !preferences.uiLayout.showAppNames })}><i /></button></div>
           <div className="preference-row administrator-preference"><span><strong>启动时预先授权关闭高权限应用</strong><small>默认保持普通权限；仅在普通关闭失败时请求 UAC。开启后会在每次启动时授权一次，主界面仍保持普通权限和资源管理器拖放能力。</small><em className={preferences.elevatedTerminationStatus === "ready" ? "active" : "pending"}>{administratorStatus}</em></span><div className="administrator-controls">{preferences.administratorRestartRequired ? <button className="shortcut-reset administrator-restart" onClick={() => void client.restartWithConfiguredPrivileges().catch((reason) => setShortcutMessage(cleanErrorMessage(reason, "管理员授权失败")))}>{preferences.elevatedTerminationStatus === "cancelled" || preferences.elevatedTerminationStatus === "failed" ? "重新授权" : "本次授权"}</button> : null}<button title="启动时预先授权关闭高权限应用" className={`setting-switch ${preferences.runAsAdministrator ? "enabled" : ""}`} role="switch" aria-checked={preferences.runAsAdministrator} disabled={savingPreference !== null} onClick={() => void savePreference("administrator", { runAsAdministrator: !preferences.runAsAdministrator })}><i /></button></div></div>
-          <div className="preference-row search-preference"><span><strong>搜索范围</strong><small>默认调用 Everything 搜索文件；开启后只筛选 Start Engineer 内的应用和进程。</small><em>{preferences.searchProvider === "everything" ? "当前使用 Everything" : "当前仅搜索内部应用"}</em></span><button className={`setting-switch ${preferences.searchProvider === "internal" ? "enabled" : ""}`} role="switch" aria-checked={preferences.searchProvider === "internal"} disabled={savingPreference !== null} onClick={() => void savePreference("search", { searchProvider: preferences.searchProvider === "internal" ? "everything" : "internal" })}><i /></button></div>
+          <div className="preference-row search-preference"><span><strong>搜索范围</strong><small>默认调用 Everything 搜索文件；开启后只筛选 Start Engineer 内已添加的应用。</small><em>{preferences.searchProvider === "everything" ? "当前使用 Everything" : "当前仅搜索内部应用"}</em></span><button className={`setting-switch ${preferences.searchProvider === "internal" ? "enabled" : ""}`} role="switch" aria-checked={preferences.searchProvider === "internal"} disabled={savingPreference !== null} onClick={() => void savePreference("search", { searchProvider: preferences.searchProvider === "internal" ? "everything" : "internal" })}><i /></button></div>
         </div>
         <KeyboardShortcutSettingsSection shortcuts={preferences.keyboardShortcuts} onChange={onPreferencesChange}/>
         <SearchDependencySettings onPreferencesResolved={setPreferences} />
@@ -128,12 +129,14 @@ export function SettingsPage({ client, apps, groups, preferences, onPreferencesC
       }} onToggle={() => toggle(group.id)} onSortStart={(event) => {
         if (appCandidate.current) return;
         event.preventDefault();
+        capturePointerForDrag(event.currentTarget, event.pointerId);
         const rect = rows.current.get(group.id)?.getBoundingClientRect();
         sortCandidate.current = { id: group.id, startX: event.clientX, startY: event.clientY, grabOffsetX: rect ? event.clientX - rect.left : 40, grabOffsetY: rect ? event.clientY - rect.top : 32, original: [...ordered], active: false, valid: true };
       }} onEdit={() => onEdit(group)} onDelete={() => onDelete(group.id)} canDelete={groups.length > 1} onAdd={() => onAddToGroup(group.id)} onOpenApp={(candidate) => {
         if (!suppressAppClick.current) onOpenApp(candidate);
       }} onAppContextMenu={onAppContextMenu} onAppPointerDown={(event, candidate) => {
         if (event.button !== 0 || sortCandidate.current) return;
+        capturePointerForDrag(event.currentTarget, event.pointerId);
         const rect = event.currentTarget.getBoundingClientRect();
         appCandidate.current = { appId: candidate.id, startX: event.clientX, startY: event.clientY, grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top };
       }}/>)}</div>

@@ -258,7 +258,6 @@ runtimeService = new RuntimeService({
 
 const buildRuntimeSnapshot = (mode: SnapshotMode = "full", force = false) => runtimeService.getSnapshot(mode, force);
 const metricsSnapshot = () => runtimeService.metrics();
-const processSnapshot = () => runtimeService.processes();
 const getManagedRunningStatus = () => runtimeService.getManagedRunningStatus();
 const getProcessSnapshots = (mode: SnapshotMode = "full") => runtimeService.getProcessSnapshots(mode);
 const terminateManagedApps = (entries: AppEntry[]) => runtimeService.terminateManagedApps(entries);
@@ -327,11 +326,7 @@ function registerIpc() {
     loadFolders,
     loadGroups: loadAppGroups,
     terminateManagedApps,
-    getTerminationBlockReason: (name, pids) => processControlService.getTerminationBlockReason(name, pids),
-    getProcessSnapshots,
-    terminateProcessPids: (pids) => runtimeService.terminateProcessPids(pids),
     metricsSnapshot,
-    processSnapshot,
     buildRuntimeSnapshot,
     getManagedRunningStatus
   });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchesAppSearch, matchesProcessSearch, normalizeSearch } from "./search.js";
+import { matchesAppSearch, normalizeSearch } from "./search.js";
 
 describe("search", () => {
   it("normalizes casing, whitespace and full-width text", () => {
@@ -14,10 +14,5 @@ describe("search", () => {
   it("does not match an application by its executable path", () => {
     const codex = { name: "Codex", processName: "Codex", executablePath: "C:\\Program Files\\WindowsApps\\Codex.exe" };
     expect(matchesAppSearch(codex, "w")).toBe(false);
-  });
-
-  it("matches processes by process name", () => {
-    expect(matchesProcessSearch({ name: "Weixin.exe" }, "WEI")).toBe(true);
-    expect(matchesProcessSearch({ name: "Codex.exe" }, "w")).toBe(false);
   });
 });

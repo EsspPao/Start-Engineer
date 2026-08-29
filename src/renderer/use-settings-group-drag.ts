@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AppGroup } from "../shared/types";
 import { groupSortPreviewPosition } from "./drag-preview-position";
 import type { RuntimeApp } from "./window-focus-feedback";
+import { isEscapeKeyboardEvent } from "./keyboard-navigation";
+import { primaryPointerButtonReleased } from "./pointer-drag-lifecycle";
 
 type SettingsGroupDragOptions = {
   groups: AppGroup[];
@@ -63,6 +65,15 @@ export function useSettingsGroupDrag({ groups, apps, onReorder, onMoveApp }: Set
       if (candidate?.active) setOrdered(candidate.original);
     };
     const cancelApp = () => { appCandidate.current = null; setAppDrag(null); };
+    const cancel = () => {
+      cancelSort();
+      cancelApp();
+      latestEvent = null;
+      if (frame) {
+        window.cancelAnimationFrame(frame);
+        frame = 0;
+      }
+    };
     const processMove = (event: PointerEvent) => {
       const sort = sortCandidate.current;
       if (sort) {
@@ -104,6 +115,7 @@ export function useSettingsGroupDrag({ groups, apps, onReorder, onMoveApp }: Set
       setAppDrag({ appId: app.appId, x: event.clientX, y: event.clientY, grabOffsetX: app.grabOffsetX, grabOffsetY: app.grabOffsetY, targetGroup: target && target !== source ? target : undefined });
     };
     const move = (event: PointerEvent) => {
+      if ((sortCandidate.current || appCandidate.current) && primaryPointerButtonReleased(event)) { cancel(); return; }
       latestEvent = event;
       if (!frame) frame = window.requestAnimationFrame(() => {
         frame = 0;
@@ -128,17 +140,22 @@ export function useSettingsGroupDrag({ groups, apps, onReorder, onMoveApp }: Set
       window.setTimeout(() => { suppressAppClick.current = false; }, 0);
     };
     const key = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      cancelSort();
-      cancelApp();
+      if (isEscapeKeyboardEvent(event)) cancel();
     };
+    const onVisibilityChange = () => { if (document.visibilityState === "hidden") cancel(); };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
+    window.addEventListener("blur", cancel);
     window.addEventListener("keydown", key);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", cancel);
+      window.removeEventListener("blur", cancel);
       window.removeEventListener("keydown", key);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       if (frame) window.cancelAnimationFrame(frame);
     };
   }, [appDrag, apps, onMoveApp, onReorder]);

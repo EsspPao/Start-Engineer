@@ -11,7 +11,6 @@ describe("search focus behavior", () => {
   it("resolves the page focus target after leaving search", () => {
     expect(pageFocusSelector("office", "app-1")).toBe('[data-app-card-id="app-1"] .app-card');
     expect(pageFocusSelector("office", "")).toBe(".app-grid");
-    expect(pageFocusSelector("processes", "")).toBe(".process-table");
     expect(pageFocusSelector("settings", "")).toBe(".settings-page");
   });
 

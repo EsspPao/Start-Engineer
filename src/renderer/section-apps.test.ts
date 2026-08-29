@@ -34,8 +34,8 @@ const groups: AppGroup[] = [
 ];
 
 describe("section apps", () => {
-  it("places the all apps system section below processes and above user groups", () => {
-    expect(navigationSectionIds(groups)).toEqual(["processes", "all-apps", "games", "office", "settings"]);
+  it("places the all apps system section above user groups", () => {
+    expect(navigationSectionIds(groups)).toEqual(["all-apps", "games", "office", "settings"]);
   });
 
   it("returns every managed app for the all apps aggregate section", () => {

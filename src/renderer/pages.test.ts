@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { AppEntry, AppFolder, AppLifecycleState, AppMetrics, AppRuntimeStateMap, FolderLaunchVisualStatus, GroupGridItemId } from "../shared/types";
-import { GroupPage, ProcessPage, UnifiedGroupPage } from "./pages";
+import { GroupPage, UnifiedGroupPage } from "./pages";
 
 type RuntimeApp = AppEntry & { metrics: AppMetrics };
 
@@ -18,7 +18,6 @@ const metrics = (appId: string, isRunning: boolean): AppMetrics => ({
   matchedProcessNames: [],
   matchedPaths: []
 });
-
 const makeApp = (id: string, isRunning: boolean): RuntimeApp => ({
   id,
   name: id === "running" ? "WeGame" : "Codex",
@@ -37,7 +36,7 @@ const runtimeStates = (states: Record<string, AppLifecycleState> = {}): AppRunti
 
 const renderGroup = () => renderToStaticMarkup(createElement(GroupPage, {
   apps: [makeApp("running", true), makeApp("stopped", false)],
-  launchingAppIds: runtimeStates(),
+  runtimeStates: runtimeStates(),
   selectedAppId: "running",
   invalidAppIds: new Set<string>(),
   runningCount: 1,
@@ -85,7 +84,7 @@ describe("GroupPage", () => {
   it("renders an immediate launching state for apps being started", () => {
     const html = renderToStaticMarkup(createElement(GroupPage, {
       apps: [makeApp("stopped", false)],
-      launchingAppIds: runtimeStates({ stopped: "launching" }),
+      runtimeStates: runtimeStates({ stopped: "launching" }),
       selectedAppId: "",
       invalidAppIds: new Set<string>(),
       runningCount: 0,
@@ -108,7 +107,7 @@ describe("GroupPage", () => {
   it("renders an immediate closing state while a running app is being stopped", () => {
     const html = renderToStaticMarkup(createElement(GroupPage, {
       apps: [makeApp("running", true)],
-      launchingAppIds: runtimeStates({ running: "closing" }),
+      runtimeStates: runtimeStates({ running: "closing" }),
       selectedAppId: "",
       invalidAppIds: new Set<string>(),
       runningCount: 1,
@@ -132,7 +131,7 @@ describe("GroupPage", () => {
   it("can hide app names while keeping accessible labels", () => {
     const html = renderToStaticMarkup(createElement(GroupPage, {
       apps: [makeApp("stopped", false)],
-      launchingAppIds: runtimeStates(),
+      runtimeStates: runtimeStates(),
       selectedAppId: "",
       invalidAppIds: new Set<string>(),
       runningCount: 0,
@@ -158,7 +157,7 @@ describe("GroupPage", () => {
   it("renders a compact invalid-path warning badge without long card text", () => {
     const html = renderToStaticMarkup(createElement(GroupPage, {
       apps: [makeApp("stopped", false)],
-      launchingAppIds: runtimeStates(),
+      runtimeStates: runtimeStates(),
       selectedAppId: "",
       invalidAppIds: new Set(["stopped"]),
       runningCount: 0,
@@ -188,7 +187,7 @@ describe("UnifiedGroupPage", () => {
     const renderedApps = allApps.map((app) => runningIds.has(app.id) ? { ...app, metrics: metrics(app.id, true) } : app);
     return renderToStaticMarkup(createElement(UnifiedGroupPage, {
     apps: [renderedApps[3]], allApps: renderedApps, folders: [folder], itemOrder: ["folder:bundle", "app:outer"], expandedFolderId, recentlyMergedFolderId,
-    launchingAppIds: runtimeStates(), folderLaunchStatuses, selectedItemId, invalidAppIds: new Set<string>(), runningCount: 0, showAppNames: true,
+    runtimeStates: runtimeStates(), folderLaunchStatuses, selectedItemId, invalidAppIds: new Set<string>(), runningCount: 0, showAppNames: true,
     onSelectApp: vi.fn(), onSelectFolder: vi.fn(), onFocusApp: vi.fn(), onLaunchApp: vi.fn(), onLaunchingFeedback: vi.fn(), onCloseAll: vi.fn(), onAdd: vi.fn(), onContextMenu: vi.fn(), onAppPointerDown: vi.fn(), onFolderPointerDown: vi.fn(), onToggleFolder: vi.fn(), onLaunchFolder: vi.fn(), onRequestCloseFolder: vi.fn(), onRequestClose: vi.fn()
   }));
   };
@@ -254,67 +253,5 @@ describe("UnifiedGroupPage", () => {
     const html = renderUnified("bundle", {}, "app:one");
     expect(html).toMatch(/data-folder-member-id="one" class="app-card-wrap[^\"]*current/);
     expect(html).not.toContain('data-grid-item-id="folder:bundle" class="app-card-wrap folder-card-wrap current');
-  });
-});
-
-describe("ProcessPage", () => {
-  it("uses a neutral icon holder for real icons and a compact fallback tile", () => {
-    const baseProcess = {
-      pid: 42, pids: [42], processCount: 1, name: "Demo.exe", exePaths: [], cpuPercent: 0,
-      memoryBytes: 0, diskBytesPerSecond: 0, isManagedApp: false, canTerminate: true
-    };
-    const html = renderToStaticMarkup(createElement(ProcessPage, {
-      processes: [
-        { ...baseProcess, name: "Real.exe", iconDataUrl: "data:image/png;base64,icon" },
-        { ...baseProcess, pid: 43, pids: [43], name: "Fallback.exe" }
-      ],
-      loading: false,
-      lockedProcessName: "",
-      sortKey: "cpuPercent",
-      sortDirection: "desc",
-      changeSort: vi.fn(),
-      filter: "all",
-      setFilter: vi.fn(),
-      onContextMenu: vi.fn(),
-    }));
-
-    expect(html).toContain('class="process-icon has-image ');
-    expect(html).toContain('class="process-icon fallback ');
-    expect(html).toContain('class="process-icon-fallback"');
-    expect(html).toContain(">FA<");
-  });
-
-  it("can render managed apps as the selected process filter", () => {
-    const html = renderToStaticMarkup(createElement(ProcessPage, {
-      processes: [],
-      loading: false,
-      lockedProcessName: "",
-      sortKey: "cpuPercent",
-      sortDirection: "desc",
-      changeSort: vi.fn(),
-      filter: "managed",
-      setFilter: vi.fn(),
-      onContextMenu: vi.fn(),
-    }));
-
-    expect(html).toContain('<button class="selected">已管理应用</button>');
-    expect(html).not.toContain('<button class="selected">全部进程</button>');
-  });
-
-  it("shows a lightweight loading state before the first full process snapshot arrives", () => {
-    const html = renderToStaticMarkup(createElement(ProcessPage, {
-      processes: [],
-      loading: true,
-      lockedProcessName: "",
-      sortKey: "cpuPercent",
-      sortDirection: "desc",
-      changeSort: vi.fn(),
-      filter: "all",
-      setFilter: vi.fn(),
-      onContextMenu: vi.fn(),
-    }));
-
-    expect(html).toContain("正在加载进程");
-    expect(html).not.toContain("没有匹配的进程");
   });
 });

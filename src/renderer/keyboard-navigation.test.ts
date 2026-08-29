@@ -129,13 +129,13 @@ describe("keyboard navigation", () => {
   });
 
   it("moves between groups while clamping at the ends", () => {
-    const groups = ["processes", "all-apps", "office", "games", "settings"];
+    const groups = ["all-apps", "office", "games", "settings"];
 
     expect(pickRelativeGroup(groups, "office", "next")).toBe("games");
     expect(pickRelativeGroup(groups, "office", "previous")).toBe("all-apps");
-    expect(pickRelativeGroup(groups, "processes", "next")).toBe("all-apps");
+    expect(pickRelativeGroup(groups, "all-apps", "next")).toBe("office");
     expect(pickRelativeGroup(groups, "settings", "next")).toBe("settings");
-    expect(pickRelativeGroup(groups, "missing", "next")).toBe("processes");
+    expect(pickRelativeGroup(groups, "missing", "next")).toBe("all-apps");
   });
 
   it("picks app groups by zero-based shortcut index", () => {
