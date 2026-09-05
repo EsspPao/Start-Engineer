@@ -1390,6 +1390,9 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 - 本次更新重点为便携版开机启动缓存与侧栏空白处右键新建分组；README 当前版本同步更新为 `0.1.1`。
 - `npm run release:prepare` 已完整通过：类型检查、100 个测试文件 / 461 项测试、原生 helper smoke、生产构建与 Electron smoke 均成功；本地便携版额外完成隔离数据隐藏启动验证。
 - 本地安装版 `82.96 MiB`、便携版 `82.72 MiB`；SHA-256 分别为 `ca5f31bbacd6362d6d9b988d716a3bdf31ae0455958e48298597fdd9d089cba3`、`747c94dddf20a98735fbdc7698647c4ffff3c2c78a10e50bd9e09b284c24e177`。GitHub Actions 只创建 Draft，远程产物验证通过后再作为 Pre-release 公开。
+- `v0.1.1` annotated tag 指向发布提交 `53eda02e88c142969b1981820e2137827b2327b0`；主分支 CI `33982539834` 与标签发布工作流 `33982676109` 均全部成功。
+- GitHub Actions 生成的三个附件已重新下载验证：安装版 SHA-256 为 `47329811aad1533af6fdc6506592caeba286866a3c5487ee9c4a1520dfd0e135`，便携版为 `55f3ee08fa0020e3e281e46bf47112d128e279cf01c388a39926ced85d5f1178`，均与远程 `SHA256SUMS.txt` 一致；远程便携版隔离启动 smoke 通过。两份 EXE 仍为未签名状态，Release Notes 已保留 SmartScreen 提示。
+- `v0.1.1` 已补充更新内容与升级说明，并作为 Pre-release 公开发布：`https://github.com/EsspPao/Start-Engineer/releases/tag/v0.1.1`。原 `v0.1.0` Release 与标签保持不变。
 
 ## 12. 关键文件索引
 
