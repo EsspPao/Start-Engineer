@@ -6,6 +6,7 @@ import { focusHintsForApp, focusResultMessage, type RuntimeApp } from "./window-
 export type MenuState =
   | { kind: "app"; x: number; y: number; appId: string }
   | { kind: "group"; x: number; y: number; groupId: string }
+  | { kind: "sidebar"; x: number; y: number }
   | null;
 
 function api() {
@@ -49,7 +50,7 @@ export function AppContextMenu({ state, app, groups, onClose, onLaunch, onKill, 
   </ContextMenu>;
 }
 
-export function GroupContextMenu({ state, groups, onClose, onCreate, onEdit, onDelete, onReorder }: { state: Extract<MenuState, { kind: "group" }>; groups: AppGroup[]; onClose: () => void; onCreate: () => void; onEdit: (group: AppGroup) => void; onDelete: (id: string) => void; onReorder: (ids: string[]) => Promise<unknown> }) {
+export function GroupContextMenu({ state, groups, onClose, onEdit, onDelete, onReorder }: { state: Extract<MenuState, { kind: "group" }>; groups: AppGroup[]; onClose: () => void; onEdit: (group: AppGroup) => void; onDelete: (id: string) => void; onReorder: (ids: string[]) => Promise<unknown> }) {
   const index = groups.findIndex((group) => group.id === state.groupId);
   const group = groups[index];
   if (!group) return null;
@@ -61,7 +62,11 @@ export function GroupContextMenu({ state, groups, onClose, onCreate, onEdit, onD
     onClose();
     void onReorder(next.map((item) => item.id));
   };
-  return <ContextMenu x={state.x} y={state.y} onClose={onClose}><div className="context-menu-header"><strong>{group.name}</strong><span>应用分组</span></div><MenuDivider /><MenuButton onClick={() => { onClose(); onEdit(group); }}>重命名 / 更换图标</MenuButton><MenuButton onClick={() => { onClose(); onCreate(); }}>新建分组</MenuButton><MenuButton disabled={index === 0} onClick={() => move(-1)}>上移</MenuButton><MenuButton disabled={index === groups.length - 1} onClick={() => move(1)}>下移</MenuButton><MenuDivider /><MenuButton danger disabled={groups.length <= 1} onClick={() => onDelete(group.id)}>删除分组</MenuButton></ContextMenu>;
+  return <ContextMenu x={state.x} y={state.y} onClose={onClose}><div className="context-menu-header"><strong>{group.name}</strong><span>应用分组</span></div><MenuDivider /><MenuButton onClick={() => { onClose(); onEdit(group); }}>重命名 / 更换图标</MenuButton><MenuButton disabled={index === 0} onClick={() => move(-1)}>上移</MenuButton><MenuButton disabled={index === groups.length - 1} onClick={() => move(1)}>下移</MenuButton><MenuDivider /><MenuButton danger disabled={groups.length <= 1} onClick={() => onDelete(group.id)}>删除分组</MenuButton></ContextMenu>;
+}
+
+export function SidebarContextMenu({ state, onClose, onCreate }: { state: Extract<MenuState, { kind: "sidebar" }>; onClose: () => void; onCreate: () => void }) {
+  return <ContextMenu x={state.x} y={state.y} onClose={onClose}><MenuButton onClick={() => { onClose(); onCreate(); }}>新建分组</MenuButton></ContextMenu>;
 }
 
 const CONTEXT_MENU_MARGIN = 8;
@@ -98,11 +103,11 @@ function ContextMenu({ x, y, onClose, children }: { x: number; y: number; onClos
     };
   }, [x, y]);
 
-  return <div ref={menuRef} className="context-menu no-drag" style={position} onPointerDown={(event) => event.stopPropagation()} onContextMenu={(event) => event.preventDefault()}>{children}<button className="menu-dismiss" aria-label="关闭菜单" onClick={onClose} /></div>;
+  return <div ref={menuRef} className="context-menu no-drag" role="menu" style={position} onPointerDown={(event) => event.stopPropagation()} onContextMenu={(event) => event.preventDefault()}>{children}<button className="menu-dismiss" aria-label="关闭菜单" onClick={onClose} /></div>;
 }
 
 function MenuButton({ disabled, danger, title, onClick, children }: { disabled?: boolean; danger?: boolean; title?: string; onClick: () => void; children: React.ReactNode }) {
-  return <button className={`menu-item ${danger ? "danger" : ""}`} disabled={disabled} title={title} onClick={onClick}>{children}</button>;
+  return <button className={`menu-item ${danger ? "danger" : ""}`} role="menuitem" disabled={disabled} title={title} onClick={onClick}>{children}</button>;
 }
 
 function MenuDivider() { return <div className="menu-divider" />; }

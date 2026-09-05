@@ -9,6 +9,7 @@ type ShortcutStatus = Pick<AppPreferencesState, "globalShortcutStatus" | "global
 type PreferencesServiceOptions = {
   path: () => string;
   loginExecutable: () => string;
+  prepareLoginExecutable: () => string;
   loginArgs: string[];
   getLoginItemEnabled: (path: string, args: string[]) => boolean;
   setLoginItemEnabled: (enabled: boolean, path: string, args: string[]) => void;
@@ -63,7 +64,7 @@ export class PreferencesService {
     const next = normalizePreferences({ ...this.snapshot(), ...input });
     if (input.runAsAdministrator !== undefined) this.options.clearAdministratorMessage();
     if (input.launchAtStartup !== undefined) {
-      const path = this.options.loginExecutable();
+      const path = next.launchAtStartup ? this.options.prepareLoginExecutable() : this.options.loginExecutable();
       this.options.setLoginItemEnabled(next.launchAtStartup, path, this.options.loginArgs);
       if (this.loginItemEnabled() !== next.launchAtStartup) throw new Error("Windows 开机启动设置未能生效");
     }
@@ -71,6 +72,14 @@ export class PreferencesService {
     this.save(next);
     if (input.uiTheme !== undefined) this.options.applyTheme(next);
     return this.snapshot();
+  }
+
+  reconcileLoginItem() {
+    if (!this.load().launchAtStartup) return false;
+    const path = this.options.prepareLoginExecutable();
+    this.options.setLoginItemEnabled(true, path, this.options.loginArgs);
+    if (!this.loginItemEnabled()) throw new Error("Windows 开机启动设置未能更新到快速启动路径");
+    return true;
   }
 
   applyGlobalShortcut(preferences: AppPreferences, persist: boolean) {

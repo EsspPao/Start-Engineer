@@ -17,7 +17,7 @@ import { buildThemeAttributes } from "./theme-attributes";
 import { collapsedFolderKeyboardSelection, expandedFolderKeyboardSelection, isEscapeKeyboardEvent, keyboardBlockKeyFromEventLike, isTextInputTarget, pickDirectionalApp, pickIndexedGroup, pickRelativeGroup, resolveFolderKeyboardAction, shouldSuppressNavigationAfterGroupMove, type AppCardRect } from "./keyboard-navigation";
 import { SearchResultsPanel } from "./search-results-panel";
 import { AppEditDialog, type AppEditState } from "./app-edit-dialog";
-import { AppContextMenu, GroupContextMenu, type MenuState } from "./context-menus";
+import { AppContextMenu, GroupContextMenu, SidebarContextMenu, type MenuState } from "./context-menus";
 import { ConfirmDialog, ToastStack, type ConfirmState } from "./overlay-components";
 import type { RuntimeApp } from "./window-focus-feedback";
 import { BrandLogo, Icon } from "./ui-icons";
@@ -1099,22 +1099,27 @@ function App() {
 
   return (
     <main className={`app-shell drag-region ${fileDropActive ? "file-drop-active" : ""}`} style={{ ...themeAttributes.wallpaperStyle, "--ui-scale": preferences.uiLayout.uiScale / 100, "--ui-scale-width": `${10000 / preferences.uiLayout.uiScale}vw`, "--ui-scale-height": `${10000 / preferences.uiLayout.uiScale}vh`, "--ui-background-color": preferences.uiLayout.backgroundColor || "transparent" } as unknown as React.CSSProperties} data-theme={themeAttributes.theme} data-wallpaper-intensity={themeAttributes.wallpaperIntensity} data-wallpaper-variant={themeAttributes.wallpaperVariant} data-ui-card-size={preferences.uiLayout.cardSize} data-ui-grid-density={preferences.uiLayout.gridDensity} data-ui-sidebar-width={preferences.uiLayout.sidebarWidth} data-ui-brand-icon-size={preferences.uiLayout.brandIconSize} data-ui-background-tone={preferences.uiLayout.backgroundTone} data-ui-custom-background={preferences.uiLayout.backgroundColor ? "true" : "false"} data-ui-show-running-status={preferences.uiLayout.showRunningStatus ? "true" : "false"} data-ui-show-search-bar={preferences.uiLayout.showSearchBar ? "true" : "false"} data-ui-show-batch-actions={preferences.uiLayout.showBatchActions ? "true" : "false"} onPointerDown={closeFloatingUi} onDragEnter={handleFileDragEnter} onDragOver={handleFileDragOver} onDragLeave={handleFileDragLeave} onDrop={handleFileDrop}>
-      <aside className="sidebar no-drag">
-        <div className="brand-icon" aria-hidden="true"><BrandLogo /></div>
+      <aside className="sidebar no-drag" onContextMenu={(event) => {
+        if ((event.target as Element).closest("[data-sidebar-context-exclude]")) return;
+        event.preventDefault();
+        event.stopPropagation();
+        openMenu({ kind: "sidebar", x: event.clientX, y: event.clientY });
+      }}>
+        <div className="brand-icon" aria-hidden="true" data-sidebar-context-exclude><BrandLogo /></div>
         <nav className="nav">
-          <button className={`nav-button ${activeSection === ALL_APPS_SECTION_ID ? "active" : ""}`} onClick={() => switchSection(ALL_APPS_SECTION_ID)}>
+          <button data-sidebar-context-exclude className={`nav-button ${activeSection === ALL_APPS_SECTION_ID ? "active" : ""}`} onClick={() => switchSection(ALL_APPS_SECTION_ID)}>
             <Icon name="grid" /><span>已添加应用</span>
           </button>
           <div className="nav-divider" aria-hidden="true" />
           {groups.filter((group) => !group.isSystem).map((group) => {
             const acceptsDrop = !group.isSystem;
             const sourceGroup = draggedApp?.groupId;
-            return <button key={group.id} data-drop-group={acceptsDrop ? group.id : undefined} className={`nav-button ${activeSection === group.id ? "active" : ""} ${drag && acceptsDrop ? "drop-ready" : ""} ${drag?.targetGroup === group.id ? "drop-active" : ""} ${drag && sourceGroup === group.id ? "drop-disabled" : ""}`} onClick={() => switchSection(group.id)} onContextMenu={(event) => { if (group.isSystem) return; event.preventDefault(); event.stopPropagation(); openMenu({ kind: "group", x: event.clientX, y: event.clientY, groupId: group.id }); }}>
+            return <button key={group.id} data-sidebar-context-exclude data-drop-group={acceptsDrop ? group.id : undefined} className={`nav-button ${activeSection === group.id ? "active" : ""} ${drag && acceptsDrop ? "drop-ready" : ""} ${drag?.targetGroup === group.id ? "drop-active" : ""} ${drag && sourceGroup === group.id ? "drop-disabled" : ""}`} onClick={() => switchSection(group.id)} onContextMenu={(event) => { if (group.isSystem) return; event.preventDefault(); event.stopPropagation(); openMenu({ kind: "group", x: event.clientX, y: event.clientY, groupId: group.id }); }}>
               <Icon name={group.icon} /><span>{drag?.targetGroup === group.id ? `移动到${group.name}` : group.name}</span>
             </button>;
           })}
         </nav>
-        <button className={`nav-button settings ${activeSection === "settings" ? "active" : ""}`} onClick={() => switchSection("settings")}><Icon name="settings" /><span>设置</span></button>
+        <button data-sidebar-context-exclude className={`nav-button settings ${activeSection === "settings" ? "active" : ""}`} onClick={() => switchSection("settings")}><Icon name="settings" /><span>设置</span></button>
       </aside>
 
       <section className="window">
@@ -1135,7 +1140,8 @@ function App() {
       </section>
 
       {menu?.kind === "app" ? <AppContextMenu state={menu} app={runtimeApps.find((item) => item.id === menu.appId)} groups={appGroups} onClose={closeMenu} onLaunch={launchApp} onKill={requestCloseApp} onEdit={editApp} onMove={activeSection === "settings" ? moveAppWithinSettings : moveAppToGroup} onRemove={(app) => setConfirm({ title: "移除应用", message: `确定从 Start Engineer 中移除 ${app.name} 吗？本地程序文件不会被删除。`, confirmLabel: "移除应用", onConfirm: async () => { await runAppAction(() => api().removeApp(app.id)); setSelectedAppId(""); } })} onNotice={setNotice} onError={setError} /> : null}
-      {menu?.kind === "group" ? <GroupContextMenu state={menu} groups={appGroups} onClose={closeMenu} onCreate={() => setGroupEdit({ name: "", icon: "grid" })} onEdit={(group) => setGroupEdit({ id: group.id, name: group.name, icon: group.icon })} onDelete={requestDeleteGroup} onReorder={reorderGroups} /> : null}
+      {menu?.kind === "group" ? <GroupContextMenu state={menu} groups={appGroups} onClose={closeMenu} onEdit={(group) => setGroupEdit({ id: group.id, name: group.name, icon: group.icon })} onDelete={requestDeleteGroup} onReorder={reorderGroups} /> : null}
+      {menu?.kind === "sidebar" ? <SidebarContextMenu state={menu} onClose={closeMenu} onCreate={() => setGroupEdit({ name: "", icon: "grid" })} /> : null}
       {confirm ? <ConfirmDialog state={confirm} onClose={() => setConfirm(null)} onError={(message) => { setConfirm(null); setError(cleanErrorMessage(message)); }} /> : null}
       {edit ? <AppEditDialog state={edit} onClose={() => setEdit(null)} onPickExecutable={(id) => api().pickExecutable(id)} onSave={(input) => runAppAction(() => api().updateApp(input))} /> : null}
       {groupEdit ? <GroupEditDialog state={groupEdit} onClose={() => setGroupEdit(null)} onSave={saveGroup} /> : null}

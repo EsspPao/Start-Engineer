@@ -14,7 +14,6 @@ import type {
   SearchDependencyStatus,
   SnapshotMode
 } from "../shared/types.js";
-import { resolveLoginExecutable } from "./preferences.js";
 import { launchAppsSequentially } from "./batch-app-actions.js";
 import { migrateLegacyUserData } from "./user-data-migration.js";
 import { AppWindowManager } from "./window-manager.js";
@@ -42,6 +41,7 @@ import { registerAppInfoIpc } from "./app-info-ipc.js";
 import { WindowsStoreAppService } from "./windows-store-apps.js";
 import { prepareFirstRunImportTestUserData } from "./first-run-import-test.js";
 import { StartupPerformanceTracker, StartupViewCacheStore } from "./startup-state-service.js";
+import { StartupExecutableResolver } from "./startup-executable.js";
 
 const isDev = process.env.VITE_DEV_SERVER_URL !== undefined;
 const appRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -141,9 +141,16 @@ const loadFirstRunImportTemplate = () => {
 };
 
 const loginArgs = ["--autostart"];
+const startupExecutable = new StartupExecutableResolver({
+  execPath: process.execPath,
+  portableExecutable: process.env.PORTABLE_EXECUTABLE_FILE,
+  localAppDataPath: process.env.LOCALAPPDATA || join(dirname(app.getPath("appData")), "Local"),
+  version: app.getVersion()
+});
 preferencesService = new PreferencesService({
   path: preferencesPath,
-  loginExecutable: () => resolveLoginExecutable(process.execPath, process.env.PORTABLE_EXECUTABLE_FILE),
+  loginExecutable: () => startupExecutable.path(),
+  prepareLoginExecutable: () => startupExecutable.prepare(),
   loginArgs,
   getLoginItemEnabled: (path, args) => app.getLoginItemSettings({ path, args }).openAtLogin,
   setLoginItemEnabled: (enabled, path, args) => app.setLoginItemSettings({ openAtLogin: enabled, path, args }),
@@ -369,6 +376,11 @@ if (!hasSingleInstanceLock) {
     appWindowService.createSplashWindow();
     appWindowService.createWindow();
     startupPerformance.mark("main-window-created");
+    try {
+      preferencesService.reconcileLoginItem();
+    } catch (reason) {
+      console.warn(`[startup] unable to prepare fast login runtime: ${reason instanceof Error ? reason.message : String(reason)}`);
+    }
     await appWindowService.createTray();
     preferencesService.applyGlobalShortcut(preferences, false);
     appWindowService.watchSystemTheme();
