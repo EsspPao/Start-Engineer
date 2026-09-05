@@ -1363,6 +1363,14 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 - 预关闭逻辑改为只结束枚举到的 `Start Engineer.exe` PID；普通与提权回退路径均禁止使用 `/T`，不会再递归终止由启动器打开的其他应用。
 - 增加发布前置契约测试，明确拒绝在该脚本中恢复 `/T`。`npm run typecheck` 通过，完整 Vitest 共 `98` 个测试文件、`455` 项测试全部通过。后续发布仍需先确认 Start Engineer 已关闭，再执行完整发布准备与产物验证。
 
+### 11.8 2026-09-05 v0.1.0 公开预览发布
+
+- `v0.1.0` annotated tag 指向发布基线 `32d29432fa4649c8eb2b9f40c49dcf5b37468588`；本地 `release:prepare` 完整通过，GitHub Actions `Build draft release` 的 Windows 构建与 Draft Release job 全部成功。
+- GitHub 生成的安装版、便携版和 `SHA256SUMS.txt` 已下载到独立目录复核；远程安装版 SHA-256 为 `af56a4c0fd026f4e07b3cb6cc12d9deb975824e26984d5e819a68d4512115645`，便携版为 `4a5023a45c05180f0862577a781ff957ebbd571b1344836d8573a5c3bd9d48c2`，均与远程校验文件一致。
+- GitHub 生成的便携版已执行一次实际 smoke 启动，完成解包、主进程启动和正常退出，未残留 Start Engineer 进程。
+- Release Notes 已补充主要功能、下载说明与已知限制；`v0.1.0` 已作为 Pre-release 发布。README 原本已经指向 GitHub Releases，无需再次修改。
+- 当前 EXE 未使用商业代码签名证书，Release Notes 与 README 均明确提示 SmartScreen 风险；仓库当前未声明 `LICENSE`，本轮没有擅自替用户选择许可证。
+
 ## 12. 关键文件索引
 
 - `D:\Code\Start Engineer\package.json`
