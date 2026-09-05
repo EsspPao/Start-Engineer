@@ -21,7 +21,9 @@ function runningProcessIds() {
 
 function stopProcesses(processIds, force = false) {
   for (const processId of processIds) {
-    spawnSync("taskkill.exe", [...(force ? ["/F"] : []), "/PID", String(processId), "/T"], { encoding: "utf8", windowsHide: true });
+    // Do not use taskkill /T here. Applications launched from Start Engineer are
+    // descendants in the Windows process tree and must survive packaging cleanup.
+    spawnSync("taskkill.exe", [...(force ? ["/F"] : []), "/PID", String(processId)], { encoding: "utf8", windowsHide: true });
   }
 }
 
@@ -38,7 +40,7 @@ if (process.platform === "win32") {
     }
     if (processIds.length) {
       console.log("[package] 检测到高权限进程，正在请求管理员权限关闭...");
-      const elevated = spawnSync("powershell.exe", ["-NoProfile", "-Command", `Start-Process -FilePath 'taskkill.exe' -ArgumentList '/F','/IM','${imageName}','/T' -Verb RunAs -Wait -WindowStyle Hidden`], { encoding: "utf8", windowsHide: true });
+      const elevated = spawnSync("powershell.exe", ["-NoProfile", "-Command", `Start-Process -FilePath 'taskkill.exe' -ArgumentList '/F','/IM','${imageName}' -Verb RunAs -Wait -WindowStyle Hidden`], { encoding: "utf8", windowsHide: true });
       if (elevated.status === 0) for (let attempt = 0; attempt < 20 && (processIds = runningProcessIds()).length; attempt += 1) sleep(150);
     }
     if (processIds.length) throw new Error(`Start Engineer 仍在运行，已取消打包（PID: ${processIds.join(", ")}）`);

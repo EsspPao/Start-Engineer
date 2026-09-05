@@ -15,6 +15,8 @@ describe("Windows packaging preflight", () => {
     expect(script).toContain('"/PID"');
     expect(script).toContain("Start Engineer.exe");
     expect(script).toContain("-Verb RunAs");
+    expect(script).not.toMatch(/["'`]\/T["'`]/);
+    expect(script).toContain("must survive packaging cleanup");
   });
 
   it("cleans stale compiler output and excludes tests from packaged files", () => {

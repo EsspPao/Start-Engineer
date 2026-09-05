@@ -1357,6 +1357,12 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 - 新增回归约束，确保窗口 focus 监听及卸载清理不会在后续重构中丢失。`npm run typecheck` 通过；完整 Vitest 共 `98` 个测试文件、`455` 项测试全部通过；生产构建、原生窗口 helper 冒烟和 Electron 生产包启动冒烟均通过。
 - Windows 产物已重新打包并通过体积检查：安装版 `82.96 MiB`，便携版 `82.72 MiB`；安装版 SHA-256 为 `721a0a2af750c2d04bdac29ca9fbd09445d1bacac4fa454432a1aec050a0dee1`，便携版为 `47f13ee8cd537e02b089c99ecf63fec5f57f4be5960a4ba23f7fa1d0677f7dc9`。本轮未创建或推送 `v0.1.0` 标签，Release 继续暂停。
 
+### 11.7 2026-09-05 发布前关闭脚本进程树隔离
+
+- `release:prepare` 的预关闭脚本曾对 Start Engineer PID 执行 `taskkill /T`；当用户通过 Start Engineer 启动 Codex 等应用时，这些应用属于其 Windows 子进程树，因而会被打包清理错误关闭。
+- 预关闭逻辑改为只结束枚举到的 `Start Engineer.exe` PID；普通与提权回退路径均禁止使用 `/T`，不会再递归终止由启动器打开的其他应用。
+- 增加发布前置契约测试，明确拒绝在该脚本中恢复 `/T`。`npm run typecheck` 通过，完整 Vitest 共 `98` 个测试文件、`455` 项测试全部通过。后续发布仍需先确认 Start Engineer 已关闭，再执行完整发布准备与产物验证。
+
 ## 12. 关键文件索引
 
 - `D:\Code\Start Engineer\package.json`
