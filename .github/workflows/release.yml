@@ -69,6 +69,7 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           $assets = @(
             Get-ChildItem -LiteralPath "release" -Filter "Start-Engineer-Setup-*.exe" -File

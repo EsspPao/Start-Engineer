@@ -35,6 +35,7 @@ describe("public release readiness", () => {
     const workflow = read(".github/workflows/release.yml");
     expect(workflow).toContain("--draft");
     expect(workflow).toContain("--verify-tag");
+    expect(workflow).toContain("GH_REPO: ${{ github.repository }}");
     expect(workflow).toContain("WIN_CSC_LINK");
     expect(workflow).toContain("SHA256SUMS.txt");
     expect(workflow).toContain("ConvertFrom-Json");

@@ -109,6 +109,7 @@ export function useRuntimePolling({
       } else schedule();
     };
     document.addEventListener("visibilitychange", start);
+    window.addEventListener("focus", start);
     if (startedRef.current) start();
     else startupTimer = window.setTimeout(() => {
       startedRef.current = true;
@@ -121,6 +122,7 @@ export function useRuntimePolling({
       window.clearTimeout(timer);
       window.clearTimeout(startupTimer);
       document.removeEventListener("visibilitychange", start);
+      window.removeEventListener("focus", start);
     };
   }, [activeSection, refreshRuntimeData, startupDelayMs]);
 

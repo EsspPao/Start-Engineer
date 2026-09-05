@@ -1342,6 +1342,21 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 - 最终验证：`npm run typecheck` 通过；完整 Vitest 共 `98` 个测试文件、`454` 项测试全部通过；生产构建、原生窗口 helper 冒烟和 Electron 生产包启动冒烟均通过。
 - Windows 产物已重新打包并通过体积检查：安装版 `82.96 MiB`，便携版 `82.72 MiB`，仅保留 `en-US.pak` 与 `zh-CN.pak`；安装版 SHA-256 为 `ec48f5b447f0275f02249155e038f7b88d628f010a84261fcc2d883bbf131dc9`，便携版为 `ccf755154235a6c3b7e2b20f4772da41daf8dc2cbf2725b974ee50593555e83d`。
 
+### 11.5 2026-08-31 v0.1.0 草稿发布准备
+
+- 发布基线为已合并的 `main`，应用版本保持 `0.1.0`。先执行 `npm run release:prepare`，核验安装版、便携版和 SHA-256 后再创建 annotated `v0.1.0` 标签；不允许用未验证的新提交替换已经推送的标签。
+- 修复 Draft Release job 未 checkout 仓库时缺少 GitHub CLI 仓库上下文的问题：显式设置 `GH_REPO: ${{ github.repository }}`，并增加发布契约回归断言。
+- 标签构建只创建 Draft；本地生成的 EXE 与 GitHub Actions 生成的 EXE 分开核验，不能用本地校验和代替 GitHub 产物校验和。GitHub 下载包经用户实际验收后，才补齐发布说明、标记 Pre-release 并公开；README 与小黑盒宣传不得提前声称已发布。
+- 本轮验证、标签、Actions 和下载验收状态将在执行后补充；许可证选择、代码签名和用户手工验收不由自动构建代替。
+
+### 11.6 2026-09-05 外部退出后的运行状态纠正
+
+- 暂停 `v0.1.0` Release：真实使用中发现鸣潮退出后，卡片仍会短暂保留上一轮进程快照的绿色运行指示。
+- 现场核对确认 `Wuthering Waves.exe` 已不存在，应用配置也没有残留 `launchedPid` / `associatedPids`；问题来自前台运行状态采样延迟，而不是误匹配后台进程。
+- Start Engineer 窗口从外部应用切回并重新获得焦点时，现在会立即请求一次 managed runtime snapshot；普通应用页前台轮询由 `5s/10s`（活跃/空闲）收紧为 `3s/6s`，设置页和后台隐藏状态继续保持低频，兼顾指示及时性与后台成本。
+- 新增回归约束，确保窗口 focus 监听及卸载清理不会在后续重构中丢失。`npm run typecheck` 通过；完整 Vitest 共 `98` 个测试文件、`455` 项测试全部通过；生产构建、原生窗口 helper 冒烟和 Electron 生产包启动冒烟均通过。
+- Windows 产物已重新打包并通过体积检查：安装版 `82.96 MiB`，便携版 `82.72 MiB`；安装版 SHA-256 为 `721a0a2af750c2d04bdac29ca9fbd09445d1bacac4fa454432a1aec050a0dee1`，便携版为 `47f13ee8cd537e02b089c99ecf63fec5f57f4be5960a4ba23f7fa1d0677f7dc9`。本轮未创建或推送 `v0.1.0` 标签，Release 继续暂停。
+
 ## 12. 关键文件索引
 
 - `D:\Code\Start Engineer\package.json`
