@@ -5,6 +5,7 @@ import { buildManagedRunningStatus, parseTasklistCsv } from "./managed-running-s
 import { normalizeNativeSnapshots, type NativeRuntimeHost } from "./native-helper.js";
 import { terminatePids } from "./process-termination.js";
 import { RuntimeMonitor, type ProcessSnapshot } from "./runtime-monitor.js";
+import { isAssociatedProcess } from "./process-identity.js";
 
 type RuntimeServiceOptions = {
   nativeRuntime: NativeRuntimeHost;
@@ -46,13 +47,14 @@ export class RuntimeService {
   }
 
   async getManagedRunningStatus() {
-    return buildManagedRunningStatus(this.options.loadAppsWithRuntimeAssociations(), parseTasklistCsv(await this.getTasklistOutput()));
+    return buildManagedRunningStatus(this.options.loadAppsWithRuntimeAssociations(), await this.getProcessSnapshots("managed"));
   }
 
   async getProcessSnapshots(mode: SnapshotMode = "full"): Promise<ProcessSnapshot[]> {
     try {
       this.nativeRequests += 1;
       const snapshots = normalizeNativeSnapshots(await this.options.nativeRuntime.request("snapshot", this.nativeSnapshotRequest(mode), 5000));
+      this.pruneAssociations(snapshots);
       this.fallbackWarned = false;
       return snapshots;
     } catch (reason) {
@@ -61,7 +63,22 @@ export class RuntimeService {
         this.fallbackWarned = true;
         console.warn(`[native-runtime] process snapshot unavailable; falling back to PowerShell; reason=${reason instanceof Error ? reason.message : String(reason)}`);
       }
-      return this.getPowerShellSnapshots();
+      const snapshots = await this.getPowerShellSnapshots();
+      this.pruneAssociations(snapshots);
+      return snapshots;
+    }
+  }
+
+  private pruneAssociations(snapshots: ProcessSnapshot[]) {
+    const byPid = new Map(snapshots.map((process) => [process.pid, process]));
+    const byApp = new Map(this.options.loadApps().map((app) => [app.id, app]));
+    for (const [appId, pids] of this.options.runtimeAssociatedPids) {
+      const app = byApp.get(appId);
+      for (const pid of pids) {
+        const process = byPid.get(pid);
+        if (!app || !process || !isAssociatedProcess(app, process)) pids.delete(pid);
+      }
+      if (!pids.size) this.options.runtimeAssociatedPids.delete(appId);
     }
   }
 

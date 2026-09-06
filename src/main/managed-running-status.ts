@@ -1,9 +1,11 @@
 import { basename, extname } from "node:path";
 import type { AppEntry, AppRunningStatus } from "../shared/types.js";
+import { isAssociatedProcess } from "./process-identity.js";
 
 export type TasklistProcessRow = {
   name: string;
   pid: number;
+  path?: string;
 };
 
 const normalizeName = (value: string) => basename(value, extname(value)).trim().toLowerCase();
@@ -46,9 +48,9 @@ export function parseTasklistCsv(output: string): TasklistProcessRow[] {
 
 export function buildManagedRunningStatus(apps: AppEntry[], rows: TasklistProcessRow[]): AppRunningStatus[] {
   const pidsByName = new Map<string, number[]>();
-  const allPids = new Set<number>();
+  const processesByPid = new Map<number, TasklistProcessRow>();
   for (const row of rows) {
-    allPids.add(row.pid);
+    processesByPid.set(row.pid, row);
     const name = normalizeName(row.name);
     if (!name) continue;
     const existing = pidsByName.get(name) ?? [];
@@ -67,7 +69,8 @@ export function buildManagedRunningStatus(apps: AppEntry[], rows: TasklistProces
       for (const pid of pidsByName.get(name) ?? []) pids.add(pid);
     }
     for (const pid of [app.launchedPid, ...(app.associatedPids ?? [])]) {
-      if (pid && allPids.has(pid)) pids.add(pid);
+      const process = pid ? processesByPid.get(pid) : undefined;
+      if (pid && process && isAssociatedProcess(app, process)) pids.add(pid);
     }
     return { appId: app.id, isRunning: pids.size > 0, pids: [...pids].sort((a, b) => a - b) };
   });

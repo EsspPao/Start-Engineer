@@ -34,7 +34,7 @@ describe("managed running status", () => {
       app("steam", "steam.exe")
     ], rows)).toEqual([
       { appId: "wechat", isRunning: true, pids: [120] },
-      { appId: "codex", isRunning: true, pids: [200, 300] },
+      { appId: "codex", isRunning: true, pids: [200] },
       { appId: "steam", isRunning: false, pids: [] }
     ]);
   });

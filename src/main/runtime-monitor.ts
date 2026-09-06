@@ -1,4 +1,5 @@
 import type { AppEntry, AppMetrics, ProcessInfo, RuntimePerformanceDiagnostics, RuntimeSnapshot, SnapshotMode } from "../shared/types.js";
+import { isAssociatedProcess } from "./process-identity.js";
 
 export type ProcessSnapshot = {
   pid: number;
@@ -75,7 +76,7 @@ export function findManagedAppMatches(snapshot: ProcessSnapshot, index: AppIndex
     }
   };
 
-  add(index.byPid.get(snapshot.pid), "associatedPid");
+  add(index.byPid.get(snapshot.pid)?.filter((app) => isAssociatedProcess(app, snapshot)), "associatedPid");
   add(index.byPath.get(normalizePath(snapshot.path)), "path");
   add(index.byName.get(normalizeName(snapshot.name)), "name");
   return [...matches.values()];
