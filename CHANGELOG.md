@@ -41,7 +41,9 @@
 - Electron 仅打包中文与英文回退语言，React 只参与前端构建且单独保留 MIT 许可证；未启用自动更新时关闭差分包并使用更高效的归档布局。
 - 新增 helper 全协议烟测和 Windows 产物体积门槛。安装版由约 143.3 MiB 降至约 83.0 MiB，便携版由约 143.0 MiB 降至约 82.7 MiB。
 
-## [0.1.2] - 2026-09-06
+## [0.1.3] - 2026-09-06
+
+v0.1.2 的标签构建因测试代码的 TypeScript 兼容性检查失败而未发布；v0.1.3 修正该问题并包含以下分组管理更新。
 
 ### 修复
 
@@ -74,7 +76,7 @@
 - 修复透明图标黑底、长右键菜单超出视口、启动管理员应用失败等问题。
 - 修复合并卡片键盘展开、成员选择和 `Esc` 收起行为。
 
-[未发布]: https://github.com/EsspPao/Start-Engineer/compare/v0.1.2...HEAD
-[0.1.2]: https://github.com/EsspPao/Start-Engineer/releases/tag/v0.1.2
+[未发布]: https://github.com/EsspPao/Start-Engineer/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/EsspPao/Start-Engineer/releases/tag/v0.1.3
 [0.1.1]: https://github.com/EsspPao/Start-Engineer/releases/tag/v0.1.1
 [0.1.0]: https://github.com/EsspPao/Start-Engineer/releases/tag/v0.1.0

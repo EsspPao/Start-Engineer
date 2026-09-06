@@ -32,9 +32,9 @@ Ctrl+F 搜索，回车添加或打开。绿灯表示应用正在运行，还能�
 
 【图 5：同一壁纸下 Wallpaper Glass / Clear Desktop 对比】
 
-目前是 **v0.1.2 公开测试版**，支持 Windows 10 / 11 x64，提供安装版和便携版，无需注册账号。
+目前是 **v0.1.3 公开测试版**，支持 Windows 10 / 11 x64，提供安装版和便携版，无需注册账号。
 
-下载：https://github.com/EsspPao/Start-Engineer/releases/tag/v0.1.2
+下载：https://github.com/EsspPao/Start-Engineer/releases/tag/v0.1.3
 
 提前说明：安装包暂未签名，Windows 可能提示来源未知；部分托盘应用还需手动唤起，也暂不支持自动更新。
 

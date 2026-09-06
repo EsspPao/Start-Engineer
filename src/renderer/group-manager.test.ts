@@ -53,7 +53,7 @@ const renderItem = (expanded: boolean) => renderToStaticMarkup(createElement(Gro
 
 describe("GroupManagerItem", () => {
   it("requests migration only for groups containing applications", () => {
-    const main = readFileSync(new URL("./main.tsx", import.meta.url), "utf8").replaceAll("\r\n", "\n");
+    const main = readFileSync(new URL("./main.tsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
     expect(main).toContain("if (apps.some((app) => app.groupId === groupId)) {\n      setGroupDelete(request);\n    } else {\n      void removeGroup(request);");
   });
 

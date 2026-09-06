@@ -1410,7 +1410,10 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 - 2026-09-06 发布约定：后续安装版、便携版与 SHA-256 校验和一律输出到 `D:\Code\Start Engineer\release` 根目录，禁止为每次修复创建新的打包目录。若旧 EXE 被占用，等待用户关闭后重试，不关闭无关程序。准备 `v0.1.2` 预览版，包含分组排序持久化与空分组删除优化；发布说明见 `docs/releases/v0.1.2.md`，小黑盒文案草稿见 `docs/XIAOHEIHE_INTRO_DRAFT.md`。
 - 本地发布验证：100 个测试文件 / 464 项测试、类型检查、生产构建、helper 快捷方式与协议冒烟、隔离配置 Electron 启动冒烟均通过。界面分支源码回归断言统一换行符，兼容 Windows checkout 的 CRLF。
 
+- v0.1.2 标签未发布：CI 发现新回归测试的 `String.replaceAll` 与 TypeScript 目标库不兼容，已改用正则 `replace`。保留旧标签，不改写远程历史，改以 v0.1.3 发布同一轮功能更新；发布说明改为 `docs/releases/v0.1.3.md`。
+
 ## 12. 关键文件索引
+
 
 
 
