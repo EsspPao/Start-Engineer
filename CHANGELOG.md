@@ -41,6 +41,23 @@
 - Electron 仅打包中文与英文回退语言，React 只参与前端构建且单独保留 MIT 许可证；未启用自动更新时关闭差分包并使用更高效的归档布局。
 - 新增 helper 全协议烟测和 Windows 产物体积门槛。安装版由约 143.3 MiB 降至约 83.0 MiB，便携版由约 143.0 MiB 降至约 82.7 MiB。
 
+## [0.1.2] - 2026-09-06
+
+### 修复
+
+- 分组拖动排序、右键上移 / 下移现在同步更新排序编号，保存后不再恢复为原来的顺序。
+
+### 优化
+
+- 删除空分组直接完成，不再要求迁移 0 个应用；有应用的分组仍需确认迁移，并保留最后一个分组的删除保护。
+
+## [0.1.1] - 2026-09-06
+
+### 优化
+
+- 便携版开机启动复用本地启动缓存，避免每次登录重复解压整个便携包。
+- 左侧分组区域的空白处可右键新建分组。
+
 ## [0.1.0] - 2026-07-23
 
 ### 新增
@@ -57,5 +74,7 @@
 - 修复透明图标黑底、长右键菜单超出视口、启动管理员应用失败等问题。
 - 修复合并卡片键盘展开、成员选择和 `Esc` 收起行为。
 
-[未发布]: https://github.com/EsspPao/Start-Engineer/compare/v0.1.0...HEAD
+[未发布]: https://github.com/EsspPao/Start-Engineer/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/EsspPao/Start-Engineer/releases/tag/v0.1.2
+[0.1.1]: https://github.com/EsspPao/Start-Engineer/releases/tag/v0.1.1
 [0.1.0]: https://github.com/EsspPao/Start-Engineer/releases/tag/v0.1.0

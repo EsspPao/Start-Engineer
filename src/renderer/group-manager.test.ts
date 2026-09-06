@@ -52,6 +52,11 @@ const renderItem = (expanded: boolean) => renderToStaticMarkup(createElement(Gro
 }));
 
 describe("GroupManagerItem", () => {
+  it("requests migration only for groups containing applications", () => {
+    const main = readFileSync(new URL("./main.tsx", import.meta.url), "utf8").replaceAll("\r\n", "\n");
+    expect(main).toContain("if (apps.some((app) => app.groupId === groupId)) {\n      setGroupDelete(request);\n    } else {\n      void removeGroup(request);");
+  });
+
   it("renders the group applications only while expanded", () => {
     expect(renderItem(true)).toContain("Weixin");
     expect(renderItem(true)).toContain('class="group-app-grid"');

@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -19,10 +19,33 @@ function setup(initialApps = [app("a"), app("b"), app("c")]) {
     saveApps: (next) => { apps = next; return next; },
     randomId: () => `id-${++id}`
   });
-  return { service, getApps: () => apps };
+  return { service, root, getApps: () => apps };
 }
 
 describe("GroupService", () => {
+  it("deletes an empty group without changing applications and preserves the last group", () => {
+    const { service, getApps } = setup();
+    const before = getApps();
+    const result = service.removeGroup("office", "games");
+    expect(result.groups.some((group) => group.id === "office")).toBe(false);
+    expect(getApps()).toEqual(before);
+    service.removeGroup("tools", "games");
+    expect(() => service.removeGroup("games", "games")).toThrow("至少需要保留一个应用分组");
+  });
+
+  it("persists a requested group order instead of restoring stale order numbers", () => {
+    const { service, root } = setup();
+    const ids = service.loadGroups().map((group) => group.id).reverse();
+    const result = service.reorderGroups(ids).filter((group) => !group.isSystem);
+    expect(result.map((group) => group.id)).toEqual(ids);
+    expect(result.map((group) => group.order)).toEqual(ids.map((_, index) => index));
+    const saved = JSON.parse(readFileSync(join(root, "groups.json"), "utf8"));
+    expect(saved.map((group: { id: string }) => group.id)).toEqual(ids);
+    expect(saved.map((group: { order: number }) => group.order)).toEqual(ids.map((_, index) => index));
+    const restored = service.reorderGroups([...ids].reverse()).filter((group) => !group.isSystem);
+    expect(restored.map((group) => group.id)).toEqual([...ids].reverse());
+  });
+
   it("publishes only the settings system group after removing the process module", () => {
     const { service } = setup();
     const groups = service.listGroups();

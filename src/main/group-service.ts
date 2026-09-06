@@ -110,7 +110,7 @@ export class GroupService {
     const uniqueIds = [...new Set(groupIds)];
     if (uniqueIds.length !== groups.length || groups.some((group) => !uniqueIds.includes(group.id))) throw new Error("分组排序数据无效");
     const byId = new Map(groups.map((group) => [group.id, group]));
-    this.saveGroups(uniqueIds.map((id) => byId.get(id)!));
+    this.saveGroups(uniqueIds.map((id, order) => ({ ...byId.get(id)!, order })));
     return this.listGroups();
   }
 

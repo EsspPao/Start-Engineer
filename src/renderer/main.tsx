@@ -951,14 +951,14 @@ function App() {
     try { setGroups(await api().reorderGroups(ids)); return true; }
     catch (reason) { setError(cleanErrorMessage(reason, "分组排序失败")); return false; }
   };
-  const removeGroup = async () => {
-    if (!groupDelete) return;
+  const removeGroup = async (request = groupDelete) => {
+    if (!request) return;
     try {
-      const result = await api().removeGroup(groupDelete.groupId, groupDelete.targetGroupId);
+      const result = await api().removeGroup(request.groupId, request.targetGroupId);
       setGroups(result.groups);
       setApps(result.apps);
       setGroupDelete(null);
-      if (activeSection === groupDelete.groupId) {
+      if (activeSection === request.groupId) {
         setActiveSection(result.targetGroupId);
         setSelectedAppId(result.apps.find((item) => item.groupId === result.targetGroupId)?.id ?? "");
       }
@@ -970,7 +970,12 @@ function App() {
     const target = appGroups.find((group) => group.id !== groupId);
     if (!target) { setError("至少需要保留一个应用分组"); return; }
     closeMenu();
-    setGroupDelete({ groupId, targetGroupId: target.id });
+    const request = { groupId, targetGroupId: target.id };
+    if (apps.some((app) => app.groupId === groupId)) {
+      setGroupDelete(request);
+    } else {
+      void removeGroup(request);
+    }
   };
 
   useEffect(() => {
