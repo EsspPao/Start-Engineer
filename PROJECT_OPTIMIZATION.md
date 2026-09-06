@@ -1411,6 +1411,7 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 - 本地发布验证：100 个测试文件 / 464 项测试、类型检查、生产构建、helper 快捷方式与协议冒烟、隔离配置 Electron 启动冒烟均通过。界面分支源码回归断言统一换行符，兼容 Windows checkout 的 CRLF。
 
 - v0.1.2 标签未发布：CI 发现新回归测试的 `String.replaceAll` 与 TypeScript 目标库不兼容，已改用正则 `replace`。保留旧标签，不改写远程历史，改以 v0.1.3 发布同一轮功能更新；发布说明改为 `docs/releases/v0.1.3.md`。
+- v0.1.3 已于 2026-09-06 公开为 Pre-release：标签提交 `8ea9a22`，CI `34005094900` 与 Release 构建 `34005097133` 均成功。GitHub 生成的安装版、便携版和校验和已下载到 `release` 根目录；安装版 SHA-256 为 `0507c21a416d384603875cd5fac27c8bf0957e6dc6247fe7ed9ba20173ec2a7f`，便携版为 `be4e4b0eba34043905b2429d424d7f1942f877b7019fc4444b40867547cd4cd5`，均与发布校验和一致且未签名。下载便携版隔离启动退出码为 0，启动记录确认 `renderer-mounted` 和 `config-hydrated`；未执行交互式安装 / 卸载验证。小黑盒介绍只保留 Markdown 草稿，未向小黑盒发布。
 
 ## 12. 关键文件索引
 
