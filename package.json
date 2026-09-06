@@ -1,6 +1,6 @@
 {
   "name": "start-engineer",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "description": "A lightweight Windows application launcher and process monitor.",
   "author": "EsspPao",
