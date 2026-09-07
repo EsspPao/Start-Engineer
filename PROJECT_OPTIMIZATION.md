@@ -1519,6 +1519,8 @@ owner 曾讨论过更强的启动台定位，但当前代码默认仍是：
 
 ## 13. 当前结论
 
+2026-09-07：v0.1.4 已公开发布为 GitHub Pre-release。CI `34049237945` 与 Release 构建 `34049239874` 均成功；GitHub 安装版 SHA-256 为 `8c1c86c1d813f76b515c81b0181fec65d2096ba9297a2ed428388733f9c1541f`，便携版为 `b263bd7266064ed5a5dbf6353da002529b7dddf71bf10a8564d477f0f1b0a899`，下载后与 `SHA256SUMS.txt` 一致且符合当前未签名说明。GitHub 便携包隔离启动退出码为 0，启动记录确认 `renderer-mounted`（875 ms）和 `config-hydrated`（880 ms）。实际发布文件保存在 `release` 根目录；未执行交互式安装 / 卸载验证。
+
 2026-09-07：准备 v0.1.4 公开预览版，发布内容为关联进程身份校验和 Akari / Steam 误判修复。同步 package / lockfile / README / CHANGELOG，发布说明位于 `docs/releases/v0.1.4.md`。产物继续直接放在 `release` 根目录，不关闭用户正在运行的程序，小黑盒文章保持草稿。
 
 2026-09-07：进程关联修复提交前再次通过类型检查与全部 102 个测试文件 / 469 项测试；本轮同步包含贡献指南 `AGENTS.md`，不变更版本号或已发布的 GitHub Release。
