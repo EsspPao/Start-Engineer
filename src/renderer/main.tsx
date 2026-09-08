@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import type { AppEntry, AppFolder, AppGroup, AppMetrics, AppPreferencesState, DiscoveredAppCandidate, EverythingSearchResult, GroupGridItemId, GroupGridOrder, GroupInput, InstallableAppCandidate, InternalSearchResult, SearchDependencyStatus, SearchProvider, SectionId, StartEngineerApi, StartupViewCache, UiTheme, UpdatePreferencesInput, WallpaperGlassIntensity } from "../shared/types";
+import type { AppEntry, AppFolder, AppGroup, AppMetrics, AppPreferencesState, DiscoveredAppCandidate, EverythingSearchResult, GroupGridItemId, GroupGridOrder, GroupInput, InstallableAppCandidate, InternalSearchResult, SearchDependencyStatus, SearchProvider, SectionId, StartEngineerApi, StartupViewCache, UpdatePreferencesInput } from "../shared/types";
 import { defaultUiLayoutPreferences } from "../shared/ui-layout-share";
 import { defaultKeyboardShortcuts } from "../main/preferences";
 import { GroupPage, UnifiedGroupPage } from "./pages";
@@ -435,21 +435,6 @@ function App() {
     }
   }, [preferences]);
 
-  const saveTheme = useCallback(async (uiTheme: UiTheme) => {
-    const previous = preferences;
-    setPreferences({ ...preferences, uiTheme });
-    try {
-      setError("");
-      const next = await api().updatePreferences({ uiTheme });
-      setPreferences(next);
-      return next;
-    } catch (reason) {
-      setPreferences(previous);
-      setError(cleanErrorMessage(reason, "主题设置保存失败"));
-      throw reason;
-    }
-  }, [preferences]);
-
   const moveAppToGroup = useCallback(async (appId: string, targetGroup: AppGroupId) => {
     const current = apps.find((item) => item.id === appId);
     if (!current || current.groupId === targetGroup) return;
@@ -718,9 +703,6 @@ function App() {
     setQuery("");
   }, []);
 
-  const previewWallpaperGlassIntensity = useCallback((wallpaperGlassIntensity: WallpaperGlassIntensity) => {
-    setPreferences((current) => ({ ...current, wallpaperGlassIntensity }));
-  }, []);
   const pickEverythingCli = useCallback(() => {
     void api().pickEverythingCli().then(setPreferences).catch((reason) => setError(cleanErrorMessage(reason, "选择 ES.exe 失败")));
   }, []);
@@ -1088,7 +1070,7 @@ function App() {
       if (groupNavigationBlockKeyRef.current === keyboardBlockKeyFromEventLike(event)) groupNavigationBlockKeyRef.current = null;
     };
     const onNativeGroupNavigation = (event: Event) => {
-      if (hasModal || menu) return;
+      if (hasModal || menu || document.querySelector("dialog[open]")) return;
       const direction = (event as CustomEvent<"previous" | "next">).detail;
       if (direction === "previous" || direction === "next") switchRelativeGroup(direction);
     };
@@ -1138,7 +1120,7 @@ function App() {
           </div>
         </header>
 
-        {activeSection === "settings" ? <SettingsPage client={api()} apps={runtimeApps} groups={appGroups} preferences={preferences} onPreferencesChange={savePreferences} onWallpaperIntensityPreview={previewWallpaperGlassIntensity} onThemeChange={saveTheme} onAdd={addApp} onAddToGroup={(groupId) => void runAppAction(() => api().addAppFromDialog(groupId))} onCreate={() => setGroupEdit({ name: "", icon: "grid" })} onEdit={(group) => setGroupEdit({ id: group.id, name: group.name, icon: group.icon })} onDelete={requestDeleteGroup} onReorder={reorderGroups} onOpenApp={(app) => { setActiveSection(app.groupId); setSelectedAppId(app.id); }} onAppContextMenu={(event, app) => { event.preventDefault(); event.stopPropagation(); openMenu({ kind: "app", x: event.clientX, y: event.clientY, appId: app.id }); }} onMoveApp={moveAppWithinSettings} />
+        {activeSection === "settings" ? <SettingsPage client={api()} apps={runtimeApps} groups={appGroups} preferences={preferences} onPreferencesChange={savePreferences} onAdd={addApp} onAddToGroup={(groupId) => void runAppAction(() => api().addAppFromDialog(groupId))} onCreate={() => setGroupEdit({ name: "", icon: "grid" })} onEdit={(group) => setGroupEdit({ id: group.id, name: group.name, icon: group.icon })} onDelete={requestDeleteGroup} onReorder={reorderGroups} onOpenApp={(app) => { setActiveSection(app.groupId); setSelectedAppId(app.id); }} onAppContextMenu={(event, app) => { event.preventDefault(); event.stopPropagation(); openMenu({ kind: "app", x: event.clientX, y: event.clientY, appId: app.id }); }} onMoveApp={moveAppWithinSettings} />
           : <GroupPage apps={displayedApps} folders={folders.filter((folder) => folder.groupId === activeSection)} runtimeStates={runtimeStates} selectedAppId={selectedAppId} invalidAppIds={invalidAppIds} draggingAppId={drag?.appId} runningCount={activeGroupApps.filter((app) => app.metrics.isRunning).length} showAppNames={preferences.uiLayout.showAppNames} onSelectApp={handleAppSelection} onFocusApp={(app) => void focusAppWindow(app)} onLaunchApp={(app) => void launchApp(app.id)} onLaunchingFeedback={handleLaunchingFeedback} onCloseAll={() => void requestCloseGroupApps()} onAdd={addApp} onContextMenu={(event, app) => { event.preventDefault(); event.stopPropagation(); if (!drag) openMenu({ kind: "app", x: event.clientX, y: event.clientY, appId: app.id }); }} onPointerDown={(event, app) => { if (event.button !== 0) return; capturePointerForDrag(event.currentTarget, event.pointerId); const rect = event.currentTarget.getBoundingClientRect(); dragCandidate.current = { appId: app.id, sourceGroupId: app.groupId, startX: event.clientX, startY: event.clientY, grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top, width: rect.width, height: rect.height, initialOrder: displayedApps.map((item) => item.id) }; }} onRequestClose={requestCloseApp} onFolderDrop={(folderId) => { const appId = drag?.appId; const folder = folders.find((item) => item.id === folderId); if (!appId || !folder || folder.appIds.includes(appId)) return; void api().updateFolder({ id: folderId, appIds: [...folder.appIds, appId] }).then(setFolders); }} onLaunchFolder={(folderId) => void api().launchFolder(folderId).then((result) => { setApps(result.apps); setNotice(`已处理 ${result.results.length} 个应用`); })} />}
         {isAppSection && !isAllAppsSection ? <UnifiedGroupPage apps={visibleApps} allApps={runtimeApps} folders={activeFolders} itemOrder={activeGridItemOrder} expandedFolderId={expandedFolderId} recentlyMergedFolderId={recentlyMergedFolderId} runtimeStates={runtimeStates} folderLaunchStatuses={folderLaunchStatuses} selectedItemId={selectedGridItemId} invalidAppIds={invalidAppIds} draggingItemId={drag?.itemId} runningCount={activeGroupApps.filter((app) => app.metrics.isRunning).length} showAppNames={preferences.uiLayout.showAppNames} onSelectApp={handleAppSelection} onSelectFolder={(folderId) => { setSelectedGridItemId(`folder:${folderId}`); setSelectedAppId(""); }} onFocusApp={(app) => void focusAppWindow(app)} onLaunchApp={(app) => void launchApp(app.id)} onLaunchingFeedback={handleLaunchingFeedback} onCloseAll={() => void requestCloseGroupApps()} onAdd={addApp} onContextMenu={(event, app) => { event.preventDefault(); event.stopPropagation(); if (!drag) openMenu({ kind: "app", x: event.clientX, y: event.clientY, appId: app.id }); }} onAppPointerDown={(event, app, sourceFolderId) => { if (event.button !== 0) return; capturePointerForDrag(event.currentTarget, event.pointerId); const rect = event.currentTarget.getBoundingClientRect(); unifiedDragCandidate.current = { kind: "app", appId: app.id, sourceFolderId, itemId: `app:${app.id}`, startX: event.clientX, startY: event.clientY, grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top, width: rect.width, height: rect.height }; }} onFolderPointerDown={(event, folder) => { if (event.button !== 0) return; capturePointerForDrag(event.currentTarget, event.pointerId); const rect = event.currentTarget.getBoundingClientRect(); unifiedDragCandidate.current = { kind: "folder", folderId: folder.id, itemId: `folder:${folder.id}`, startX: event.clientX, startY: event.clientY, grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top, width: rect.width, height: rect.height }; }} onToggleFolder={(folderId) => { if (document.documentElement.dataset.cardDragging) return; if (expandedFolderId === folderId) closeExpandedFolder(folderId); else { setExpandedFolderId(folderId); setSelectedGridItemId(`folder:${folderId}`); setSelectedAppId(""); } }} onLaunchFolder={(folderId) => { void launchFolderWithFeedback(folderId); }} onRequestCloseFolder={requestCloseFolder} onRequestClose={requestCloseApp} /> : null}
         {notice || error ? <ToastStack notice={notice} error={error} onDismissNotice={() => setNotice("")} onDismissError={() => setError("")} /> : null}
@@ -1163,4 +1145,3 @@ if (typeof document !== "undefined") {
   const root = document.getElementById("root");
   if (root) createRoot(root).render(<React.StrictMode><App /></React.StrictMode>);
 }
-

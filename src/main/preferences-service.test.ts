@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { PreferencesService } from "./preferences-service.js";
+import { encodeAppearanceShareCode, normalizeAppearance } from "../shared/appearance-share.js";
 
 function createService() {
   const root = mkdtempSync(join(tmpdir(), "start-engineer-preferences-"));
@@ -28,6 +29,18 @@ function createService() {
 }
 
 describe("preferences-service", () => {
+  it("persists a complete imported appearance and applies its theme without changing operational settings", () => {
+    const { service, applyTheme } = createService();
+    service.update({ closeBehavior: "quit", runAsAdministrator: false });
+    const appearance = normalizeAppearance({ uiTheme: "wallpaper", wallpaperGlassVariant: "light", wallpaperGlassIntensity: 83 });
+    const result = service.importUiLayoutShareCode(encodeAppearanceShareCode(appearance));
+    expect(result).toMatchObject({ ...appearance, closeBehavior: "quit", runAsAdministrator: false });
+    expect(applyTheme).toHaveBeenCalledWith(expect.objectContaining(appearance));
+    expect(service.exportUiLayoutShareCode()).toBe(encodeAppearanceShareCode(appearance));
+    const before = service.load();
+    expect(() => service.importUiLayoutShareCode("seui:v2:bad")).toThrow();
+    expect(service.load()).toEqual(before);
+  });
   it("updates login settings and reports the effective state", () => {
     const { service } = createService();
     expect(service.update({ launchAtStartup: true }).launchAtStartup).toBe(true);

@@ -1,26 +1,23 @@
-import type { KeyboardEvent, MouseEvent } from "react";
+import { useState, type KeyboardEvent, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
-import type { AppGroup, AppPreferencesState, StartEngineerApi, UiTheme, UpdatePreferencesInput, WallpaperGlassIntensity } from "../shared/types";
-import { defaultUiLayoutPreferences } from "../shared/ui-layout-share";
+import type { AppGroup, AppPreferencesState, StartEngineerApi, UpdatePreferencesInput } from "../shared/types";
+import { AppearanceEditor } from "./appearance-editor";
 import { cleanErrorMessage } from "./error-message";
 import { GroupManagerItem, GroupSortPreview } from "./group-management";
 import { KeyboardShortcutSettingsSection } from "./keyboard-shortcuts";
 import { AboutSettingsDialog, SearchDependencySettings, SettingsCollapsibleSection } from "./settings-sections";
-import { WallpaperGlassIntensityControl, WallpaperGlassVariantControl } from "./theme-settings";
 import { themeOptions } from "./theme-options";
 import { Icon } from "./ui-icons";
 import { useSettingsGroupDrag } from "./use-settings-group-drag";
 import { useSettingsPreferences } from "./use-settings-preferences";
 import type { RuntimeApp } from "./window-focus-feedback";
 import { capturePointerForDrag } from "./pointer-drag-lifecycle";
-export function SettingsPage({ client, apps, groups, preferences, onPreferencesChange, onWallpaperIntensityPreview, onThemeChange, onAdd, onAddToGroup, onCreate, onEdit, onDelete, onReorder, onOpenApp, onAppContextMenu, onMoveApp }: {
+export function SettingsPage({ client, apps, groups, preferences, onPreferencesChange, onAdd, onAddToGroup, onCreate, onEdit, onDelete, onReorder, onOpenApp, onAppContextMenu, onMoveApp }: {
     client: StartEngineerApi;
     apps: RuntimeApp[];
     groups: AppGroup[];
     preferences: AppPreferencesState;
     onPreferencesChange: (input: UpdatePreferencesInput) => Promise<AppPreferencesState>;
-    onWallpaperIntensityPreview: (value: WallpaperGlassIntensity) => void;
-    onThemeChange: (theme: UiTheme) => Promise<AppPreferencesState>;
     onAdd: () => void;
     onAddToGroup: (id: string) => void;
     onCreate: () => void;
@@ -32,49 +29,8 @@ export function SettingsPage({ client, apps, groups, preferences, onPreferencesC
     onMoveApp: (appId: string, groupId: string) => Promise<void>;
 }) {
     const { ordered, expanded, sortPreview, appDrag, rows, sortCandidate, appCandidate, suppressAppClick, draggedApp, previewGroup, toggle } = useSettingsGroupDrag({ groups, apps, onReorder, onMoveApp });
-    const { aboutDialogOpen, activeSettingsView, administratorStatus, changeUiScale, copyLayoutShareCode, expandedSettings, flushWallpaperIntensity, importLayoutShareCode, layoutEditing, layoutShareCode, recordingShortcut, recordShortcut, saveLayoutPreference, savePreference, saveWallpaperIntensity, savingPreference, selectTheme, setAboutDialogOpen, setActiveSettingsView, setLayoutEditing, setLayoutShareCode, setPreferences, setRecordingShortcut, setShortcutMessage, shortcutMessage, toggleSettingsSection } = useSettingsPreferences({ client, preferences, onPreferencesChange, onWallpaperIntensityPreview, onThemeChange });
-    const themePicker = (<section className="theme-panel theme-presets">
-      <header className="theme-subheading"><span><strong>主题预设</strong><small>快速切换整套视觉风格</small></span></header>
-      <div className="theme-grid" role="radiogroup" aria-label="界面主题">
-        {themeOptions.map((theme) => (<button key={theme.id} type="button" role="radio" aria-checked={preferences.uiTheme === theme.id} className={`theme-card theme-${theme.id} ${preferences.uiTheme === theme.id ? "selected" : ""}`} disabled={savingPreference !== null} title={theme.title ?? theme.description} onClick={() => void selectTheme(theme.id)}>
-            <span className="theme-preview" aria-hidden="true"><i /><b /><em /></span>
-            <span className="theme-card-copy"><strong>{theme.name}</strong><small>{theme.description}</small></span>
-            <span className="theme-check" aria-hidden="true">✓</span>
-          </button>))}
-      </div>
-      {preferences.uiTheme === "wallpaper" ? <div className="wallpaper-controls"><WallpaperGlassVariantControl value={preferences.wallpaperGlassVariant} disabled={savingPreference !== null} onChange={(value) => void savePreference("wallpaperVariant", { wallpaperGlassVariant: value })}/><WallpaperGlassIntensityControl value={preferences.wallpaperGlassIntensity} disabled={savingPreference !== null && savingPreference !== "wallpaperIntensity"} onChange={(value) => saveWallpaperIntensity(value)} onCommit={flushWallpaperIntensity}/></div> : null}
-    </section>);
-    const layoutOption = <T extends string,>(label: string, value: T, current: T, onClick: (value: T) => void) => <button className={current === value ? "selected" : ""} disabled={savingPreference !== null} onClick={() => onClick(value)}>{label}</button>;
-    const layoutIsDefault = JSON.stringify(preferences.uiLayout) === JSON.stringify(defaultUiLayoutPreferences);
-    const layoutEditor = (<section className={`theme-panel layout-editor ${layoutEditing ? "editing" : ""}`}>
-      <div className="layout-editor-heading">
-        <span><strong>界面布局</strong><small>{layoutEditing ? "修改会立即应用到当前窗口" : `${preferences.uiLayout.uiScale}% · ${preferences.uiLayout.backgroundColor || "主题背景"}`}</small></span>
-        <div>{layoutEditing ? <button className="shortcut-reset" disabled={layoutIsDefault || savingPreference !== null} onClick={() => saveLayoutPreference(defaultUiLayoutPreferences)}>恢复默认</button> : null}<button className={layoutEditing ? "ghost selected" : "launch"} onClick={() => setLayoutEditing((value) => !value)}>{layoutEditing ? "完成" : "自定义"}</button></div>
-      </div>
-      {layoutEditing ? <>
-        <div className="layout-primary-controls">
-            <div className="layout-control-block">
-              <header><span><strong>界面比例</strong><small>80% - 125%</small></span><output>{preferences.uiLayout.uiScale}%</output></header>
-              <div className="scale-control"><button title="缩小界面" aria-label="缩小界面" onClick={() => changeUiScale(preferences.uiLayout.uiScale - 2)}>−</button><input aria-label="界面比例" type="range" min="80" max="125" step="1" value={preferences.uiLayout.uiScale} onChange={(event) => changeUiScale(Number(event.target.value))}/><button title="放大界面" aria-label="放大界面" onClick={() => changeUiScale(preferences.uiLayout.uiScale + 2)}>+</button></div>
-            </div>
-            <div className="layout-control-block">
-              <header><span><strong>背景颜色</strong><small>{preferences.uiLayout.backgroundColor || "使用主题默认颜色"}</small></span>{preferences.uiLayout.backgroundColor ? <button className="layout-color-reset" onClick={() => saveLayoutPreference({ backgroundColor: "" })}>跟随主题</button> : null}</header>
-              <div className="color-control"><label className="color-picker" style={{ background: preferences.uiLayout.backgroundColor || "#EAF2FF" }}><input aria-label="选择背景颜色" type="color" value={preferences.uiLayout.backgroundColor || "#EAF2FF"} onChange={(event) => saveLayoutPreference({ backgroundColor: event.target.value.toUpperCase() })}/></label>{["#EAF2FF", "#F5F5F7", "#E9F7F5", "#F2ECFF", "#172033", "#0B111A"].map((color) => <button key={color} className={preferences.uiLayout.backgroundColor === color ? "selected" : ""} style={{ background: color }} title={color} aria-label={`背景颜色 ${color}`} onClick={() => saveLayoutPreference({ backgroundColor: color })}/>)}</div>
-            </div>
-        </div>
-        <section className="layout-option-section"><header><strong>尺寸与间距</strong><small>调整应用网格和导航占用的空间</small></header><div className="preference-grid layout-detail-grid">
-        <div className="preference-row"><span><strong>卡片大小</strong><small>调整应用卡片的整体尺寸。</small></span><div className="preference-options">{layoutOption("小", "small", preferences.uiLayout.cardSize, (value) => saveLayoutPreference({ cardSize: value }))}{layoutOption("中", "medium", preferences.uiLayout.cardSize, (value) => saveLayoutPreference({ cardSize: value }))}{layoutOption("大", "large", preferences.uiLayout.cardSize, (value) => saveLayoutPreference({ cardSize: value }))}</div></div>
-        <div className="preference-row"><span><strong>网格密度</strong><small>控制应用之间的留白。</small></span><div className="preference-options">{layoutOption("紧凑", "compact", preferences.uiLayout.gridDensity, (value) => saveLayoutPreference({ gridDensity: value }))}{layoutOption("标准", "standard", preferences.uiLayout.gridDensity, (value) => saveLayoutPreference({ gridDensity: value }))}{layoutOption("宽松", "relaxed", preferences.uiLayout.gridDensity, (value) => saveLayoutPreference({ gridDensity: value }))}</div></div>
-        <div className="preference-row"><span><strong>侧栏宽度</strong><small>调整左侧导航区域宽度。</small></span><div className="preference-options">{layoutOption("窄", "narrow", preferences.uiLayout.sidebarWidth, (value) => saveLayoutPreference({ sidebarWidth: value }))}{layoutOption("标准", "standard", preferences.uiLayout.sidebarWidth, (value) => saveLayoutPreference({ sidebarWidth: value }))}{layoutOption("宽", "wide", preferences.uiLayout.sidebarWidth, (value) => saveLayoutPreference({ sidebarWidth: value }))}</div></div>
-        <div className="preference-row"><span><strong>顶部图标</strong><small>控制左上角标识大小。</small></span><div className="preference-options">{layoutOption("标准", "standard", preferences.uiLayout.brandIconSize, (value) => saveLayoutPreference({ brandIconSize: value }))}{layoutOption("大", "large", preferences.uiLayout.brandIconSize, (value) => saveLayoutPreference({ brandIconSize: value }))}</div></div>
-        </div></section>
-        <section className="layout-option-section"><header><strong>显示内容</strong><small>隐藏暂时不需要的界面元素</small></header><div className="preference-grid layout-detail-grid">
-        <div className="preference-row"><span><strong>显示搜索栏</strong><small>隐藏后仍可用设置重新打开。</small></span><button className={`setting-switch ${preferences.uiLayout.showSearchBar ? "enabled" : ""}`} role="switch" aria-checked={preferences.uiLayout.showSearchBar} disabled={savingPreference !== null} onClick={() => saveLayoutPreference({ showSearchBar: !preferences.uiLayout.showSearchBar })}><i /></button></div>
-        <div className="preference-row"><span><strong>显示底部操作</strong><small>控制底部添加应用和关闭全部操作。</small></span><button className={`setting-switch ${preferences.uiLayout.showBatchActions ? "enabled" : ""}`} role="switch" aria-checked={preferences.uiLayout.showBatchActions} disabled={savingPreference !== null} onClick={() => saveLayoutPreference({ showBatchActions: !preferences.uiLayout.showBatchActions })}><i /></button></div>
-        </div></section>
-        <details className="layout-share-panel"><summary><span><strong>导入与分享</strong><small>分享码不包含应用和本地路径</small></span></summary><div className="layout-share-content"><input aria-label="界面分享码" value={layoutShareCode} placeholder="粘贴 SEUI 分享码" onChange={(event) => setLayoutShareCode(event.target.value)}/><div><button className="shortcut-reset" onClick={importLayoutShareCode}>导入</button><button className="launch" onClick={copyLayoutShareCode}>复制当前布局</button></div>{shortcutMessage ? <em>{shortcutMessage}</em> : null}</div></details>
-      </> : <div className="layout-editor-summary"><div className="layout-summary-scale"><b>{preferences.uiLayout.uiScale}</b><span>%</span></div><div className="layout-summary-swatch" style={{ background: preferences.uiLayout.backgroundColor || "linear-gradient(135deg,#dff5fb,#eee7fb)" }}/><span>{preferences.uiLayout.backgroundColor ? "自定义背景" : "主题背景"}</span></div>}
-    </section>);
+    const { aboutDialogOpen, activeSettingsView, administratorStatus, expandedSettings, recordingShortcut, recordShortcut, saveLayoutPreference, savePreference, savingPreference, setAboutDialogOpen, setActiveSettingsView, setPreferences, setRecordingShortcut, setShortcutMessage, shortcutMessage, toggleSettingsSection } = useSettingsPreferences({ preferences, onPreferencesChange });
+    const [studioOpen, setStudioOpen] = useState(false);
     const currentTheme = themeOptions.find((theme) => theme.id === preferences.uiTheme) ?? themeOptions[0];
     const handleSettingsTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
       if (event.key !== "ArrowLeft" && event.key !== "ArrowRight" && event.key !== "Home" && event.key !== "End") return;
@@ -95,16 +51,16 @@ export function SettingsPage({ client, apps, groups, preferences, onPreferencesC
       </section>
 
       <section className="settings-primary-section appearance-settings" aria-labelledby="appearance-heading">
-        <header className="settings-section-heading"><span><strong id="appearance-heading">外观</strong><small>当前主题与界面布局。</small></span></header>
+        <header className="settings-section-heading"><span><strong id="appearance-heading">外观</strong><small>设计自己的界面，或通过分享码导入其他人的外观。</small></span></header>
         <div className="theme-summary">
           <span className={`theme-summary-preview theme-${currentTheme.id}`} aria-hidden="true"><span className="theme-preview"><i /><b /><em /></span></span>
           <span className="theme-summary-copy"><strong>{currentTheme.name}</strong><small>{currentTheme.description}</small></span>
-          <button type="button" className="theme-details-toggle" aria-expanded={expandedSettings.has("theme")} aria-controls="theme-details" onClick={() => toggleSettingsSection("theme")}>{expandedSettings.has("theme") ? "收起" : "更换主题"}</button>
+          <button type="button" className="theme-details-toggle" aria-haspopup="dialog" onClick={() => setStudioOpen(true)}>自定义与分享</button>
         </div>
-        {expandedSettings.has("theme") ? <div id="theme-details" className="theme-details">{themePicker}{layoutEditor}</div> : null}
+
       </section>
 
-      <SettingsCollapsibleSection className="advanced-settings" title="高级设置" description="应用排序、名称、权限、快捷键和搜索依赖。" expanded={expandedSettings.has("advanced")} onToggle={() => toggleSettingsSection("advanced")}>
+      <SettingsCollapsibleSection className="advanced-settings" title="高级设置" description="应用名称、权限、快捷键和搜索依赖。" expanded={expandedSettings.has("advanced")} onToggle={() => toggleSettingsSection("advanced")}>
         <div className="preference-grid advanced-preference-grid">
           <div className="preference-row app-name-preference"><span><strong>显示应用名称</strong><small>在主界面卡片下方显示应用名称，关闭后只保留图标和状态。</small></span><button className={`setting-switch ${preferences.uiLayout.showAppNames ? "enabled" : ""}`} role="switch" aria-checked={preferences.uiLayout.showAppNames} disabled={savingPreference !== null} onClick={() => saveLayoutPreference({ showAppNames: !preferences.uiLayout.showAppNames })}><i /></button></div>
           <div className="preference-row administrator-preference"><span><strong>启动时预先授权关闭高权限应用</strong><small>默认保持普通权限；仅在普通关闭失败时请求 UAC。开启后会在每次启动时授权一次，主界面仍保持普通权限和资源管理器拖放能力。</small><em className={preferences.elevatedTerminationStatus === "ready" ? "active" : "pending"}>{administratorStatus}</em></span><div className="administrator-controls">{preferences.administratorRestartRequired ? <button className="shortcut-reset administrator-restart" onClick={() => void client.restartWithConfiguredPrivileges().catch((reason) => setShortcutMessage(cleanErrorMessage(reason, "管理员授权失败")))}>{preferences.elevatedTerminationStatus === "cancelled" || preferences.elevatedTerminationStatus === "failed" ? "重新授权" : "本次授权"}</button> : null}<button title="启动时预先授权关闭高权限应用" className={`setting-switch ${preferences.runAsAdministrator ? "enabled" : ""}`} role="switch" aria-checked={preferences.runAsAdministrator} disabled={savingPreference !== null} onClick={() => void savePreference("administrator", { runAsAdministrator: !preferences.runAsAdministrator })}><i /></button></div></div>
@@ -144,6 +100,7 @@ export function SettingsPage({ client, apps, groups, preferences, onPreferencesC
         <button type="button" id="settings-tab-groups" className={`settings-view-tab ${activeSettingsView === "groups" ? "selected" : ""}`} role="tab" aria-selected={activeSettingsView === "groups"} aria-controls="settings-panel-groups" tabIndex={activeSettingsView === "groups" ? 0 : -1} onKeyDown={handleSettingsTabKeyDown} onClick={() => setActiveSettingsView("groups")}>分组管理</button>
       </div>
       {activeSettingsView === "preferences" ? preferenceView : groupsView}
+      {studioOpen ? <AppearanceEditor preferences={preferences} apps={apps} client={client} onSave={onPreferencesChange} onClose={() => setStudioOpen(false)} /> : null}
       <AboutSettingsDialog open={aboutDialogOpen} onClose={() => setAboutDialogOpen(false)} />
       {sortPreview && previewGroup && typeof document !== "undefined" ? createPortal(<GroupSortPreview group={previewGroup} count={apps.filter((candidate) => candidate.groupId === previewGroup.id).length} left={sortPreview.left} top={sortPreview.top} width={sortPreview.width}/>, document.body) : null}
       {appDrag && draggedApp ? <div className="drag-preview no-drag" style={{ left: appDrag.x - app.grabOffsetX, top: appDrag.y - app.grabOffsetY }}>{draggedApp.iconDataUrl ? <img src={draggedApp.iconDataUrl} alt=""/> : <Icon name="grid"/>}<span>{draggedApp.name}</span></div> : null}

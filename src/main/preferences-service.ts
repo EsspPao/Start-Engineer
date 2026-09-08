@@ -1,6 +1,6 @@
 import type { AppPreferences, AppPreferencesState, UpdatePreferencesInput } from "../shared/types.js";
 import { validateShortcut } from "../shared/global-shortcut.js";
-import { decodeUiLayoutShareCode, encodeUiLayoutShareCode } from "../shared/ui-layout-share.js";
+import { decodeAppearanceShareCode, encodeAppearanceShareCode } from "../shared/appearance-share.js";
 import { JsonConfigStore } from "./config-store.js";
 import { defaultPreferences, normalizePreferences } from "./preferences.js";
 
@@ -114,14 +114,13 @@ export class PreferencesService {
   }
 
   exportUiLayoutShareCode() {
-    return encodeUiLayoutShareCode(this.load().uiLayout);
+    return encodeAppearanceShareCode(this.load());
   }
 
   importUiLayoutShareCode(code: string) {
-    const result = decodeUiLayoutShareCode(code.trim());
+    const result = decodeAppearanceShareCode(code, this.load());
     if (!result.ok) throw new Error("分享码无效");
-    this.save({ ...this.load(), uiLayout: result.preferences, showAppNames: result.preferences.showAppNames });
-    return this.snapshot();
+    return this.update({ ...result.appearance, showAppNames: result.appearance.uiLayout.showAppNames });
   }
 
   clearRegisteredShortcut() {

@@ -78,9 +78,10 @@ export function decodeUiLayoutShareCode(code: string): UiLayoutShareDecodeResult
   if (!code.startsWith("seui:")) return { ok: false, reason: "invalid-prefix" };
   const [, version, payload] = code.split(":");
   if (!supportedVersions.has(version)) return { ok: false, reason: "unsupported-version" };
-  if (!payload) return { ok: false, reason: "invalid-payload" };
+  if (!payload || code.split(":").length !== 3 || code.length > 12000) return { ok: false, reason: "invalid-payload" };
   try {
     const parsed = JSON.parse(decodeBase64Url(payload)) as Partial<UiLayoutPreferences>;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { ok: false, reason: "invalid-payload" };
     return { ok: true, preferences: normalizeUiLayoutPreferences(parsed) };
   } catch {
     return { ok: false, reason: "invalid-payload" };

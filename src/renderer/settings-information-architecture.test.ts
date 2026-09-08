@@ -20,7 +20,7 @@ describe("settings information architecture", () => {
   it("keeps only daily startup controls and the current appearance visible by default", () => {
     expect(page).toContain("启动与操作");
     expect(page).toContain("theme-summary");
-    expect(page).toContain('expandedSettings.has("theme") ? <div id="theme-details"');
+    expect(page).toContain('<AppearanceEditor');
     expect(page).toContain('expandedSettings.has("advanced")');
   });
 
