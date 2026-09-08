@@ -37,8 +37,8 @@ html, body, #root { width: 100%; height: 100%; }
 html, body, #root { background: transparent; }
 body {
   margin: 0;
-  min-width: 1060px;
-  min-height: 680px;
+  min-width: min(1060px, 100vw);
+  min-height: min(680px, 100vh);
   overflow: hidden;
 }
 body::after {
@@ -317,7 +317,6 @@ button { border: 0; }
 .app-shell[data-ui-card-size="large"] .app-card { grid-template-rows: 104px auto; }
 .app-shell[data-ui-card-size="small"] .card-icon { width: 52px; height: 52px; }
 .app-shell[data-ui-card-size="large"] .card-icon { width: 82px; height: 82px; }
-.app-shell[data-ui-show-running-status="false"] .running-status-button,
 .app-shell[data-ui-show-batch-actions="false"] .group-actions,
 .app-shell[data-ui-show-search-bar="false"] .searchbar { display: none; }
 .app-card.names-hidden { grid-template-rows: 1fr; }

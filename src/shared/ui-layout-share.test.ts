@@ -29,7 +29,7 @@ describe("UI layout share codes", () => {
         sidebarWidth: "wide",
         brandIconSize: "large",
         backgroundTone: "aurora",
-        showRunningStatus: false,
+        showRunningStatus: true,
         showAppNames: true,
         showBatchActions: false,
         showSearchBar: true
@@ -55,7 +55,7 @@ describe("UI layout share codes", () => {
       sidebarWidth: "wide",
       brandIconSize: "standard",
       backgroundTone: "default",
-      showRunningStatus: false,
+      showRunningStatus: true,
       showAppNames: false,
       showBatchActions: true,
       showSearchBar: true

@@ -50,7 +50,7 @@ export function normalizeUiLayoutPreferences(raw: Partial<UiLayoutPreferences> |
     sidebarWidth: pickSetValue(raw?.sidebarWidth, sidebarWidths, defaultUiLayoutPreferences.sidebarWidth),
     brandIconSize: pickSetValue(raw?.brandIconSize, brandIconSizes, defaultUiLayoutPreferences.brandIconSize),
     backgroundTone: pickSetValue(raw?.backgroundTone, backgroundTones, defaultUiLayoutPreferences.backgroundTone),
-    showRunningStatus: raw?.showRunningStatus !== false,
+    showRunningStatus: true,
     showAppNames: raw?.showAppNames === true,
     showBatchActions: raw?.showBatchActions !== false,
     showSearchBar: raw?.showSearchBar !== false

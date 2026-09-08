@@ -25,7 +25,7 @@ describe("preferences", () => {
       sidebarWidth: "narrow",
       brandIconSize: "large",
       backgroundTone: "graphite",
-      showRunningStatus: false,
+      showRunningStatus: true,
       showAppNames: true,
       showBatchActions: false,
       showSearchBar: true

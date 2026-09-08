@@ -649,8 +649,8 @@ function App() {
   );
   const visibleApps = useMemo(() => sortAppsForDisplay(
     activeGroupApps.filter((item) => matchesAppSearch(item, pageQuery) && (isAllAppsSection || !folders.some((folder) => folder.groupId === activeSection && folder.appIds.includes(item.id)))),
-    preferences.sortRunningAppsFirst
-  ), [activeGroupApps, activeSection, folders, isAllAppsSection, pageQuery, preferences.sortRunningAppsFirst]);
+    isAllAppsSection
+  ), [activeGroupApps, activeSection, folders, isAllAppsSection, pageQuery]);
   const displayedApps = useMemo(() => {
     if (!drag?.previewOrder || drag.reorderGroupId !== activeSection) return visibleApps;
     const byId = new Map(visibleApps.map((app) => [app.id, app]));
@@ -794,7 +794,7 @@ function App() {
     closeFloatingUi();
     if (id === ALL_APPS_SECTION_ID) {
       const sectionApps = appSectionApps(id, runtimeApps, preferences.allAppsView.orderedAppIds);
-      const visibleAppIds = sortAppsForDisplay(sectionApps, preferences.sortRunningAppsFirst).map((app) => app.id);
+      const visibleAppIds = sortAppsForDisplay(sectionApps, true).map((app) => app.id);
       const focusTarget = resolveSectionAppFocusTarget(id, visibleAppIds);
       setSelectedAppId(focusTarget.selectedAppId);
       focusSelectorAfterRender(focusTarget.selector);
@@ -1103,7 +1103,7 @@ function App() {
   }, [activeFolders, activeSection, appGroups, closeExpandedFolder, closeMenu, confirm, displayedApps, edit, expandedFolderId, expandedFolderMemberItemIds, groupDelete, groupEdit, isAllAppsSection, isAppSection, menu, preferences.keyboardShortcuts, query, runKeyboardAppAction, runtimeApps, searchPanelOpen, selectableGridItemOrder, selectedAppId, selectedGridItemId]);
 
   return (
-    <main className={`app-shell drag-region ${fileDropActive ? "file-drop-active" : ""}`} style={{ ...themeAttributes.wallpaperStyle, "--ui-scale": preferences.uiLayout.uiScale / 100, "--ui-scale-width": `${10000 / preferences.uiLayout.uiScale}vw`, "--ui-scale-height": `${10000 / preferences.uiLayout.uiScale}vh`, "--ui-background-color": preferences.uiLayout.backgroundColor || "transparent" } as unknown as React.CSSProperties} data-theme={themeAttributes.theme} data-wallpaper-intensity={themeAttributes.wallpaperIntensity} data-wallpaper-variant={themeAttributes.wallpaperVariant} data-ui-card-size={preferences.uiLayout.cardSize} data-ui-grid-density={preferences.uiLayout.gridDensity} data-ui-sidebar-width={preferences.uiLayout.sidebarWidth} data-ui-brand-icon-size={preferences.uiLayout.brandIconSize} data-ui-background-tone={preferences.uiLayout.backgroundTone} data-ui-custom-background={preferences.uiLayout.backgroundColor ? "true" : "false"} data-ui-show-running-status={preferences.uiLayout.showRunningStatus ? "true" : "false"} data-ui-show-search-bar={preferences.uiLayout.showSearchBar ? "true" : "false"} data-ui-show-batch-actions={preferences.uiLayout.showBatchActions ? "true" : "false"} onPointerDown={closeFloatingUi} onDragEnter={handleFileDragEnter} onDragOver={handleFileDragOver} onDragLeave={handleFileDragLeave} onDrop={handleFileDrop}>
+    <main className={`app-shell drag-region ${fileDropActive ? "file-drop-active" : ""}`} style={{ ...themeAttributes.wallpaperStyle, "--ui-scale": preferences.uiLayout.uiScale / 100, "--ui-scale-width": `${10000 / preferences.uiLayout.uiScale}vw`, "--ui-scale-height": `${10000 / preferences.uiLayout.uiScale}vh`, "--ui-background-color": preferences.uiLayout.backgroundColor || "transparent" } as unknown as React.CSSProperties} data-theme={themeAttributes.theme} data-wallpaper-intensity={themeAttributes.wallpaperIntensity} data-wallpaper-variant={themeAttributes.wallpaperVariant} data-ui-card-size={preferences.uiLayout.cardSize} data-ui-grid-density={preferences.uiLayout.gridDensity} data-ui-sidebar-width={preferences.uiLayout.sidebarWidth} data-ui-brand-icon-size={preferences.uiLayout.brandIconSize} data-ui-background-tone={preferences.uiLayout.backgroundTone} data-ui-custom-background={preferences.uiLayout.backgroundColor ? "true" : "false"} data-ui-show-search-bar={preferences.uiLayout.showSearchBar ? "true" : "false"} data-ui-show-batch-actions={preferences.uiLayout.showBatchActions ? "true" : "false"} onPointerDown={closeFloatingUi} onDragEnter={handleFileDragEnter} onDragOver={handleFileDragOver} onDragLeave={handleFileDragLeave} onDrop={handleFileDrop}>
       <aside className="sidebar no-drag" onContextMenu={(event) => {
         if ((event.target as Element).closest("[data-sidebar-context-exclude]")) return;
         event.preventDefault();
