@@ -10,6 +10,10 @@ type UseSearchResultsOptions = {
   runtimeApps: RuntimeApp[];
 };
 
+export function filterDiscoveredSearchResults(results: DiscoveredAppCandidate[]) {
+  return results.filter((candidate) => !candidate.alreadyAdded);
+}
+
 export function useSearchResults({ client, runtimeApps }: UseSearchResultsOptions) {
   const [query, setQuery] = useState("");
   const [discoveredResults, setDiscoveredResults] = useState<DiscoveredAppCandidate[]>([]);
@@ -50,10 +54,11 @@ export function useSearchResults({ client, runtimeApps }: UseSearchResultsOption
       void Promise.all([client.searchAppCandidates(trimmed), client.searchInstallableApps(trimmed)])
         .then(([results, installable]) => {
           if (searchRequest.current !== requestId) return;
-          setDiscoveredResults(results);
+          const visibleCandidates = filterDiscoveredSearchResults(results);
+          setDiscoveredResults(visibleCandidates);
           setInstallableResults(installable);
           const hasManagedResults = buildInternalSearchResults(trimmed, runtimeAppsRef.current).length > 0;
-          if (results.length || installable.length || hasManagedResults) {
+          if (visibleCandidates.length || installable.length || hasManagedResults) {
             setFileResults([]);
             setSearchLoading(false);
             return;

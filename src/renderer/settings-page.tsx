@@ -1,6 +1,7 @@
 import type { KeyboardEvent, MouseEvent } from "react";
 import { createPortal } from "react-dom";
 import type { AppGroup, AppPreferencesState, StartEngineerApi, UiTheme, UpdatePreferencesInput, WallpaperGlassIntensity } from "../shared/types";
+import { defaultUiLayoutPreferences } from "../shared/ui-layout-share";
 import { cleanErrorMessage } from "./error-message";
 import { GroupManagerItem, GroupSortPreview } from "./group-management";
 import { KeyboardShortcutSettingsSection } from "./keyboard-shortcuts";
@@ -44,18 +45,14 @@ export function SettingsPage({ client, apps, groups, preferences, onPreferencesC
       {preferences.uiTheme === "wallpaper" ? <div className="wallpaper-controls"><WallpaperGlassVariantControl value={preferences.wallpaperGlassVariant} disabled={savingPreference !== null} onChange={(value) => void savePreference("wallpaperVariant", { wallpaperGlassVariant: value })}/><WallpaperGlassIntensityControl value={preferences.wallpaperGlassIntensity} disabled={savingPreference !== null && savingPreference !== "wallpaperIntensity"} onChange={(value) => saveWallpaperIntensity(value)} onCommit={flushWallpaperIntensity}/></div> : null}
     </section>);
     const layoutOption = <T extends string,>(label: string, value: T, current: T, onClick: (value: T) => void) => <button className={current === value ? "selected" : ""} disabled={savingPreference !== null} onClick={() => onClick(value)}>{label}</button>;
+    const layoutIsDefault = JSON.stringify(preferences.uiLayout) === JSON.stringify(defaultUiLayoutPreferences);
     const layoutEditor = (<section className={`theme-panel layout-editor ${layoutEditing ? "editing" : ""}`}>
       <div className="layout-editor-heading">
-        <span><strong>界面编辑器</strong><small>{preferences.uiLayout.uiScale}% · {preferences.uiLayout.backgroundColor || "跟随主题背景"}</small></span>
-        <button className={layoutEditing ? "ghost selected" : "launch"} onClick={() => setLayoutEditing((value) => !value)}>{layoutEditing ? "完成" : "编辑界面"}</button>
+        <span><strong>界面布局</strong><small>{layoutEditing ? "修改会立即应用到当前窗口" : `${preferences.uiLayout.uiScale}% · ${preferences.uiLayout.backgroundColor || "主题背景"}`}</small></span>
+        <div>{layoutEditing ? <button className="shortcut-reset" disabled={layoutIsDefault || savingPreference !== null} onClick={() => saveLayoutPreference(defaultUiLayoutPreferences)}>恢复默认</button> : null}<button className={layoutEditing ? "ghost selected" : "launch"} onClick={() => setLayoutEditing((value) => !value)}>{layoutEditing ? "完成" : "自定义"}</button></div>
       </div>
       {layoutEditing ? <>
-        <div className="layout-workbench">
-          <div className="layout-preview" title="滚动鼠标滚轮调整界面比例" onWheel={(event) => { event.preventDefault(); changeUiScale(preferences.uiLayout.uiScale + (event.deltaY < 0 ? 2 : -2)); }}>
-            <div className="layout-preview-shell" style={{ transform: `scale(${preferences.uiLayout.uiScale / 100})`, background: preferences.uiLayout.backgroundColor || undefined }}><i /><span><b /><b /><b /></span></div>
-            <output>{preferences.uiLayout.uiScale}%</output>
-          </div>
-          <div className="layout-primary-controls">
+        <div className="layout-primary-controls">
             <div className="layout-control-block">
               <header><span><strong>界面比例</strong><small>80% - 125%</small></span><output>{preferences.uiLayout.uiScale}%</output></header>
               <div className="scale-control"><button title="缩小界面" aria-label="缩小界面" onClick={() => changeUiScale(preferences.uiLayout.uiScale - 2)}>−</button><input aria-label="界面比例" type="range" min="80" max="125" step="1" value={preferences.uiLayout.uiScale} onChange={(event) => changeUiScale(Number(event.target.value))}/><button title="放大界面" aria-label="放大界面" onClick={() => changeUiScale(preferences.uiLayout.uiScale + 2)}>+</button></div>
@@ -64,18 +61,19 @@ export function SettingsPage({ client, apps, groups, preferences, onPreferencesC
               <header><span><strong>背景颜色</strong><small>{preferences.uiLayout.backgroundColor || "使用主题默认颜色"}</small></span>{preferences.uiLayout.backgroundColor ? <button className="layout-color-reset" onClick={() => saveLayoutPreference({ backgroundColor: "" })}>跟随主题</button> : null}</header>
               <div className="color-control"><label className="color-picker" style={{ background: preferences.uiLayout.backgroundColor || "#EAF2FF" }}><input aria-label="选择背景颜色" type="color" value={preferences.uiLayout.backgroundColor || "#EAF2FF"} onChange={(event) => saveLayoutPreference({ backgroundColor: event.target.value.toUpperCase() })}/></label>{["#EAF2FF", "#F5F5F7", "#E9F7F5", "#F2ECFF", "#172033", "#0B111A"].map((color) => <button key={color} className={preferences.uiLayout.backgroundColor === color ? "selected" : ""} style={{ background: color }} title={color} aria-label={`背景颜色 ${color}`} onClick={() => saveLayoutPreference({ backgroundColor: color })}/>)}</div>
             </div>
-          </div>
         </div>
-        <div className="preference-grid layout-detail-grid">
+        <section className="layout-option-section"><header><strong>尺寸与间距</strong><small>调整应用网格和导航占用的空间</small></header><div className="preference-grid layout-detail-grid">
         <div className="preference-row"><span><strong>卡片大小</strong><small>调整应用卡片的整体尺寸。</small></span><div className="preference-options">{layoutOption("小", "small", preferences.uiLayout.cardSize, (value) => saveLayoutPreference({ cardSize: value }))}{layoutOption("中", "medium", preferences.uiLayout.cardSize, (value) => saveLayoutPreference({ cardSize: value }))}{layoutOption("大", "large", preferences.uiLayout.cardSize, (value) => saveLayoutPreference({ cardSize: value }))}</div></div>
         <div className="preference-row"><span><strong>网格密度</strong><small>控制应用之间的留白。</small></span><div className="preference-options">{layoutOption("紧凑", "compact", preferences.uiLayout.gridDensity, (value) => saveLayoutPreference({ gridDensity: value }))}{layoutOption("标准", "standard", preferences.uiLayout.gridDensity, (value) => saveLayoutPreference({ gridDensity: value }))}{layoutOption("宽松", "relaxed", preferences.uiLayout.gridDensity, (value) => saveLayoutPreference({ gridDensity: value }))}</div></div>
         <div className="preference-row"><span><strong>侧栏宽度</strong><small>调整左侧导航区域宽度。</small></span><div className="preference-options">{layoutOption("窄", "narrow", preferences.uiLayout.sidebarWidth, (value) => saveLayoutPreference({ sidebarWidth: value }))}{layoutOption("标准", "standard", preferences.uiLayout.sidebarWidth, (value) => saveLayoutPreference({ sidebarWidth: value }))}{layoutOption("宽", "wide", preferences.uiLayout.sidebarWidth, (value) => saveLayoutPreference({ sidebarWidth: value }))}</div></div>
         <div className="preference-row"><span><strong>顶部图标</strong><small>控制左上角标识大小。</small></span><div className="preference-options">{layoutOption("标准", "standard", preferences.uiLayout.brandIconSize, (value) => saveLayoutPreference({ brandIconSize: value }))}{layoutOption("大", "large", preferences.uiLayout.brandIconSize, (value) => saveLayoutPreference({ brandIconSize: value }))}</div></div>
+        </div></section>
+        <section className="layout-option-section"><header><strong>显示内容</strong><small>隐藏暂时不需要的界面元素</small></header><div className="preference-grid layout-detail-grid">
         <div className="preference-row"><span><strong>显示搜索栏</strong><small>隐藏后仍可用设置重新打开。</small></span><button className={`setting-switch ${preferences.uiLayout.showSearchBar ? "enabled" : ""}`} role="switch" aria-checked={preferences.uiLayout.showSearchBar} disabled={savingPreference !== null} onClick={() => saveLayoutPreference({ showSearchBar: !preferences.uiLayout.showSearchBar })}><i /></button></div>
         <div className="preference-row"><span><strong>显示运行状态</strong><small>控制卡片右上角运行绿点。</small></span><button className={`setting-switch ${preferences.uiLayout.showRunningStatus ? "enabled" : ""}`} role="switch" aria-checked={preferences.uiLayout.showRunningStatus} disabled={savingPreference !== null} onClick={() => saveLayoutPreference({ showRunningStatus: !preferences.uiLayout.showRunningStatus })}><i /></button></div>
         <div className="preference-row"><span><strong>显示底部操作</strong><small>控制底部添加应用和关闭全部操作。</small></span><button className={`setting-switch ${preferences.uiLayout.showBatchActions ? "enabled" : ""}`} role="switch" aria-checked={preferences.uiLayout.showBatchActions} disabled={savingPreference !== null} onClick={() => saveLayoutPreference({ showBatchActions: !preferences.uiLayout.showBatchActions })}><i /></button></div>
-        </div>
-        <div className="layout-share-panel"><span><strong>界面分享码</strong><small>不包含应用和本地路径</small>{shortcutMessage ? <em>{shortcutMessage}</em> : null}</span><input aria-label="界面分享码" value={layoutShareCode} placeholder="SEUI 分享码" onChange={(event) => setLayoutShareCode(event.target.value)}/><div><button className="shortcut-reset" onClick={importLayoutShareCode}>导入</button><button className="launch" onClick={copyLayoutShareCode}>生成并复制</button></div></div>
+        </div></section>
+        <details className="layout-share-panel"><summary><span><strong>导入与分享</strong><small>分享码不包含应用和本地路径</small></span></summary><div className="layout-share-content"><input aria-label="界面分享码" value={layoutShareCode} placeholder="粘贴 SEUI 分享码" onChange={(event) => setLayoutShareCode(event.target.value)}/><div><button className="shortcut-reset" onClick={importLayoutShareCode}>导入</button><button className="launch" onClick={copyLayoutShareCode}>复制当前布局</button></div>{shortcutMessage ? <em>{shortcutMessage}</em> : null}</div></details>
       </> : <div className="layout-editor-summary"><div className="layout-summary-scale"><b>{preferences.uiLayout.uiScale}</b><span>%</span></div><div className="layout-summary-swatch" style={{ background: preferences.uiLayout.backgroundColor || "linear-gradient(135deg,#dff5fb,#eee7fb)" }}/><span>{preferences.uiLayout.backgroundColor ? "自定义背景" : "主题背景"}</span></div>}
     </section>);
     const currentTheme = themeOptions.find((theme) => theme.id === preferences.uiTheme) ?? themeOptions[0];

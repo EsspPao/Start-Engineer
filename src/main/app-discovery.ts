@@ -75,6 +75,21 @@ function isLowQualityCandidate(candidate: Pick<DiscoveredAppCandidate, "name" | 
   return noisyNamePattern.test(text) || noisyPathPattern.test(candidate.executablePath);
 }
 
+function normalizedAppIdentity(value: string) {
+  return value.trim().toLocaleLowerCase().replace(/[\s._-]+/g, "");
+}
+
+function candidateIdentity(candidate: DiscoveredAppCandidate) {
+  const name = normalizedAppIdentity(candidate.name);
+  const process = normalizedAppIdentity(candidate.processName || executableStem(candidate.executablePath));
+  return name && process ? `${name}:${process}` : "";
+}
+
+function preferSearchCandidate(current: DiscoveredAppCandidate, next: DiscoveredAppCandidate, query: string) {
+  if (Boolean(current.alreadyAdded) !== Boolean(next.alreadyAdded)) return next.alreadyAdded ? next : current;
+  return candidateRank(next, query) < candidateRank(current, query) ? next : current;
+}
+
 export function buildDiscoveredApps(shortcuts: ShortcutInfo[], groups: AppGroup[], createId: () => string): DiscoveredAppCandidate[] {
   const candidates = new Map<string, DiscoveredAppCandidate>();
   for (const shortcut of shortcuts) {
@@ -135,7 +150,7 @@ export function searchDiscoveredAppCandidates(candidates: DiscoveredAppCandidate
   }));
   const existingByAppUserModelId = new Map(existingApps.flatMap((app) => app.appUserModelId ? [[app.appUserModelId.toLocaleLowerCase(), app] as const] : []));
 
-  return candidates
+  const matched = candidates
     .filter((candidate) => {
       if (isLowQualityCandidate(candidate)) return false;
       const searchable = `${candidate.name} ${candidate.processName} ${candidate.executablePath} ${candidate.appUserModelId ?? ""}`.toLocaleLowerCase();
@@ -160,6 +175,18 @@ export function searchDiscoveredAppCandidates(candidates: DiscoveredAppCandidate
         existingGroupId: existing?.groupId
       }, query);
     })
+  const deduplicated = new Map<string, DiscoveredAppCandidate>();
+  for (const candidate of matched) {
+    const identity = candidateIdentity(candidate);
+    if (!identity) {
+      deduplicated.set(`id:${candidate.id}`, candidate);
+      continue;
+    }
+    const existing = deduplicated.get(identity);
+    deduplicated.set(identity, existing ? preferSearchCandidate(existing, candidate, query) : candidate);
+  }
+
+  return [...deduplicated.values()]
     .sort((a, b) => (a.rank ?? candidateRank(a, query)) - (b.rank ?? candidateRank(b, query))
       || Number(a.alreadyAdded) - Number(b.alreadyAdded)
       || a.name.localeCompare(b.name, "zh-CN"))

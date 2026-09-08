@@ -2,6 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { SearchResultsPanel } from "./search-results-panel";
+import { filterDiscoveredSearchResults } from "./use-search-results";
 
 const panelDefaults = {
   installableResults: [],
@@ -13,6 +14,15 @@ const panelDefaults = {
 };
 
 describe("SearchResultsPanel", () => {
+  it("omits discovered candidates already represented by the managed app result", () => {
+    const results = filterDiscoveredSearchResults([
+      { id: "existing", name: "Snipaste", executablePath: "D:\\Apps\\Snipaste.exe", processName: "Snipaste", groupId: "tools", category: "工具", source: "start-menu", alreadyAdded: true },
+      { id: "new", name: "Snipaste Beta", executablePath: "D:\\Apps\\SnipasteBeta.exe", processName: "SnipasteBeta", groupId: "tools", category: "工具", source: "everything" },
+    ]);
+
+    expect(results.map((item) => item.id)).toEqual(["new"]);
+  });
+
   it("renders managed apps and local addable apps without a file results group", () => {
     const html = renderToStaticMarkup(createElement(SearchResultsPanel, {
       ...panelDefaults,

@@ -80,6 +80,40 @@ describe("app discovery", () => {
     expect(results[0]).toMatchObject({ name: "WeGame", source: "desktop" });
   });
 
+  it("collapses the same app found through Store, Start menu, and local executable search", () => {
+    const groups = [{ id: "tools", name: "工具", icon: "wrench", isSystem: false, order: 0 }];
+    const candidates = [
+      ...buildWindowsStoreAppCandidates([{
+        name: "Snipaste",
+        appUserModelId: "Snipaste_abc!App",
+        packageFamilyName: "Snipaste_abc",
+        executablePath: "C:\\Program Files\\WindowsApps\\Snipaste\\Snipaste.exe",
+        processName: "Snipaste",
+      }], groups, () => "store"),
+      ...buildDiscoveredApps([
+        { name: "Snipaste", targetPath: "D:\\Apps\\Snipaste\\Snipaste.exe", source: "start-menu" },
+        { name: "Snipaste", targetPath: "D:\\Backup\\Snipaste.exe", source: "everything" },
+      ], groups, () => `local-${Math.random()}`),
+    ];
+
+    const results = searchDiscoveredAppCandidates(candidates, "snipaste", [{
+      id: "managed-snipaste",
+      name: "Snipaste",
+      category: "工具",
+      groupId: "tools",
+      executablePath: "D:\\Apps\\Snipaste\\Snipaste.exe",
+      processName: "Snipaste",
+      accent: "#2f66e8",
+    }]);
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({
+      source: "start-menu",
+      alreadyAdded: true,
+      existingAppId: "managed-snipaste",
+    });
+  });
+
   it("matches a Store candidate to the same legacy app after its versioned path changes", () => {
     const groups = [{ id: "tools", name: "工具", icon: "wrench", isSystem: false, order: 0 }];
     const [candidate] = buildWindowsStoreAppCandidates([{
