@@ -9,7 +9,7 @@
 .appearance-studio::backdrop { background: #14203777; backdrop-filter: blur(12px); }
 .appearance-studio * { box-sizing: border-box; }
 .appearance-studio button { min-height: 36px; padding: 8px 14px; border: 1px solid #d7deea; border-radius: 9px; background: #fff; color: #35415b; font: inherit; cursor: pointer; box-shadow: none; }
-.appearance-studio button:hover:not(:disabled) { border-color: #727fde; background: #f0f3ff; }
+.appearance-studio button:not(.studio-preview-inspect):hover:not(:disabled) { border-color: #727fde; background: #f0f3ff; }
 .appearance-studio button:disabled { opacity: .45; cursor: default; }
 .appearance-studio :is(button, input, textarea):focus-visible { outline: 3px solid #8797ef; outline-offset: 2px; }
 .appearance-studio button[aria-pressed="true"] { border-color: #5767d7; color: #384cbb; background: #edf0ff; }

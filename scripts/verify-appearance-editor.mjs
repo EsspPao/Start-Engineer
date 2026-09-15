@@ -61,6 +61,13 @@ try {
     return { previewWidth: document.querySelector('.studio-preview-surface').offsetWidth, previewHeight: document.querySelector('.studio-preview-surface').offsetHeight };
   })()`);
   assert.deepEqual(report, { previewWidth: 1024, previewHeight: 600 });
+  const point = await mainWindow.webContents.executeJavaScript(`(() => { const r = document.querySelector('.studio-preview-inspect').getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`);
+  mainWindow.webContents.sendInputEvent({ type: "mouseMove", ...point });
+  await pause(200);
+  const hover = await mainWindow.webContents.executeJavaScript(`(() => { const el = document.querySelector('.studio-preview-inspect'); return { hovered: el.matches(':hover'), background: getComputedStyle(el).backgroundColor }; })()`);
+  assert.equal(hover.hovered, true, "Pointer must actually hover over the preview");
+  assert.equal(hover.background, "rgba(0, 0, 0, 0)", "Hover overlay must remain transparent so the preview stays visible");
+
   const persisted = JSON.parse(readFileSync(join(profile, "preferences.json"), "utf8"));
   assert.equal(persisted.uiTheme, "midnight");
   assert.equal(persisted.wallpaperGlassIntensity, 77);
