@@ -77,12 +77,13 @@ export function useUnifiedGridDrag(options: UseUnifiedGridDragOptions) {
       } else if (!preview.classList.contains("merge-preview-pending") && !preview.classList.contains("merge-preview-ready")) preview.classList.add("merge-preview-pending");
       preview.classList.toggle("merge-preview-folder", mergeTarget.kind === "folder");
       const targetRect = target.getBoundingClientRect();
+      const previewScale = Number.parseFloat(getComputedStyle(preview).getPropertyValue("--ui-scale")) || 1;
       const previewLeft = Number.parseFloat(preview.style.left);
       const previewTop = Number.parseFloat(preview.style.top);
       const previewWidth = Number.parseFloat(preview.style.width);
       const previewHeight = Number.parseFloat(preview.style.height);
-      preview.style.setProperty("--merge-shift-x", `${targetRect.left + targetRect.width / 2 - previewLeft - previewWidth / 2}px`);
-      preview.style.setProperty("--merge-shift-y", `${targetRect.top + targetRect.height / 2 - previewTop - previewHeight / 2}px`);
+      preview.style.setProperty("--merge-shift-x", `${(targetRect.left + targetRect.width / 2) / previewScale - previewLeft - previewWidth / 2}px`);
+      preview.style.setProperty("--merge-shift-y", `${(targetRect.top + targetRect.height / 2) / previewScale - previewTop - previewHeight / 2}px`);
     };
     const resetMergeHover = () => {
       if (mergeHover.current) window.clearTimeout(mergeHover.current.readyTimer);
