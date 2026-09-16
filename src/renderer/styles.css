@@ -2633,3 +2633,17 @@ button { border: 0; }
   :root[data-theme="clear"] .advanced-settings .settings-collapsible,
   :root[data-theme="clear"] .search-dependency-settings { background: #192534; }
 }
+
+/* Shrink into the destination row while keeping its name readable. */
+.app-card-drag-preview {
+  transform-origin: top left;
+  transform: translate(var(--group-preview-x, 0px), var(--group-preview-y, 0px)) scale(var(--group-preview-scale, 1));
+  transition: transform 200ms var(--ease);
+}
+.app-card-drag-preview.group-transfer-preview { grid-template-rows: 1fr; }
+.app-card-drag-preview.group-transfer-preview > span { display: none; }
+.app-card-drag-preview.group-transfer-preview > img,
+.app-card-drag-preview.group-transfer-preview > svg { width: 75%; height: 75%; }
+.nav-button.drop-active { padding-right: 54px; }
+.nav-button.drop-active > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { .app-card-drag-preview { transition: none; } }

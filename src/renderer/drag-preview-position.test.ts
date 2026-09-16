@@ -25,19 +25,17 @@ describe("drag preview positioning", () => {
   });
 });
 
-describe("app drag preview avoids sidebar labels", () => {
+describe("app drag preview shrinks into groups", () => {
   const drag = { x: 100, y: 240, grabOffsetX: 100, grabOffsetY: 50, width: 220, height: 148 };
-  it("keeps the full preview to the right even between group buttons", () => {
-    expect(appDragPreviewStyle(drag, 212, 100)).toEqual({ left: 224, top: 190, width: 220, height: 148 });
+  it("allows entering the sidebar", () => {
+    expect(appDragPreviewStyle(drag, undefined, 100)).toMatchObject({ left: 0, top: 190, "--group-preview-scale": 1 });
   });
-  it("preserves the grab point away from the sidebar", () => {
-    expect(appDragPreviewStyle({ ...drag, x: 600 }, 212, 100).left).toBe(500);
-  });
-  it.each([80, 100, 125])("keeps a visible gap and correct card size at %s percent", (uiScale) => {
+  it.each([80, 100, 125])("fits inside the target at %s percent", (uiScale) => {
     const scale = uiScale / 100;
-    const style = appDragPreviewStyle(drag, 250 * scale, uiScale);
-    expect(style.left * scale).toBeCloseTo(262 * scale);
-    expect(style.width * scale).toBeCloseTo(drag.width);
-    expect(style.top * scale).toBeCloseTo(190);
+    const style = appDragPreviewStyle(drag, { right: 200 * scale, top: 240 * scale, height: 48 * scale }, uiScale);
+    const size = style["--group-preview-scale"];
+    expect(Math.max(style.width, style.height) * size).toBeCloseTo(36);
+    expect(style.left + parseFloat(style["--group-preview-x"]) + style.width * size).toBeCloseTo(190);
+    expect(style.top + parseFloat(style["--group-preview-y"]) + style.height * size / 2).toBeCloseTo(264);
   });
 });

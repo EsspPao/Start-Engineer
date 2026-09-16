@@ -690,7 +690,7 @@ function App() {
   }, [isAllAppsSection, isAppSection, selectableGridItemOrder, selectedAppId, selectedGridItemId]);
   const draggedApp = runtimeApps.find((item) => item.id === drag?.appId);
   const draggedFolder = folders.find((item) => item.id === drag?.folderId);
-  const dragPreviewStyle = drag ? appDragPreviewStyle(drag, document.querySelector(".app-shell > .sidebar")?.getBoundingClientRect().right ?? 0, preferences.uiLayout.uiScale) : undefined;
+  const dragPreviewStyle = drag ? appDragPreviewStyle(drag, drag.targetGroup ? document.querySelector(`[data-drop-group="${CSS.escape(drag.targetGroup)}"]`)?.getBoundingClientRect() : undefined, preferences.uiLayout.uiScale) : undefined;
   const activeGroup = groups.find((group) => group.id === activeSection);
   const pageTitle = isAllAppsSection ? "已添加应用" : activeSection === "settings" ? "偏好设置" : activeGroup?.name ?? "应用";
   const pageSubtitle = isAllAppsSection
@@ -1135,8 +1135,8 @@ function App() {
       {edit ? <AppEditDialog state={edit} onClose={() => setEdit(null)} onPickExecutable={(id) => api().pickExecutable(id)} onSave={(input) => runAppAction(() => api().updateApp(input))} /> : null}
       {groupEdit ? <GroupEditDialog state={groupEdit} onClose={() => setGroupEdit(null)} onSave={saveGroup} /> : null}
       {groupDelete ? <GroupDeleteDialog state={groupDelete} groups={appGroups} appCount={apps.filter((item) => item.groupId === groupDelete.groupId).length} onChangeTarget={(targetGroupId) => setGroupDelete({ ...groupDelete, targetGroupId })} onClose={() => setGroupDelete(null)} onConfirm={removeGroup} /> : null}
-      {drag && draggedApp ? <div className={`drag-preview app-card-drag-preview no-drag ${drag.mergeCandidateTarget ? `${drag.targetAppId || drag.targetFolderId ? "merge-preview-ready" : "merge-preview-pending"} ${drag.mergeCandidateTarget.kind === "folder" ? "merge-preview-folder" : ""}` : ""}`} style={dragPreviewStyle}>{draggedApp.iconDataUrl ? <img src={draggedApp.iconDataUrl} alt="" /> : <Icon name="grid" />}<span>{draggedApp.name}</span></div> : null}
-      {drag && draggedFolder ? <div className={`drag-preview app-card-drag-preview folder-drag-preview no-drag ${drag.mergeCandidateTarget?.kind === "folder" ? `${drag.targetFolderId ? "merge-preview-ready" : "merge-preview-pending"} merge-preview-folder` : ""}`} style={dragPreviewStyle}><div>{draggedFolder.appIds.map((id) => runtimeApps.find((app) => app.id === id)).filter((app): app is RuntimeApp => Boolean(app)).map((app) => app.iconDataUrl ? <img key={app.id} src={app.iconDataUrl} alt="" /> : <Icon key={app.id} name="grid" />)}</div><span>{draggedFolder.name}</span></div> : null}
+      {drag && draggedApp ? <div className={`drag-preview app-card-drag-preview no-drag ${drag.targetGroup ? "group-transfer-preview" : ""} ${drag.mergeCandidateTarget ? `${drag.targetAppId || drag.targetFolderId ? "merge-preview-ready" : "merge-preview-pending"} ${drag.mergeCandidateTarget.kind === "folder" ? "merge-preview-folder" : ""}` : ""}`} style={dragPreviewStyle}>{draggedApp.iconDataUrl ? <img src={draggedApp.iconDataUrl} alt="" /> : <Icon name="grid" />}<span>{draggedApp.name}</span></div> : null}
+      {drag && draggedFolder ? <div className={`drag-preview app-card-drag-preview folder-drag-preview no-drag ${drag.targetGroup ? "group-transfer-preview" : ""} ${drag.mergeCandidateTarget?.kind === "folder" ? `${drag.targetFolderId ? "merge-preview-ready" : "merge-preview-pending"} merge-preview-folder` : ""}`} style={dragPreviewStyle}><div>{draggedFolder.appIds.map((id) => runtimeApps.find((app) => app.id === id)).filter((app): app is RuntimeApp => Boolean(app)).map((app) => app.iconDataUrl ? <img key={app.id} src={app.iconDataUrl} alt="" /> : <Icon key={app.id} name="grid" />)}</div><span>{draggedFolder.name}</span></div> : null}
       {fileDropActive ? <div className="file-drop-overlay no-drag"><span>松开添加到当前分组</span></div> : null}
     </main>
   );

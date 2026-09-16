@@ -103,7 +103,7 @@ export function useUnifiedGridDrag(options: UseUnifiedGridDragOptions) {
       const candidate = candidateRef.current;
       if (!candidate) return;
       if (primaryPointerButtonReleased(event)) { cancel(); return; }
-      if (Math.hypot(event.clientX - candidate.startX, event.clientY - candidate.startY) <= 6) return;
+      if (!dragState.current && Math.hypot(event.clientX - candidate.startX, event.clientY - candidate.startY) <= 6) return;
       document.documentElement.dataset.cardDragging = "true";
       const hit = document.elementFromPoint(event.clientX, event.clientY);
       const targetGroup = hit?.closest<HTMLElement>("[data-drop-group]")?.dataset.dropGroup;

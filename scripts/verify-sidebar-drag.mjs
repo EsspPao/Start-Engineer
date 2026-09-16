@@ -31,9 +31,15 @@ void app.whenReady().then(async () => {
     await pause(100);
     win.webContents.sendInputEvent({ type: "mouseMove", modifiers: ["leftButtonDown"], ...to });
     await pause(200);
-    const state = await win.webContents.executeJavaScript(`(() => { const preview = document.querySelector('.app-card-drag-preview'); const sidebar = document.querySelector('.app-shell > .sidebar'); return {left: preview?.getBoundingClientRect().left, right: sidebar.getBoundingClientRect().right, target: document.querySelector('[data-drop-group="office"]').classList.contains('drop-active')}; })()`);
-    assert(state.left >= state.right + 10, "Preview must not cover sidebar labels: " + JSON.stringify(state));
-    assert(state.target, "Target group must remain highlighted");
+    await pause(250);
+    const state = await win.webContents.executeJavaScript(`(() => { const p = document.querySelector('.app-card-drag-preview').getBoundingClientRect(); const group = document.querySelector('[data-drop-group="office"]'); const r = group.getBoundingClientRect(); const label = group.querySelector('span').getBoundingClientRect(); return { inside: p.left >= r.left && p.right <= r.right && p.top >= r.top && p.bottom <= r.bottom, clear: p.left >= label.right, width: p.width, target: group.classList.contains('drop-active') }; })()`);
+    assert(state.inside && state.clear && state.width <= 46, "Thumbnail must enter the group without covering its label: " + JSON.stringify(state));
+    assert(state.target, "Target must highlight");
+    win.webContents.sendInputEvent({ type: "mouseMove", modifiers: ["leftButtonDown"], ...from });
+    await pause(300);
+    assert(await win.webContents.executeJavaScript("document.querySelector('.app-card-drag-preview').getBoundingClientRect().width") > 100, "Leaving must restore card size");
+    win.webContents.sendInputEvent({ type: "mouseMove", modifiers: ["leftButtonDown"], ...to });
+    await pause(300);
     win.webContents.sendInputEvent({ type: "mouseUp", button: "left", clickCount: 1, ...to });
     await pause(600);
     assert.equal(JSON.parse(readFileSync(join(profile, "apps.json"), "utf8"))[0].groupId, "office");
