@@ -3,7 +3,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { basename } from "node:path";
 import type { AppEntry, AppPreferencesState, SearchDependencyStatus } from "../shared/types.js";
 import { searchEverything } from "./everything-search.js";
-import { getInstallableAppById, searchInstallableApps } from "./installable-apps.js";
+import { getInstallableAppById } from "./installable-apps.js";
 import { getManagedEverythingPaths } from "./search-dependencies.js";
 
 type SearchIpcOptions = {
@@ -11,6 +11,7 @@ type SearchIpcOptions = {
   getUserDataPath: () => string;
   autoImportFirstRunApps: () => unknown;
   searchAppCandidates: (query: string) => unknown;
+  searchInstallableApps: (query: string) => unknown;
   addDiscoveredCandidate: (id: string, groupId: AppEntry["groupId"]) => unknown;
   refreshDiscoveryIndex: () => unknown;
   refreshIcons: () => unknown;
@@ -26,7 +27,7 @@ type SearchIpcOptions = {
 export function registerSearchIpc(options: SearchIpcOptions) {
   ipcMain.handle("apps:autoImportFirstRun", () => options.autoImportFirstRunApps());
   ipcMain.handle("apps:searchCandidates", (_event, query: string) => options.searchAppCandidates(String(query ?? "")));
-  ipcMain.handle("apps:searchInstallable", (_event, query: string) => searchInstallableApps(String(query ?? "")));
+  ipcMain.handle("apps:searchInstallable", (_event, query: string) => options.searchInstallableApps(String(query ?? "")));
   ipcMain.handle("apps:openInstallableDownload", async (_event, candidateId: string) => {
     const candidate = getInstallableAppById(String(candidateId ?? ""));
     if (!candidate) throw new Error("未找到可安装应用");

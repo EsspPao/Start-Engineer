@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DiscoveredAppCandidate, EverythingSearchResult, InstallableAppCandidate, InternalSearchResult, StartEngineerApi } from "../shared/types";
 import { cleanErrorMessage } from "./error-message";
 import { buildInternalSearchResults } from "./search";
@@ -24,6 +24,12 @@ export function useSearchResults({ client, runtimeApps }: UseSearchResultsOption
   const [searchPanelOpen, setSearchPanelOpen] = useState(false);
   const [searchSelectedIndex, setSearchSelectedIndex] = useState(0);
   const searchRequest = useRef(0);
+  const [refreshRevision, setRefreshRevision] = useState(0);
+  const refreshSearch = useCallback(() => setRefreshRevision((revision) => revision + 1), []);
+  useEffect(() => {
+    window.addEventListener("focus", refreshSearch);
+    return () => window.removeEventListener("focus", refreshSearch);
+  }, [refreshSearch]);
   const runtimeAppsRef = useRef(runtimeApps);
   runtimeAppsRef.current = runtimeApps;
 
@@ -37,6 +43,7 @@ export function useSearchResults({ client, runtimeApps }: UseSearchResultsOption
 
   useEffect(() => {
     const trimmed = query.trim();
+    const requestId = ++searchRequest.current;
     setSearchSelectedIndex(0);
     if (!trimmed) {
       setDiscoveredResults([]);
@@ -49,7 +56,6 @@ export function useSearchResults({ client, runtimeApps }: UseSearchResultsOption
     setSearchPanelOpen(true);
     setSearchLoading(true);
     setSearchError("");
-    const requestId = ++searchRequest.current;
     const timer = window.setTimeout(() => {
       void Promise.all([client.searchAppCandidates(trimmed), client.searchInstallableApps(trimmed)])
         .then(([results, installable]) => {
@@ -85,14 +91,18 @@ export function useSearchResults({ client, runtimeApps }: UseSearchResultsOption
           setSearchError(cleanErrorMessage(reason, "搜索本机应用失败"));
         });
     }, 150);
-    return () => window.clearTimeout(timer);
-  }, [client, query, searchableAppIdentityKey]);
+    return () => {
+      window.clearTimeout(timer);
+      ++searchRequest.current;
+    };
+  }, [client, query, searchableAppIdentityKey, refreshRevision]);
 
   useEffect(() => {
     if (query.trim()) setSearchPanelOpen(true);
   }, [query]);
 
   return {
+    refreshSearch,
     discoveredResults,
     fileResults,
     installableResults,

@@ -25,6 +25,9 @@ try {
   assert(mainWindow, "Production window did not load");
   const bounds = mainWindow.getBounds();
   const area = screen.getDisplayMatching(bounds).workArea;
+  // Windows may add a two-DIP frame to transparent window bounds.
+  assert(Math.abs(bounds.width - Math.min(1440, Math.floor(area.width * 0.9))) <= 2);
+  assert(Math.abs(bounds.height - Math.min(800, Math.floor(area.height * 0.9))) <= 2);
   assert(bounds.x >= area.x && bounds.y >= area.y && bounds.x + bounds.width <= area.x + area.width && bounds.y + bounds.height <= area.y + area.height, "Startup window must fit its display");
   const report = await mainWindow.webContents.executeJavaScript(`(async () => {
     const wait = () => new Promise(resolve => setTimeout(resolve, 120));

@@ -21,8 +21,8 @@ export function AppearancePreview({ appearance, apps, compact, onInspect }: {
   const [previewRoot, setPreviewRoot] = useState<ShadowRoot | null>(null);
   const [scale, setScale] = useState(0.5);
   const [systemIsDark, setSystemIsDark] = useState(() => window.matchMedia("(prefers-color-scheme: dark)").matches);
-  const width = compact ? 1024 : 1461;
-  const height = compact ? 600 : 810;
+  const width = compact ? 1024 : 1440;
+  const height = compact ? 600 : 800;
   const theme = buildThemeAttributes(appearance, systemIsDark);
   const layout = appearance.uiLayout;
   useEffect(() => {

@@ -1,5 +1,5 @@
 import { BrowserWindow, dialog, Menu, nativeImage, nativeTheme, screen, Tray } from "electron";
-import { fitWindowBounds } from "./window-bounds.js";
+import { fitWindowBounds, windowSizeLimits } from "./window-bounds.js";
 import type { AppPreferences } from "../shared/types.js";
 import { resolveUiTheme, themeUsesMica } from "../shared/theme.js";
 import { splashHtmlDataUrl, splashWindowOptions, wireSplashToMainWindow } from "./splash-window.js";
@@ -118,8 +118,8 @@ export class AppWindowService {
     const area = (savedBounds ? screen.getDisplayMatching(savedBounds) : screen.getPrimaryDisplay()).workArea;
     this.mainWindow = new BrowserWindow({
       ...fitWindowBounds(savedBounds, area),
-      minWidth: Math.min(1060, area.width),
-      minHeight: Math.min(680, area.height),
+      minWidth: windowSizeLimits(area).minWidth,
+      minHeight: windowSizeLimits(area).minHeight,
       frame: false,
       thickFrame: false,
       hasShadow: true,

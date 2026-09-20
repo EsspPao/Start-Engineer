@@ -2,6 +2,14 @@ import { describe, expect, it } from "vitest";
 import { buildDiscoveredApps, buildWindowsStoreAppCandidates, searchDiscoveredAppCandidates } from "./app-discovery.js";
 
 describe("app discovery", () => {
+  it("ranks a name prefix above source priority and ignores path-only matches", () => {
+    const candidates = buildDiscoveredApps([
+      { name: "Wuthering Waves", targetPath: "D:\\Games\\Wuthering.exe", source: "start-menu" },
+      { name: "UU远程", targetPath: "D:\\Apps\\GameViewer.exe", source: "everything" },
+      { name: "便笺", targetPath: "C:\\Users\\User\\Notes.exe", source: "start-menu" }
+    ], [{ id: "tools", name: "工具", icon: "wrench", isSystem: false, order: 0 }], () => "id");
+    expect(searchDiscoveredAppCandidates(candidates, "u", []).map((app) => app.name)).toEqual(["UU远程", "Wuthering Waves"]);
+  });
   it("deduplicates shortcuts by executable path and assigns a sensible group", () => {
     const apps = buildDiscoveredApps([
       { name: "Steam", targetPath: "C:\\Program Files (x86)\\Steam\\steam.exe", source: "start-menu" },

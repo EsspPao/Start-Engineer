@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { filterInstalledApps, searchInstallableApps } from "./installable-apps.js";
 import { basename, dirname, extname, join } from "node:path";
 import type { AppEntry, AppGroup, AppPreferences, DiscoveredAppCandidate } from "../shared/types.js";
 import { buildDiscoveredApps, buildWindowsStoreAppCandidates, filterNewShortcuts, searchDiscoveredAppCandidates, type ShortcutInfo, type ShortcutSource } from "./app-discovery.js";
@@ -28,11 +29,24 @@ const RECENT_SEARCH_CANDIDATE_LIMIT = 512;
 export class SearchService {
   private firstRunAutoImport: Promise<AppEntry[]> | null = null;
   private importCandidates: DiscoveredAppCandidate[] = [];
-  private shortcuts: ShortcutInfo[] | null = null;
+  private shortcutScan: Promise<ShortcutInfo[]> | null = null;
   private candidates: DiscoveredAppCandidate[] = [];
   private recentSearchCandidates = new Map<string, DiscoveredAppCandidate>();
 
   constructor(private readonly options: SearchServiceOptions) {}
+
+  async searchInstallable(query: string) {
+    const [shortcuts, storeApps, everything] = await Promise.all([
+      this.discoveryShortcuts(),
+      this.options.listWindowsStoreApps?.().catch(() => []) ?? Promise.resolve([]),
+      this.everythingShortcuts(query)
+    ]);
+    const local = [...shortcuts, ...everything].filter((item) => existsSync(item.targetPath)).map((item) => ({
+      name: item.name, processName: basename(item.targetPath, extname(item.targetPath))
+    }));
+    const managed = this.options.loadApps().filter((item) => item.appUserModelId || existsSync(item.executablePath));
+    return filterInstalledApps(searchInstallableApps(query), [...local, ...storeApps, ...managed]);
+  }
 
   async searchCandidates(query: string) {
     const [base, everything, windowsStoreApps] = await Promise.all([
@@ -40,7 +54,7 @@ export class SearchService {
       this.everythingShortcuts(query),
       this.options.listWindowsStoreApps?.().catch(() => []) ?? Promise.resolve([])
     ]);
-    const fileCandidates = buildDiscoveredApps([...base, ...everything], this.options.getGroups(), this.options.randomId);
+    const fileCandidates = buildDiscoveredApps([...base, ...everything].filter((item) => existsSync(item.targetPath)), this.options.getGroups(), this.options.randomId);
     const storeCandidates = buildWindowsStoreAppCandidates(windowsStoreApps, this.options.getGroups(), this.options.randomId);
     this.candidates = this.mergeCandidates(storeCandidates, fileCandidates);
     const results = searchDiscoveredAppCandidates(this.candidates, query, this.options.loadApps());
@@ -50,13 +64,12 @@ export class SearchService {
 
   async refreshIndex() {
     const [shortcuts, windowsStoreApps] = await Promise.all([
-      this.discoverShortcuts(),
+      this.discoveryShortcuts(),
       this.options.listWindowsStoreApps?.().catch(() => []) ?? Promise.resolve([])
     ]);
-    this.shortcuts = shortcuts;
     this.candidates = this.mergeCandidates(
       buildWindowsStoreAppCandidates(windowsStoreApps, this.options.getGroups(), this.options.randomId),
-      buildDiscoveredApps(this.shortcuts, this.options.getGroups(), this.options.randomId)
+      buildDiscoveredApps(shortcuts, this.options.getGroups(), this.options.randomId)
     );
     return searchDiscoveredAppCandidates(this.candidates, "", this.options.loadApps());
   }
@@ -64,7 +77,7 @@ export class SearchService {
   async discoverImportCandidates() {
     const currentApps = this.options.loadApps();
     const [shortcuts, windowsStoreApps] = await Promise.all([
-      this.discoveryShortcuts(true),
+      this.discoveryShortcuts(),
       this.options.listWindowsStoreApps?.() ?? Promise.resolve([])
     ]);
     const newShortcuts = filterNewShortcuts(shortcuts, currentApps.map((entry) => entry.executablePath));
@@ -225,10 +238,13 @@ $rows | ConvertTo-Json -Compress`;
     return this.parseShortcutOutput(await this.options.runPowerShell(script));
   }
 
-  private async discoveryShortcuts(force = false) {
-    if (!force && this.shortcuts) return this.shortcuts;
-    this.shortcuts = await this.discoverShortcuts();
-    return this.shortcuts;
+  private discoveryShortcuts() {
+    // Share concurrent candidate/download lookups, but never retain an old
+    // snapshot across searches: installers can add/remove shortcuts at any time.
+    if (!this.shortcutScan) {
+      this.shortcutScan = this.discoverShortcuts().finally(() => { this.shortcutScan = null; });
+    }
+    return this.shortcutScan;
   }
 
   private async resolveShortcutFiles(paths: string[], source: ShortcutSource): Promise<ShortcutInfo[]> {

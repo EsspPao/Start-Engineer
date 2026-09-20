@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { appSearchRank } from "../shared/app-search.js";
 import { basename, extname } from "node:path";
 import type { AppEntry, AppGroup, DiscoveredAppCandidate } from "../shared/types.js";
 import { inferPackageFamilyName, type WindowsStoreAppIdentity } from "./windows-store-apps.js";
@@ -153,8 +154,7 @@ export function searchDiscoveredAppCandidates(candidates: DiscoveredAppCandidate
   const matched = candidates
     .filter((candidate) => {
       if (isLowQualityCandidate(candidate)) return false;
-      const searchable = `${candidate.name} ${candidate.processName} ${candidate.executablePath} ${candidate.appUserModelId ?? ""}`.toLocaleLowerCase();
-      return searchable.includes(normalized);
+      return Number.isFinite(appSearchRank(candidate, query));
     })
     .map((candidate) => {
       const appUserModelId = candidate.appUserModelId?.toLocaleLowerCase();
@@ -187,7 +187,8 @@ export function searchDiscoveredAppCandidates(candidates: DiscoveredAppCandidate
   }
 
   return [...deduplicated.values()]
-    .sort((a, b) => (a.rank ?? candidateRank(a, query)) - (b.rank ?? candidateRank(b, query))
+    .sort((a, b) => appSearchRank(a, query) - appSearchRank(b, query)
+      || (a.rank ?? candidateRank(a, query)) - (b.rank ?? candidateRank(b, query))
       || Number(a.alreadyAdded) - Number(b.alreadyAdded)
       || a.name.localeCompare(b.name, "zh-CN"))
     .slice(0, 40);

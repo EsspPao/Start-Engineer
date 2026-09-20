@@ -345,6 +345,7 @@ function registerIpc() {
     getUserDataPath: () => app.getPath("userData"),
     autoImportFirstRunApps,
     searchAppCandidates,
+    searchInstallableApps: (query) => searchService.searchInstallable(query),
     addDiscoveredCandidate,
     refreshDiscoveryIndex,
     refreshIcons: () => iconService.refresh(),
