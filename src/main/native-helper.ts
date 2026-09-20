@@ -33,9 +33,9 @@ const packagedResourcesPath = (process as NodeJS.Process & { resourcesPath?: str
 
 export function resolveNativeHelperPath() {
   if (process.platform !== "win32") return "";
-  const packaged = packagedResourcesPath ? join(packagedResourcesPath, "window-focus-helper", "win-x64", "window-focus-helper.exe") : "";
+  const packaged = packagedResourcesPath ? join(packagedResourcesPath, "window-focus-helper", "win-x64", "Start-Engineer-Helper.exe") : "";
   if (packaged && existsSync(packaged)) return packaged;
-  const development = join(appRoot, "dist-native", "window-focus-helper", "win-x64", "window-focus-helper.exe");
+  const development = join(appRoot, "dist-native", "window-focus-helper", "win-x64", "Start-Engineer-Helper.exe");
   return existsSync(development) ? development : "";
 }
 

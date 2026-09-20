@@ -106,6 +106,13 @@ export class ElevatedTerminationHost {
     await this.request("terminate", normalized, this.options.requestTimeoutMs ?? 15_000);
   }
 
+  async wakeWeGame(pids: number[]) {
+    const normalized = normalizeTerminationPids(pids);
+    if (normalized.length !== 1) throw new Error("A single running WeGame process is required");
+    await this.start();
+    return normalizeNativeLaunchResult(await this.request("wake-wegame", normalized, this.options.requestTimeoutMs ?? 15_000));
+  }
+
   stop() {
     this.stopping = true;
     if (this.socket && !this.socket.destroyed) {
@@ -218,7 +225,7 @@ export class ElevatedTerminationHost {
     connection.socket.once("close", () => this.handleDisconnect(new Error("高权限进程控制连接已断开")));
   }
 
-  private request(command: "terminate", pids: number[], timeoutMs: number) {
+  private request(command: "terminate" | "wake-wegame", pids: number[], timeoutMs: number) {
     const socket = this.socket;
     if (!socket || socket.destroyed || this.state.status !== "ready") return Promise.reject(new Error("高权限进程控制尚未就绪"));
     const id = this.nextId++;

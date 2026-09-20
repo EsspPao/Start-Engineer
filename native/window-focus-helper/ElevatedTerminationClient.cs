@@ -98,6 +98,10 @@ internal static class ElevatedTerminationClient
                             var terminatedPids = Terminate(request.Pids, parentPid, current.Id, parent.SessionId);
                             await writer.WriteLineAsync(JsonSerializer.Serialize(new { id, ok = true, result = new { terminatedPids } }, options));
                             break;
+                        case "wake-wegame":
+                            var activation = WakeWeGame(request.Pids, parent.SessionId);
+                            await writer.WriteLineAsync(JsonSerializer.Serialize(new { id, ok = true, result = activation }, options));
+                            break;
                         case "shutdown":
                             await writer.WriteLineAsync(JsonSerializer.Serialize(new { id, ok = true, result = new { stopped = true } }, options));
                             return 0;
@@ -116,6 +120,19 @@ internal static class ElevatedTerminationClient
             // The ordinary GUI exited. Closing the helper releases portable files promptly.
         }
         return 0;
+    }
+
+    private static NativeLaunchResult WakeWeGame(int[] pids, int sessionId)
+    {
+        if (pids.Length != 1 || pids[0] <= 4) throw new UnauthorizedAccessException("A single running WeGame process is required");
+        using var target = Process.GetProcessById(pids[0]);
+        if (target.HasExited || target.SessionId != sessionId || !string.Equals(target.ProcessName, "wegame", StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException("The target is not a running WeGame process in this session");
+        var executable = target.MainModule?.FileName;
+        if (string.IsNullOrEmpty(executable) || !string.Equals(Path.GetFileName(executable), "wegame.exe", StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException("Cannot verify the running WeGame executable");
+        // Derive the executable from the validated process; accept no caller-supplied path or arguments.
+        return ProcessLauncher.Launch(new LaunchRequest { ExecutablePath = executable, WorkingDirectory = Path.GetDirectoryName(executable) ?? "" });
     }
 
     private static int[] Terminate(int[] requestedPids, int parentPid, int helperPid, int sessionId)

@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const helper = resolve(process.argv[2] || resolve(root, "dist-native/window-focus-helper/win-x64/window-focus-helper.exe"));
+const helper = resolve(process.argv[2] || resolve(root, "dist-native/window-focus-helper/win-x64/Start-Engineer-Helper.exe"));
 
 if (process.platform !== "win32") {
   console.log("Window helper smoke test skipped outside Windows.");

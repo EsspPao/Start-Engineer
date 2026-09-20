@@ -261,3 +261,30 @@ describe("Windows Store application launch", () => {
     });
   });
 });
+
+
+describe("WeGame session activation", () => {
+  it.each(["success", "cancelled", "missing-target", "normal"])("handles %s without per-click elevated launches", async (scenario) => {
+    const entry = { ...app, name: "WeGame", processName: "wegame", executablePath: process.execPath, workingDirectory: dirname(process.execPath) };
+    const request = vi.fn().mockResolvedValue(scenario === "normal" ? { ok: true, pid: 0 } : { ok: false, errorCode: 740 });
+    const wakeWeGame = vi.fn().mockImplementation(async () => {
+      if (scenario === "cancelled") throw new Error("cancelled");
+      return { ok: true, pid: 0 };
+    });
+    const runPowerShell = vi.fn();
+    const service = new LaunchService({
+      nativeRuntime: { request } as never, wakeWeGame, runPowerShell,
+      loadApps: () => [entry], saveApps: (apps) => apps, getApp: () => entry,
+      getManagedRunningStatus: async () => [],
+      getProcessSnapshots: async () => [{ pid: 42, name: "wegame", path: scenario === "missing-target" ? "C:\\Other\\wegame.exe" : process.execPath }],
+      buildRuntimeSnapshot: async () => ({ apps: [entry], metrics: [], processes: [] }),
+      runtimeAssociatedPids: new Map()
+    });
+    await expect(service.activateRunningApp(entry, "self-launch")).resolves.toEqual({ launched: scenario === "success" || scenario === "normal" });
+    expect(request).toHaveBeenCalledOnce();
+    expect(request).toHaveBeenCalledWith("launch", expect.not.objectContaining({ elevated: true }));
+    expect(runPowerShell).not.toHaveBeenCalled();
+    if (scenario === "success" || scenario === "cancelled") expect(wakeWeGame).toHaveBeenCalledWith([42]);
+    else expect(wakeWeGame).not.toHaveBeenCalled();
+  });
+});

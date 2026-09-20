@@ -271,6 +271,7 @@ const terminateManagedApps = (entries: AppEntry[]) => runtimeService.terminateMa
 
 launchService = new LaunchService({
   nativeRuntime,
+  wakeWeGame: (pids) => elevatedTerminationHost.wakeWeGame(pids),
   runPowerShell,
   loadApps,
   saveApps,

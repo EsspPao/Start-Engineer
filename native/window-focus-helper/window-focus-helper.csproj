@@ -11,11 +11,12 @@
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <AssemblyName>window-focus-helper</AssemblyName>
-    <AssemblyTitle>Start Engineer Window Helper</AssemblyTitle>
+    <AssemblyName>Start-Engineer-Helper</AssemblyName>
+    <AssemblyTitle>Start Engineer 辅助程序</AssemblyTitle>
     <Product>Start Engineer</Product>
+    <ApplicationIcon>../../build/icon.ico</ApplicationIcon>
     <Company>EsspPao</Company>
-    <Description>Native Windows integration helper for Start Engineer.</Description>
+    <Description>Start Engineer 应用管理辅助程序</Description>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>

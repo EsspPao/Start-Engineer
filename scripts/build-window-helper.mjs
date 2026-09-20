@@ -44,7 +44,7 @@ child.on("exit", (code) => {
     return;
   }
 
-  const executable = resolve(output, "window-focus-helper.exe");
+  const executable = resolve(output, "Start-Engineer-Helper.exe");
   const debugSymbols = readdirSync(output).filter((name) => name.toLowerCase().endsWith(".pdb"));
   if (!existsSync(executable) || debugSymbols.length > 0) {
     console.error("Native helper publish output is incomplete or contains debug symbols.");

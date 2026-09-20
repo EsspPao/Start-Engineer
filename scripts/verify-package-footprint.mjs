@@ -36,7 +36,7 @@ if (asarEntries.some((entry) => entry === "/node_modules" || entry.startsWith("/
 }
 
 const helperSize = verifyFile(
-  resolve(unpacked, "resources/window-focus-helper/win-x64/window-focus-helper.exe"),
+  resolve(unpacked, "resources/window-focus-helper/win-x64/Start-Engineer-Helper.exe"),
   helperBudget,
   "Window helper"
 );

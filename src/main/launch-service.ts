@@ -8,6 +8,7 @@ import { inferPackageFamilyName, windowsStoreShellTarget, type WindowsStoreAppId
 
 type LaunchServiceOptions = {
   nativeRuntime: NativeRuntimeHost;
+  wakeWeGame?: (pids: number[]) => Promise<NativeLaunchResult>;
   runPowerShell: (script: string) => Promise<string>;
   loadApps: () => AppEntry[];
   saveApps: (apps: AppEntry[]) => AppEntry[] | void;
@@ -68,13 +69,22 @@ export class LaunchService {
     if (!entry.executablePath || !existsSync(entry.executablePath)) return { launched: false };
     const workingDirectory = entry.workingDirectory || dirname(entry.executablePath);
     if (!existsSync(workingDirectory)) return { launched: false };
-    const result = await this.launchExecutable(runningActivationEntry(entry));
+    const isWeGame = usesWakeProfile(entry, "wegame");
+    let result = await this.launchExecutable(runningActivationEntry(entry), !isWeGame);
+    if (isWeGame && result.errorCode === 740 && this.options.wakeWeGame) {
+      const processes = await this.options.getProcessSnapshots();
+      const target = processes.find((process) => process.name.replace(/\.exe$/i, "").toLowerCase() === "wegame"
+        && normalizeFilesystemPath(process.path ?? "") === normalizeFilesystemPath(entry.executablePath));
+      if (!target) return { launched: false };
+      try { result = this.mapResult(await this.options.wakeWeGame([target.pid])); }
+      catch { return { launched: false }; }
+    }
     if (result.status !== "launched") return { launched: false };
     void this.saveLaunchedPidAndTrack(entry.id, result.pid, false);
     return { launched: true };
   }
 
-  private async launchExecutable(entry: AppEntry): Promise<Omit<LaunchAppResult, "apps">> {
+  private async launchExecutable(entry: AppEntry, allowElevation = true): Promise<Omit<LaunchAppResult, "apps">> {
     try {
       const request = {
         executablePath: entry.executablePath,
@@ -82,7 +92,7 @@ export class LaunchService {
         argumentLine: entry.launchArgs?.trim() || ""
       } satisfies NativeLaunchRequest;
       const result = normalizeNativeLaunchResult(await this.options.nativeRuntime.request("launch", request));
-      if (result.errorCode !== 740) return this.mapResult(result);
+      if (result.errorCode !== 740 || !allowElevation) return this.mapResult(result);
       const elevatedResult = normalizeNativeLaunchResult(await this.options.nativeRuntime.request(
         "launch",
         { ...request, elevated: true },
@@ -90,7 +100,7 @@ export class LaunchService {
       ));
       return this.mapResult(elevatedResult);
     } catch (reason) {
-      if (nativeHelperWasUnavailable(reason)) return this.launchWithPowerShell(entry);
+      if (nativeHelperWasUnavailable(reason) && allowElevation) return this.launchWithPowerShell(entry);
       console.warn(`[native-runtime] launch response failed without automatic retry; reason=${reason instanceof Error ? reason.message : String(reason)}`);
       return { status: "failed", message: "启动服务暂时无响应，请稍后重试。" };
     }

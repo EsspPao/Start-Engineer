@@ -69,7 +69,7 @@ try
             return 0;
         }
         default:
-            Console.Error.WriteLine("Usage: window-focus-helper.exe scan|focus|launch|is-elevated|snapshot|extract|shortcuts|icon|runtime|terminate-server");
+            Console.Error.WriteLine("Usage: Start-Engineer-Helper.exe scan|focus|launch|is-elevated|snapshot|extract|shortcuts|icon|runtime|terminate-server");
             return 2;
     }
 }

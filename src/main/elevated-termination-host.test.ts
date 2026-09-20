@@ -38,3 +38,28 @@ describe("elevated termination host protocol", () => {
     expect(runNativeHelper).not.toHaveBeenCalled();
   });
 });
+
+
+describe("WeGame authorization reuse", () => {
+  it("reuses an authorized session for repeated wake requests", async () => {
+    const runNativeHelper = vi.fn();
+    const host = new ElevatedTerminationHost({ runNativeHelper, resolveNativeHelperPath: () => "helper.exe" });
+    const internal = host as unknown as { state: { status: string }; socket: object; request: (command: string, pids: number[], timeout: number) => Promise<unknown> };
+    internal.state = { status: "ready" };
+    internal.socket = {};
+    const request = vi.spyOn(internal, "request").mockResolvedValue({ ok: true, pid: 42 });
+    await expect(host.wakeWeGame([42])).resolves.toMatchObject({ ok: true });
+    await expect(host.wakeWeGame([42])).resolves.toMatchObject({ ok: true });
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(request).toHaveBeenCalledWith("wake-wegame", [42], 15000);
+    expect(runNativeHelper).not.toHaveBeenCalled();
+  });
+
+  it("rejects absent or multiple targets before requesting authorization", async () => {
+    const runNativeHelper = vi.fn();
+    const host = new ElevatedTerminationHost({ runNativeHelper, resolveNativeHelperPath: () => "helper.exe" });
+    await expect(host.wakeWeGame([])).rejects.toThrow("single running WeGame");
+    await expect(host.wakeWeGame([41, 42])).rejects.toThrow("single running WeGame");
+    expect(runNativeHelper).not.toHaveBeenCalled();
+  });
+});
