@@ -87,26 +87,37 @@ export function useRuntimePolling({
     let timer = 0;
     let startupTimer = 0;
     let running = false;
+    let refreshAfterCurrent = false;
+    const run = async (force = false) => {
+      if (cancelled) return;
+      if (running) {
+        refreshAfterCurrent ||= force;
+        return;
+      }
+      running = true;
+      await refreshRuntimeData(force);
+      running = false;
+      if (cancelled) return;
+      if (refreshAfterCurrent && !document.hidden) {
+        refreshAfterCurrent = false;
+        void run(true);
+      } else {
+        refreshAfterCurrent = false;
+        schedule();
+      }
+    };
     const schedule = () => {
+      window.clearTimeout(timer);
+      if (cancelled) return;
       const plan = runtimePollingPlan(activeSection, document.hidden, Date.now() - lastInteractionAtRef.current);
-      timer = window.setTimeout(async () => {
-        if (!cancelled && !running) {
-          running = true;
-          await refreshRuntimeData();
-          running = false;
-        }
-        if (!cancelled) schedule();
-      }, plan.intervalMs);
+      timer = window.setTimeout(() => void run(), plan.intervalMs);
     };
     const start = () => {
       window.clearTimeout(timer);
-      if (!document.hidden && !running) {
-        running = true;
-        window.requestAnimationFrame(() => void refreshRuntimeData().finally(() => {
-          running = false;
-          if (!cancelled) schedule();
-        }));
-      } else schedule();
+      if (!document.hidden) {
+        lastInteractionAtRef.current = Date.now();
+        void run(true);
+      } else if (!running) schedule();
     };
     document.addEventListener("visibilitychange", start);
     window.addEventListener("focus", start);
