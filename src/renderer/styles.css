@@ -2647,3 +2647,8 @@ button { border: 0; }
 .nav-button.drop-active { padding-right: 54px; }
 .nav-button.drop-active > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) { .app-card-drag-preview { transition: none; } }
+
+.support-settings .preference-grid { grid-template-columns: minmax(0, 1fr); }
+.support-settings button { white-space: nowrap; }
+.support-message { font-size: 13px; color: var(--text-muted); }
+.backup-list { display: grid; gap: 8px; max-height: 280px; overflow-y: auto; margin-top: 14px; }

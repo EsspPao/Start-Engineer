@@ -83,6 +83,10 @@ function playGroupTransferFeedback(targetGroupId: string, operation: Promise<unk
 
 const electronOnly = () => Promise.reject(new Error("此操作需要在 Electron 应用窗口中运行"));
 const fallbackApi: StartEngineerApi = {
+  openFeedback: async () => { window.open("https://github.com/EsspPao/Start-Engineer/issues/new", "_blank", "noopener,noreferrer"); },
+  listConfigBackups: async () => [],
+  createConfigBackup: async () => { throw new Error("请在桌面应用中备份"); },
+  restoreConfigBackup: async () => false,
   getAppInfo: async () => ({ version: "0.1.0", electronVersion: "browser", chromeVersion: navigator.userAgent, nodeVersion: "unavailable", platform: navigator.platform, arch: "unknown", systemVersion: "browser preview", userDataPath: "Electron 应用中可用", isPackaged: false, repositoryUrl: "https://github.com/EsspPao/Start-Engineer" }),
   getStartupViewCache: async () => null,
   saveStartupViewCache: async () => undefined,

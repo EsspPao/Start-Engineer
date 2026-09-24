@@ -2,6 +2,10 @@ import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type { AppEntry, AppFolderInput, AppFolderUpdateInput, FocusWindowHints, FolderLaunchProgress, GroupGridItemId, GroupInput, GroupUpdateInput, MoveFolderMemberInput, SnapshotMode, StartEngineerApi, UpdateAppInput, UpdatePreferencesInput, WindowAction } from "../shared/types.js";
 
 const api: StartEngineerApi = {
+  openFeedback: () => ipcRenderer.invoke("app:openFeedback"),
+  listConfigBackups: () => ipcRenderer.invoke("config:listBackups"),
+  createConfigBackup: () => ipcRenderer.invoke("config:createBackup"),
+  restoreConfigBackup: (id: string) => ipcRenderer.invoke("config:restoreBackup", id),
   getAppInfo: () => ipcRenderer.invoke("app:getInfo"),
   getStartupViewCache: () => ipcRenderer.invoke("startup:getViewCache"),
   saveStartupViewCache: (cache) => ipcRenderer.invoke("startup:saveViewCache", cache),

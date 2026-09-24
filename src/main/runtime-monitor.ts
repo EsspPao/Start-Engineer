@@ -1,5 +1,5 @@
 import type { AppEntry, AppMetrics, ProcessInfo, RuntimePerformanceDiagnostics, RuntimeSnapshot, SnapshotMode } from "../shared/types.js";
-import { isAssociatedProcess } from "./process-identity.js";
+import { contributesToRunningStatus, isAssociatedProcess } from "./process-identity.js";
 
 export type ProcessSnapshot = {
   pid: number;
@@ -209,7 +209,7 @@ export class RuntimeMonitor {
       const metric = matches.reduce<AppMetrics>((result, match) => {
         const process = match.process;
         const rate = rates.get(process.pid)!;
-        result.isRunning = true;
+        result.isRunning ||= contributesToRunningStatus(entry, process);
         result.cpuPercent += rate.cpuPercent;
         result.memoryBytes += process.memoryBytes;
         result.diskBytesPerSecond += rate.diskBytesPerSecond;

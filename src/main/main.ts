@@ -1,4 +1,4 @@
-import { app, globalShortcut, shell } from "electron";
+import { app, dialog, globalShortcut, shell } from "electron";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { cpus, release as osRelease } from "node:os";
@@ -43,6 +43,9 @@ import { prepareFirstRunImportTestUserData } from "./first-run-import-test.js";
 import { StartupPerformanceTracker, StartupViewCacheStore } from "./startup-state-service.js";
 import { StartupExecutableResolver } from "./startup-executable.js";
 
+import { ConfigBackupService } from "./config-backup.js";
+import { feedbackUrl } from "./feedback.js";
+
 const isDev = process.env.VITE_DEV_SERVER_URL !== undefined;
 const appRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const rendererUrl = process.env.VITE_DEV_SERVER_URL;
@@ -58,6 +61,17 @@ const startEngineerUserData = smokeMode
   ? join(app.getPath("temp"), `start-engineer-smoke-${process.pid}`)
   : prepareFirstRunImportTestUserData(normalStartEngineerUserData, !app.isPackaged);
 app.setPath("userData", startEngineerUserData);
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) { app.quit(); process.exit(0); }
+const buildId = (() => { try { return JSON.parse(readFileSync(join(appRoot, "dist-electron/build-info.json"), "utf8")).buildId as string; } catch { return app.getVersion(); } })();
+const configBackups = new ConfigBackupService(startEngineerUserData, app.getVersion());
+let smokeReady = false;
+try { configBackups.initialize(buildId); }
+catch (error) {
+  dialog.showErrorBox("配置保护失败", "配置备份或恢复未完成，为避免覆盖原配置，本次启动已停止。\n" + String(error));
+  app.exit(1);
+  process.exit(1);
+}
 const configPath = () => join(app.getPath("userData"), "apps.json");
 const groupsPath = () => join(app.getPath("userData"), "groups.json");
 const foldersPath = () => join(app.getPath("userData"), "folders.json");
@@ -206,7 +220,6 @@ appWindowService = new AppWindowService({
   preloadPath,
   appIconPath,
   trayIconPath,
-  smokeMode,
   loadPreferences,
   savePreferences,
   quit: () => app.quit()
@@ -289,6 +302,7 @@ function registerIpc() {
   registerAppInfoIpc({
     getAppInfo: () => ({
       version: app.getVersion(),
+      buildId,
       electronVersion: process.versions.electron ?? "unknown",
       chromeVersion: process.versions.chrome ?? "unknown",
       nodeVersion: process.versions.node,
@@ -306,9 +320,27 @@ function registerIpc() {
       if (error) throw new Error(error);
     },
     openProjectHomepage: async () => { await shell.openExternal(repositoryUrl); },
+    openFeedback: async () => { await shell.openExternal(feedbackUrl({ version: app.getVersion(), buildId, systemVersion: osRelease(), arch: process.arch, isPackaged: app.isPackaged } as import("../shared/types.js").AppInfo)); },
+    listConfigBackups: () => configBackups.list(),
+    createConfigBackup: () => configBackups.create(),
+    restoreConfigBackup: async (id) => {
+      if (typeof id !== "string" || !configBackups.list().some((item) => item.id === id)) throw new Error("未找到有效备份");
+      const result = await dialog.showMessageBox({ type: "warning", title: "恢复配置", message: "恢复这份配置并退出 Start Engineer？", detail: "应用列表、分组、排列和外观将被替换。恢复前会自动备份当前配置；下次打开时生效，不会关闭你正在使用的其他应用。", buttons: ["取消", "恢复并退出"], defaultId: 0, cancelId: 0 });
+      if (result.response !== 1) return false;
+      configBackups.prepareRestore(id);
+      app.quit();
+      return true;
+    },
     getStartupViewCache: () => startupViewCache.load(),
     saveStartupViewCache: (cache) => startupViewCache.save(cache),
-    markStartupPerformance: (name) => startupPerformance.mark(name)
+    markStartupPerformance: (name) => {
+      startupPerformance.mark(name);
+      if (smokeMode && !smokeReady && name === "renderer-mounted") {
+        smokeReady = true;
+        console.log("STAR_ENGINEER_SMOKE_READY");
+        setTimeout(() => app.quit(), 1000);
+      }
+    }
   });
   registerLibraryIpc({
     apps: appService,
@@ -365,7 +397,6 @@ function registerIpc() {
 
 }
 
-const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
   app.quit();
 } else {

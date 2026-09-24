@@ -1,3 +1,4 @@
+import { SupportSettings } from "./support-settings";
 import { useState, type KeyboardEvent, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
 import type { AppGroup, AppPreferencesState, StartEngineerApi, UpdatePreferencesInput } from "../shared/types";
@@ -70,6 +71,7 @@ export function SettingsPage({ client, apps, groups, preferences, onPreferencesC
         <SearchDependencySettings onPreferencesResolved={setPreferences} />
       </SettingsCollapsibleSection>
 
+      <SupportSettings client={client} />
       <footer className="settings-footer"><button type="button" className="settings-about-trigger" aria-haspopup="dialog" onClick={() => setAboutDialogOpen(true)}>关于 Start Engineer</button></footer>
     </div>;
 

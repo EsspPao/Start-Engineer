@@ -15,3 +15,9 @@ export function isAssociatedProcess(app: AppEntry, process: { name: string; path
   if (directory === win32.parse(directory).root) return false;
   return win32.normalize(process.path).toLowerCase().startsWith(`${directory}\\`);
 }
+
+/** Background SDK cleanup alone is not evidence that the game is still running. */
+export function contributesToRunningStatus(app: AppEntry, process: { name: string; path?: string }) {
+  if (normalizeProcessName(app.executablePath) !== "wuthering waves") return true;
+  return normalizeProcessName(process.name) !== "krsdkexternal";
+}

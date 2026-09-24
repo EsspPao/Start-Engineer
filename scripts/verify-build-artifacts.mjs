@@ -1,4 +1,5 @@
-import { existsSync, readdirSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -41,3 +42,11 @@ if (forbiddenFiles.length > 0) {
 
 const sourceMaps = files.filter((path) => extname(path).toLowerCase() === ".map");
 console.log(`Verified ${files.length} build files; no test artifacts found (${sourceMaps.length} source maps).`);
+
+collectFiles(resolve(projectRoot, "dist-native"));
+const digest = createHash("sha256");
+for (const path of files.filter((path) => !path.endsWith("build-info.json")).sort()) {
+  digest.update(relative(projectRoot, path).replaceAll("\\", "/"));
+  digest.update(readFileSync(path));
+}
+writeFileSync(resolve(projectRoot, "dist-electron/build-info.json"), JSON.stringify({ buildId: digest.digest("hex").slice(0, 16) }));

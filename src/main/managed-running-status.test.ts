@@ -39,3 +39,8 @@ describe("managed running status", () => {
     ]);
   });
 });
+
+it("does not count a remaining Wuthering SDK process as the game running", () => {
+  const game = { id: "wuthering", name: "Wuthering Waves", processName: "Wuthering Waves", executablePath: "E:\\Game\\Wuthering Waves.exe", category: "游戏", groupId: "games", accent: "#fff", associatedPids: [20] };
+  expect(buildManagedRunningStatus([game], [{ pid: 20, name: "KRSDKExternal", path: "E:\\Game\\Client\\KRSDKExternal.exe" }])[0]).toEqual({ appId: "wuthering", isRunning: false, pids: [20] });
+});

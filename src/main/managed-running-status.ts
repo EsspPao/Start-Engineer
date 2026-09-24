@@ -1,6 +1,6 @@
 import { basename, extname } from "node:path";
 import type { AppEntry, AppRunningStatus } from "../shared/types.js";
-import { isAssociatedProcess } from "./process-identity.js";
+import { contributesToRunningStatus, isAssociatedProcess } from "./process-identity.js";
 
 export type TasklistProcessRow = {
   name: string;
@@ -72,6 +72,6 @@ export function buildManagedRunningStatus(apps: AppEntry[], rows: TasklistProces
       const process = pid ? processesByPid.get(pid) : undefined;
       if (pid && process && isAssociatedProcess(app, process)) pids.add(pid);
     }
-    return { appId: app.id, isRunning: pids.size > 0, pids: [...pids].sort((a, b) => a - b) };
+    return { appId: app.id, isRunning: [...pids].some((pid) => contributesToRunningStatus(app, processesByPid.get(pid)!)), pids: [...pids].sort((a, b) => a - b) };
   });
 }

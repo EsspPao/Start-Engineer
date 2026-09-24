@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { atomicWrite } from "./config-backup.js";
+import { existsSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { dirname } from "node:path";
 
 export type JsonConfigStoreOptions<T> = {
@@ -28,7 +29,7 @@ export class JsonConfigStore<T> {
     const normalized = this.options.normalize(value);
     const path = this.options.path();
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, JSON.stringify(this.options.serialize?.(normalized) ?? normalized, null, 2), "utf8");
+    atomicWrite(path, JSON.stringify(this.options.serialize?.(normalized) ?? normalized, null, 2));
     this.cache = normalized;
     return normalized;
   }

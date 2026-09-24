@@ -272,3 +272,14 @@ describe("RuntimeMonitor", () => {
     expect(monitor.sampleCount).toBe(0);
   });
 });
+
+it("stops the Wuthering Waves indicator when only its SDK cleanup process remains", async () => {
+  const game = { ...app, name: "Wuthering Waves", processName: "Wuthering Waves", executablePath: "E:\\Game\\Wuthering Waves.exe", associatedPids: [20, 30] };
+  let rows = [process({ pid: 20, name: "Client-Win64-Shipping", path: "E:\\Game\\Client\\Client-Win64-Shipping.exe" }), process({ pid: 30, name: "KRSDKExternal", path: "E:\\Game\\Client\\KRSDKExternal.exe" })];
+  const monitor = new RuntimeMonitor({ collect: async () => rows, loadApps: () => [game], resolveIcon: async () => "", getTerminationBlockReason: () => undefined, processorCount: 2 });
+  expect((await monitor.getSnapshot("managed", true)).metrics[0].isRunning).toBe(true);
+  rows = rows.slice(1);
+  const result = (await monitor.getSnapshot("managed", true)).metrics[0];
+  expect(result.isRunning).toBe(false);
+  expect(result.pids).toEqual([30]);
+});

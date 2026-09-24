@@ -14,7 +14,6 @@ type AppWindowServiceOptions = {
   preloadPath: string;
   appIconPath: () => string;
   trayIconPath: () => string;
-  smokeMode: boolean;
   loadPreferences: () => AppPreferences;
   savePreferences: (preferences: AppPreferences) => AppPreferences | void;
   quit: () => void;
@@ -158,12 +157,6 @@ export class AppWindowService {
     if (this.options.isDev && this.options.rendererUrl) void this.mainWindow.loadURL(this.options.rendererUrl);
     else void this.mainWindow.loadFile(this.options.rendererIndex);
 
-    if (this.options.smokeMode) {
-      this.mainWindow.webContents.once("did-finish-load", () => {
-        console.log("STAR_ENGINEER_SMOKE_READY");
-        setTimeout(() => this.options.quit(), 100);
-      });
-    }
   }
 
   private scheduleSaveBounds() {

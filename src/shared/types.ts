@@ -389,7 +389,10 @@ export type AddDroppedExecutablesResult = {
   skippedPaths: string[];
 };
 
+export type ConfigBackupSummary = { id: string; createdAt: string; version: string; reason: string; appCount: number };
+
 export type AppInfo = {
+  buildId?: string;
   version: string;
   electronVersion: string;
   chromeVersion: string;
@@ -406,6 +409,10 @@ export type AppInfo = {
 
 export type StartEngineerApi = {
   getAppInfo: () => Promise<AppInfo>;
+  openFeedback: () => Promise<void>;
+  listConfigBackups: () => Promise<ConfigBackupSummary[]>;
+  createConfigBackup: () => Promise<ConfigBackupSummary>;
+  restoreConfigBackup: (id: string) => Promise<boolean>;
   getStartupViewCache: () => Promise<StartupViewCache | null>;
   saveStartupViewCache: (cache: StartupViewCache) => Promise<void>;
   markStartupPerformance: (name: string) => Promise<void>;
